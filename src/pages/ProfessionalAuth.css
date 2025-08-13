@@ -1,0 +1,149 @@
+.auth-container {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  padding: 20px;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+}
+
+.auth-card {
+  background: white;
+  border-radius: 20px;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.1);
+  overflow: hidden;
+  width: 100%;
+  max-width: 500px;
+}
+
+.auth-form {
+  padding: 40px 35px;
+}
+
+.form-header {
+  text-align: center;
+  margin-bottom: 35px;
+}
+
+.form-header h2 {
+  margin: 0 0 12px 0;
+  font-size: 28px;
+  font-weight: 700;
+  color: #2d3436;
+}
+
+.form-header p {
+  margin: 0;
+  font-size: 16px;
+  color: #636e72;
+}
+
+.form-group {
+  margin-bottom: 25px;
+}
+
+.form-group input {
+  width: 100%;
+  padding: 15px;
+  border: 2px solid #ddd;
+  border-radius: 10px;
+  font-size: 16px;
+  transition: all 0.3s ease;
+  box-sizing: border-box;
+}
+
+.form-group input:focus {
+  outline: none;
+  border-color: #6c5ce7;
+  box-shadow: 0 0 0 3px rgba(108, 92, 231, 0.1);
+}
+
+.auth-button {
+  width: 100%;
+  padding: 18px;
+  background: linear-gradient(135deg, #6c5ce7 0%, #a29bfe 100%);
+  color: white;
+  border: none;
+  border-radius: 12px;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.auth-button:hover:not(:disabled) {
+  transform: translateY(-2px);
+  box-shadow: 0 10px 25px rgba(108, 92, 231, 0.3);
+}
+
+.auth-button:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+.otp-input {
+  text-align: center;
+  font-size: 24px;
+  font-weight: 600;
+  letter-spacing: 8px;
+  font-family: 'Courier New', monospace;
+}
+
+.otp-timer {
+  text-align: center;
+  color: #f39c12;
+  font-weight: 600;
+  margin-bottom: 20px;
+}
+
+.otp-actions {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+}
+
+.resend-otp-btn {
+  background: none;
+  border: 2px solid #e5e7eb;
+  color: #6b7280;
+  padding: 12px 20px;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: all 0.3s ease;
+}
+
+.resend-otp-btn:not(.disabled):hover {
+  border-color: #6c5ce7;
+  color: #6c5ce7;
+}
+
+.resend-otp-btn.disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.change-email-btn {
+  background: none;
+  border: none;
+  color: #0ea5e9;
+  text-decoration: underline;
+  cursor: pointer;
+  font-size: 13px;
+  margin-top: 10px;
+}
+
+@media (max-width: 600px) {
+  .auth-container {
+    padding: 15px;
+  }
+  
+  .auth-form {
+    padding: 30px 25px;
+  }
+  
+  .otp-input {
+    font-size: 20px;
+    letter-spacing: 4px;
+  }
+}
