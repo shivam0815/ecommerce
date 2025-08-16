@@ -32,7 +32,7 @@ const PromoSlider: React.FC = () => {
       buttonText: "Shop TWS Now",
       buttonLink: "/products?category=true-wireless-stereo",
       backgroundGradient: "from-purple-600 via-blue-600 to-teal-500",
-      image: "../CR18.png",
+      image: "/CR18.png",
       badge: "New Launch",
       price: {
         original: 4999,
@@ -49,7 +49,7 @@ const PromoSlider: React.FC = () => {
       buttonText: "Explore Chargers",
       buttonLink: "/products?category=mobile-charger",
       backgroundGradient: "from-sky-400 via-blue-500 to-cyan-600",
-      image: "../charger.png",
+      image: "/charger.png",
       badge: "Hot Deal",
       price: {
         original: 1999,
@@ -66,7 +66,7 @@ const PromoSlider: React.FC = () => {
       buttonText: "View Tools",
       buttonLink: "/products?category=mobile-repairing-tools",
       backgroundGradient: "from-gray-700 via-blue-800 to-indigo-900",
-      image: "../mix1.png",
+      image: "/mix1.png",
       badge: "Professional",
       price: {
         original: 2999,
@@ -83,7 +83,7 @@ const PromoSlider: React.FC = () => {
       buttonText: "Shop Car Gear",
       buttonLink: "/products?category=car-charger",
       backgroundGradient: "from-green-600 via-teal-600 to-blue-600",
-      image: "../cd22.png",
+      image: "/cd22.png",
       badge: "Trending",
       price: {
         original: 1499,

@@ -227,7 +227,7 @@ const Home: React.FC = () => {
             >
               <div className="relative z-10">
                 <img
-                  src="mix1.png"
+                  src="/mix1.png"
                   alt="Mobile Accessories"
                   className="rounded-lg shadow-2xl"
                 />
