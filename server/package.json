@@ -4,13 +4,16 @@
   "description": "Backend API for Nakoda Mobile E-commerce",
   "main": "dist/server.js",
   "scripts": {
-    "dev": "nodemon src/server.ts",
+    "dev": "ts-node-dev --respawn --transpile-only src/server.ts",
     "build": "tsc",
-    "start": "node dist/server.js",
+    "start": "node -r tsconfig-paths/register dist/server.js",
     "test": "echo \"Error: no test specified\" && exit 1",
     "fix-images": "ts-node src/scripts/fixImagePaths.ts",
     "add-test-image": "ts-node src/scripts/addTestImage.ts",
     "add-image-to-product": "ts-node src/scripts/addImageToProduct.ts"
+  },
+  "engines": {
+    "node": ">=18"
   },
   "dependencies": {
     "@types/qrcode": "^1.5.5",
@@ -43,6 +46,7 @@
     "socket.io": "^4.8.1",
     "speakeasy": "^2.0.0",
     "stripe": "^14.25.0",
+    "tsconfig-paths": "^4.2.0",
     "uuid": "^9.0.1",
     "validator": "^13.11.0"
   },
