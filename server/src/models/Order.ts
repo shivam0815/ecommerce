@@ -259,20 +259,27 @@ orderSchema.methods.updateStatus = function(newStatus: string, updateDate: boole
   return this.save();
 };
 
-orderSchema.methods.updatePaymentStatus = function(newPaymentStatus: string) {
+// ✅ Replace the whole method with this
+orderSchema.methods.updatePaymentStatus = function (newPaymentStatus: string) {
   this.paymentStatus = newPaymentStatus;
-  
+
   if (newPaymentStatus === 'paid' || newPaymentStatus === 'cod_paid') {
     this.paidAt = new Date();
+
+    // ⛔ Do NOT auto-confirm here.
+    // Professional ecommerce keeps the order in 'pending' (or 'processing')
+    // until an admin (or automated OMS rule) confirms inventory & risk checks.
     if (this.status === 'pending') {
-      this.status = 'confirmed';
-      this.orderStatus = 'confirmed';
+      // optional: move to 'processing' to indicate "paid, awaiting confirmation"
+      this.status = 'processing';
+      this.orderStatus = 'processing';
     }
   }
-  
+
   this.updatedAt = new Date();
   return this.save();
 };
+
 
 // ✅ ENHANCED: Static methods
 orderSchema.statics.findByOrderNumber = function(orderNumber: string) {
@@ -289,5 +296,21 @@ orderSchema.statics.getUserOrders = function(userId: string, limit: number = 20)
     .limit(limit)
     .populate('items.productId');
 };
+
+
+// ✅ Add this helper under your other instance methods
+// orderSchema.methods.adminConfirm = function (meta: { adminId: string; trackingNumber?: string; carrierName?: string; trackingUrl?: string } = {}) {
+//   this.status = 'confirmed';
+//   this.orderStatus = 'confirmed';
+
+//   if (meta.trackingNumber) this.trackingNumber = meta.trackingNumber.toUpperCase();
+//   if (meta.carrierName) this.carrierName = meta.carrierName;
+//   if (meta.trackingUrl) this.trackingUrl = meta.trackingUrl;
+
+//   this.updatedAt = new Date();
+//   return this.save();
+// };
+
+
 
 export default mongoose.model<IOrder>('Order', orderSchema);

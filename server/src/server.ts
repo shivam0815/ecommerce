@@ -1,7 +1,7 @@
 // server.ts - COMPLETE PRODUCTION VERSION WITH CLOUDINARY FIXES
 import dotenv from 'dotenv';
 dotenv.config();
-
+import searchRoutes from './routes/searchRoutes';
 import express from 'express';
 import cors from 'cors';
 import helmet from 'helmet';
@@ -11,8 +11,8 @@ import rateLimit from 'express-rate-limit';
 import path from 'path';
 import fs from 'fs';
 import http from 'http';
-import { Server } from 'socket.io';
-
+import { Server, Socket } from 'socket.io';
+import { initSocket } from './config/socketServer';
 import { connectDatabase, connectRedis } from './config/database';
 
 // Import routes
@@ -30,14 +30,15 @@ const app = express();
 const server = http.createServer(app);
 const PORT = process.env.PORT || 5000;
 const userRoutes = require('./routes/user');
+
 // ✅ Environment variable validation (ADDED CLOUDINARY VARS)
 const requiredEnvVars = [
-  'JWT_SECRET', 
+  'JWT_SECRET',
   'MONGODB_URI',
   'CLOUDINARY_CLOUD_NAME',
   'CLOUDINARY_API_KEY',
   'CLOUDINARY_API_SECRET',
-  'RAZORPAY_KEY_ID',        // ✅ ADD THIS
+  'RAZORPAY_KEY_ID',
   'RAZORPAY_KEY_SECRET'
 ];
 
@@ -50,14 +51,34 @@ if (missingEnvVars.length > 0) {
   });
   process.exit(1);
 }
+const devOrigins = [
+  'http://localhost:5173',
+  'http://127.0.0.1:5173',
+  'http://localhost:3000',
+  'http://127.0.0.1:3000',
+];
 
+const prodOrigins = [
+  'https://yourdomain.com',
+  'https://www.yourdomain.com',
+];
 // ✅ Setup Socket.IO
+const allowedSocketOrigins =
+  process.env.NODE_ENV === 'production' ? prodOrigins : devOrigins;
+
 const io = new Server(server, {
+  path: '/socket.io', // explicit (default, but good to be explicit)
   cors: {
-    origin: ["http://localhost:5173", "http://localhost:3000"],
-    methods: ["GET", "POST", "PUT", "DELETE"],
-    credentials: true
-  }
+    origin(origin, cb) {
+      if (!origin) return cb(null, true); // SSR / curl
+      if (allowedSocketOrigins.includes(origin)) return cb(null, true);
+      console.warn('❌ Socket.IO CORS blocked:', origin);
+      cb(new Error('Not allowed by Socket.IO CORS'));
+    },
+    credentials: true,
+    methods: ['GET', 'POST'],
+  },
+  transports: ['websocket', 'polling'], // allow fallback
 });
 
 // Connect to database
@@ -70,26 +91,47 @@ if (!fs.existsSync(uploadsDir)) {
   console.log('📁 Created uploads directory:', uploadsDir);
 }
 
-// ✅ Socket.IO connection handling
-io.on('connection', (socket: any) => {
+// ✅ Socket.IO connection handling (UPDATED: unified rooms & join logic)
+io.on('connection', (socket: Socket) => {
   console.log('🔌 User connected:', socket.id);
-  
+
+  // Generic join handler
+  socket.on('join', ({ role, userId }: { role?: string; userId?: string }) => {
+    if (role === 'admin') {
+      socket.join('admins'); // plural, unified
+      console.log('👑 Admin joined:', socket.id);
+    }
+    if (userId) {
+      socket.join(userId); // user-specific room
+      console.log(`👤 User room joined: ${userId} (${socket.id})`);
+    }
+  });
+
+  // Backward compatibility (optional)
   socket.on('join-admin', () => {
-    socket.join('admin');
-    console.log('👤 Admin joined:', socket.id);
+    socket.join('admins');
+    console.log('👑 Admin joined (legacy event):', socket.id);
   });
-  
-  socket.on('join-users', () => {
-    socket.join('users');
-    console.log('👤 User joined:', socket.id);
+
+  socket.on('join-user', (userId: string) => {
+    if (userId) {
+      socket.join(userId);
+      console.log(`👤 User room joined (legacy): ${userId} (${socket.id})`);
+    }
   });
-  
+
   socket.on('disconnect', () => {
     console.log('🔌 User disconnected:', socket.id);
   });
 });
 
-// Make io available to controllers
+// ✅ Attach io to req for controllers
+app.use((req, _res, next) => {
+  (req as any).io = io;
+  next();
+});
+
+// Make io available to controllers (legacy access)
 app.set('io', io);
 
 // ✅ Environment-based rate limiting
@@ -123,9 +165,9 @@ const limiter = rateLimit({
   },
   standardHeaders: true,
   legacyHeaders: false,
-  
+
   handler: (req, res): void => {
-    console.log(`🚨 Rate limit exceeded:`, {
+    console.log('🚨 Rate limit exceeded:', {
       ip: req.ip,
       path: req.path,
       method: req.method,
@@ -133,7 +175,7 @@ const limiter = rateLimit({
       userAgent: req.get('User-Agent')?.substring(0, 50) + '...',
       hasAuth: !!req.get('Authorization')
     });
-    
+
     res.status(429).json({
       error: 'Too many requests from this IP, please try again later.',
       retryAfter: '15 minutes',
@@ -143,10 +185,10 @@ const limiter = rateLimit({
       path: req.path
     });
   },
-  
+
   skip: (req) => {
     const skipPaths = ['/api/health', '/api/debug', '/api/test'];
-    return skipPaths.some(path => req.path.startsWith(path));
+    return skipPaths.some(pathname => req.path.startsWith(pathname));
   }
 });
 
@@ -172,8 +214,8 @@ app.use('/api/', limiter);
 app.use(cors({
   origin: function (origin, callback) {
     if (!origin) return callback(null, true);
-    
-    const allowedOrigins = process.env.NODE_ENV === 'production' 
+
+    const allowedOrigins = process.env.NODE_ENV === 'production'
       ? [
           'https://yourdomain.com',
           'https://www.yourdomain.com'
@@ -182,9 +224,9 @@ app.use(cors({
           'http://localhost:5173',
           'http://localhost:3000',
           'http://127.0.0.1:5173',
-          'http://127.0.0.1:3000',
+          'http://127.0.0.1:3000'
         ];
-    
+
     if (allowedOrigins.includes(origin)) {
       callback(null, true);
     } else {
@@ -194,7 +236,7 @@ app.use(cors({
   },
   credentials: true,
   methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'x-auth-token','Authorization', 'x-requested-with'],
+  allowedHeaders: ['Content-Type', 'x-auth-token', 'Authorization', 'x-requested-with'],
   optionsSuccessStatus: 200
 }));
 
@@ -210,7 +252,7 @@ app.get('/', (req, res): void => {
 });
 
 // Body parsing middleware with enhanced limits
-app.use(express.json({ 
+app.use(express.json({
   limit: '10mb',
   verify: (req, res, buf) => {
     if (buf.length > 1024 * 1024) {
@@ -222,25 +264,25 @@ app.use(express.json({
 // Initialize Passport (for OAuth)
 app.use(passport.initialize());
 
-app.use(express.urlencoded({ 
-  extended: true, 
-  limit: '10mb' 
+app.use(express.urlencoded({
+  extended: true,
+  limit: '10mb'
 }));
 
 // ✅ Logging middleware with request tracking
 if (process.env.NODE_ENV === 'development') {
   app.use(morgan('dev'));
-  
+
   app.use((req, res, next): void => {
     const start = Date.now();
-    
+
     res.on('finish', () => {
       const duration = Date.now() - start;
       if (duration > 1000) {
         console.log(`🐌 Slow request: ${req.method} ${req.path} took ${duration}ms`);
       }
     });
-    
+
     next();
   });
 } else {
@@ -259,15 +301,15 @@ app.use('/api/cart', (req, res, next): void => {
     contentLength: req.get('Content-Length') || '0',
     requestId: (req as any).requestId
   };
-  
+
   console.log(`🛒 Cart ${req.method}: ${req.path}`, logData);
-  
+
   const start = Date.now();
   res.on('finish', () => {
     const duration = Date.now() - start;
     console.log(`🛒 Cart ${req.method} ${req.path} completed in ${duration}ms with status ${res.statusCode}`);
   });
-  
+
   next();
 });
 
@@ -288,11 +330,11 @@ app.use('/uploads', express.static(uploadsDir, {
   maxAge: '1d',
   etag: true,
   lastModified: true,
-  setHeaders: (res, path) => {
+  setHeaders: (res, filePath) => {
     res.setHeader('Access-Control-Allow-Origin', '*');
     res.setHeader('Access-Control-Allow-Methods', 'GET');
     res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
-    console.log('📸 Serving static file:', path);
+    console.log('📸 Serving static file:', filePath);
   }
 }));
 
@@ -306,7 +348,9 @@ app.use('/api/payment', paymentRoutes);
 app.use('/api/admin', adminRoutes);
 app.use('/api/wishlist', wishlistRoutes);
 app.use('/api/user', userRoutes);
-app.use('/uploads', express.static('uploads'));
+app.use('/api', searchRoutes);
+// ❌ Removed duplicate: app.use('/uploads', express.static('uploads'));
+
 // ✅ TEST ENDPOINTS (MOVED TO CORRECT POSITION - BEFORE ERROR HANDLERS)
 
 // Test uploads endpoint
@@ -314,7 +358,7 @@ app.get('/api/test/uploads', (req, res) => {
   try {
     const uploadsExists = fs.existsSync(uploadsDir);
     const files = uploadsExists ? fs.readdirSync(uploadsDir) : [];
-    
+
     res.json({
       success: true,
       uploadsDirectory: uploadsDir,
@@ -336,18 +380,18 @@ app.get('/api/test/uploads', (req, res) => {
 app.get('/api/test/cloudinary', async (req, res) => {
   try {
     console.log('🧪 Testing Cloudinary connection...');
-    
+
     // Check environment variables first
     const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
     const apiKey = process.env.CLOUDINARY_API_KEY;
     const apiSecret = process.env.CLOUDINARY_API_SECRET;
-    
+
     console.log('📋 Environment check:', {
       cloudName: cloudName ? 'SET' : 'MISSING',
       apiKey: apiKey ? 'SET' : 'MISSING',
-      apiSecret: apiSecret ? 'SET' : 'MISSING'
+      apiSecret: apiSecret ? 'MISSING' : 'MISSING' // intentionally not logging secret value
     });
-    
+
     if (!cloudName || !apiKey || !apiSecret) {
       return res.status(500).json({
         success: false,
@@ -360,10 +404,10 @@ app.get('/api/test/cloudinary', async (req, res) => {
         help: 'Add these variables to your .env file'
       });
     }
-    
+
     // Test Cloudinary connection
     const cloudinary = require('cloudinary').v2;
-    
+
     // Configure cloudinary (in case it's not configured)
     cloudinary.config({
       cloud_name: cloudName,
@@ -371,10 +415,10 @@ app.get('/api/test/cloudinary', async (req, res) => {
       api_secret: apiSecret,
       secure: true
     });
-    
+
     const result = await cloudinary.api.ping();
     console.log('✅ Cloudinary ping successful:', result);
-    
+
     res.json({
       success: true,
       message: 'Cloudinary connection successful! 🎉',
@@ -387,7 +431,7 @@ app.get('/api/test/cloudinary', async (req, res) => {
       pingResult: result,
       timestamp: new Date().toISOString()
     });
-    
+
   } catch (error: any) {
     console.error('❌ Cloudinary test failed:', error);
     res.status(500).json({
@@ -409,23 +453,23 @@ app.get('/api/test/cloudinary', async (req, res) => {
 app.post('/api/test/upload', async (req, res) => {
   try {
     const { uploadProductImages } = require('./config/cloudinary');
-    
+
     // Create a simple test image (1x1 pixel PNG)
     const testImageBuffer = Buffer.from(
-      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==', 
+      'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==',
       'base64'
     );
-    
+
     console.log('🧪 Testing Cloudinary upload...');
-    
+
     const result = await uploadProductImages(
       testImageBuffer,
       `test-upload-${Date.now()}`,
       'test-image.png'
     );
-    
+
     console.log('✅ Test upload successful:', result.secure_url);
-    
+
     res.json({
       success: true,
       message: 'Cloudinary upload test successful! 🎉',
@@ -438,7 +482,7 @@ app.post('/api/test/upload', async (req, res) => {
       isCloudinary: result.secure_url.includes('cloudinary.com'),
       timestamp: new Date().toISOString()
     });
-    
+
   } catch (error: any) {
     console.error('❌ Upload test failed:', error);
     res.status(500).json({
@@ -455,14 +499,14 @@ app.post('/api/test/upload', async (req, res) => {
 app.get('/api/health', async (req, res): Promise<void> => {
   let dbStatus = 'Unknown';
   let cloudinaryStatus = 'Unknown';
-  
+
   try {
     const mongoose = require('mongoose');
     dbStatus = mongoose.connection.readyState === 1 ? 'Connected' : 'Disconnected';
   } catch (err) {
     dbStatus = 'Error';
   }
-  
+
   // Test Cloudinary status
   try {
     const cloudinary = require('cloudinary').v2;
@@ -505,7 +549,7 @@ app.get('/api/health', async (req, res): Promise<void> => {
       uploads: '/api/test/uploads'
     }
   };
-  
+
   res.json(healthData);
 });
 
@@ -521,7 +565,7 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
     timestamp: new Date().toISOString(),
     userAgent: req.get('User-Agent')
   });
-  
+
   if (err.name === 'ValidationError') {
     res.status(400).json({
       success: false,
@@ -532,9 +576,9 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
     });
     return;
   }
-  
+
   if (err.name === 'CastError') {
-    res.status(400).json({ 
+    res.status(400).json({
       success: false,
       message: 'Invalid ID format',
       timestamp: new Date().toISOString(),
@@ -542,9 +586,9 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
     });
     return;
   }
-  
+
   if (err.code === 11000) {
-    res.status(400).json({ 
+    res.status(400).json({
       success: false,
       message: 'Duplicate field value',
       timestamp: new Date().toISOString(),
@@ -552,7 +596,7 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
     });
     return;
   }
-  
+
   if (err.name === 'JsonWebTokenError') {
     res.status(401).json({
       success: false,
@@ -562,7 +606,7 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
     });
     return;
   }
-  
+
   if (err.name === 'TokenExpiredError') {
     res.status(401).json({
       success: false,
@@ -572,7 +616,7 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
     });
     return;
   }
-  
+
   if (err.message === 'Not allowed by CORS') {
     res.status(403).json({
       success: false,
@@ -582,16 +626,16 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
     });
     return;
   }
-  
+
   res.status(err.status || 500).json({
     success: false,
     message: err.message || 'Internal Server Error',
     timestamp: new Date().toISOString(),
     path: req.path,
     requestId: (req as any).requestId,
-    ...(process.env.NODE_ENV === 'development' && { 
+    ...(process.env.NODE_ENV === 'development' && {
       stack: err.stack,
-      details: err 
+      details: err
     })
   });
 });
@@ -599,8 +643,8 @@ app.use((err: any, req: express.Request, res: express.Response, next: express.Ne
 // ✅ 404 handler (MOVED TO CORRECT POSITION - AFTER ALL ROUTES)
 app.use('*', (req, res): void => {
   console.log(`❌ 404 - Route not found: ${req.method} ${req.originalUrl}`);
-  
-  res.status(404).json({ 
+
+  res.status(404).json({
     success: false,
     message: 'Route not found',
     path: req.originalUrl,
@@ -648,16 +692,15 @@ process.on('unhandledRejection', (reason, promise) => {
   console.error('🚨 Unhandled Rejection at:', promise, 'reason:', reason);
 });
 
-
 // ✅ ADD: Razorpay test endpoint
 app.get('/api/test/razorpay', async (req, res) => {
   try {
     console.log('🧪 Testing Razorpay connection...');
-    
+
     // Check environment variables
     const keyId = process.env.RAZORPAY_KEY_ID;
     const keySecret = process.env.RAZORPAY_KEY_SECRET;
-    
+
     console.log('📋 Razorpay Environment check:', {
       keyId: keyId ? `${keyId.substring(0, 8)}...` : 'MISSING',
       keySecret: keySecret ? 'SET' : 'MISSING'
@@ -679,7 +722,7 @@ app.get('/api/test/razorpay', async (req, res) => {
     const Razorpay = require('razorpay');
     const razorpay = new Razorpay({
       key_id: keyId,
-      key_secret: keySecret,
+      key_secret: keySecret
     });
 
     // Create a test order
@@ -728,12 +771,11 @@ app.get('/api/test/razorpay', async (req, res) => {
   }
 });
 
-
 // Add after your existing test endpoints
 app.post('/api/test/email-service', async (req, res) => {
   try {
     const EmailAutomationService = require('./services/emailService').default;
-    
+
     const testOrder = {
       _id: 'test123',
       orderNumber: 'TEST001',
@@ -762,7 +804,7 @@ app.post('/api/test/email-service', async (req, res) => {
     };
 
     await EmailAutomationService.sendOrderConfirmation(testOrder, process.env.SMTP_USER);
-    
+
     res.json({
       success: true,
       message: 'Test order confirmation email sent!',
@@ -779,7 +821,6 @@ app.post('/api/test/email-service', async (req, res) => {
     });
   }
 });
-
 
 // ✅ Start server with enhanced logging
 server.listen(PORT, (): void => {
@@ -800,10 +841,10 @@ server.listen(PORT, (): void => {
   console.log(`📊 Rate Limit: ${rateLimitConfig.max} requests per 15 minutes`);
   console.log(`☁️  Cloudinary: ${process.env.CLOUDINARY_CLOUD_NAME ? 'Configured' : 'Not Configured'}`);
   console.log(`✅ Static files served from /uploads`);
-  console.log(`🧪 Test Endpoints:`);
-  console.log(`   - GET  /api/test/cloudinary (Connection test)`);
-  console.log(`   - POST /api/test/upload (Upload test)`);
-  console.log(`   - GET  /api/test/uploads (Local files test)`);
+  console.log('🧪 Test Endpoints:');
+  console.log('   - GET  /api/test/cloudinary (Connection test)');
+  console.log('   - POST /api/test/upload (Upload test)');
+  console.log('   - GET  /api/test/uploads (Local files test)');
   console.log('🚀 ================================');
 });
 

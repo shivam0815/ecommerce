@@ -12,26 +12,57 @@ import {
   uploadProduct,
   updateProductStatus,
   sendAdminOtp,
-  verifyAdminOtp
+  verifyAdminOtp,
 } from '../controllers/adminController';
-import Product from '../models/Product'; // Add this import
+import Product from '../models/Product';
+import Return from '../models/Return';
+import Review from '../models/AdminReview';
+import Payment from '../models/Payment';
+import {
+  getAllOrders,
+  updateOrderStatus
+} from '../controllers/orderController';
+import { body, validationResult, query } from 'express-validator';
 
 const router = express.Router();
 
-// Public routes (no authentication required)
+// Validation middleware
+const handleValidationErrors = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ 
+      success: false,
+      error: 'Validation failed', 
+      details: errors.array() 
+    });
+  }
+  next();
+};
+
+// ===============================
+// 🔐 PUBLIC ROUTES (No Authentication)
+// ===============================
+
 router.post('/send-otp', rateLimitSensitive, sendAdminOtp);
 router.post('/verify-otp', rateLimitSensitive, verifyAdminOtp);
 router.post('/login', rateLimitSensitive, adminLogin);
 
-// ✅ EXISTING: Protected routes
+// ===============================
+// 📊 ADMIN STATS & DASHBOARD
+// ===============================
+
 router.get('/stats', 
   ...adminOnly, 
   getAdminStats as express.RequestHandler
 );
 
+// ===============================
+// 📦 PRODUCT MANAGEMENT
+// ===============================
+
+// Upload single/multiple products
 router.post('/products/upload',
   ...secureAdminOnly,
-  // Accept multiple images across common field names
   upload.fields([
     { name: 'productImage', maxCount: 10 },
     { name: 'images', maxCount: 10 },
@@ -42,13 +73,13 @@ router.post('/products/upload',
   uploadProduct as express.RequestHandler
 );
 
+// Update product status
 router.put('/products/:id/status',
   ...adminOnly,
   auditLog('product-status-update'),
   updateProductStatus as express.RequestHandler
 );
 
-// ✅ NEW: Inventory Management Routes
 // Get products with pagination and filters (for inventory management)
 router.get('/products', 
   ...adminOnly,
@@ -124,7 +155,7 @@ router.get('/products',
         success: true,
         products: products.map((product: any) => ({
           ...product,
-          stock: product.stockQuantity, // Map stockQuantity to stock for frontend
+          stock: product.stockQuantity,
           status: product.isActive ? 'active' : 'inactive'
         })),
         totalProducts,
@@ -347,5 +378,565 @@ router.post('/products/bulk-upload',
     }
   }
 );
+
+// ===============================
+// 🧾 ADMIN ORDER MANAGEMENT
+// ===============================
+
+// List orders with filters/pagination
+router.get('/orders',
+  ...adminOnly,
+  getAllOrders as express.RequestHandler
+);
+
+// Generic status change
+router.patch('/orders/:id/status',
+  ...adminOnly,
+  auditLog('order-status-update'),
+  updateOrderStatus as express.RequestHandler
+);
+
+// Convenience endpoints
+router.patch('/orders/:id/confirm',
+  ...adminOnly,
+  auditLog('order-confirm'),
+  (req, res, next) => {
+    req.body.status = 'confirmed';
+    return (updateOrderStatus as any)(req, res, next);
+  }
+);
+
+router.patch('/orders/:id/ship',
+  ...adminOnly,
+  auditLog('order-ship'),
+  (req, res, next) => {
+    req.body.status = 'shipped';
+    return (updateOrderStatus as any)(req, res, next);
+  }
+);
+
+router.patch('/orders/:id/deliver',
+  ...adminOnly,
+  auditLog('order-deliver'),
+  (req, res, next) => {
+    req.body.status = 'delivered';
+    return (updateOrderStatus as any)(req, res, next);
+  }
+);
+
+router.patch('/orders/:id/cancel',
+  ...adminOnly,
+  auditLog('order-cancel'),
+  (req, res, next) => {
+    req.body.status = 'cancelled';
+    req.body.notes = req.body.notes || 'Cancelled by admin';
+    return (updateOrderStatus as any)(req, res, next);
+  }
+);
+
+// ===============================
+// 🔄 ADMIN RETURNS MANAGEMENT
+// ===============================
+
+// GET /api/admin/returns - Get all returns with filtering
+router.get('/returns', [
+  ...adminOnly,
+  query('status').optional().isIn(['pending', 'approved', 'rejected', 'processed']),
+  query('page').optional().isInt({ min: 1 }),
+  query('limit').optional().isInt({ min: 1, max: 100 })
+], async (req: express.Request, res: express.Response): Promise<void> => {
+  try {
+    console.log('🔄 Admin: Fetching returns...');
+    
+    const { status, page = 1, limit = 20 } = req.query;
+    
+    let filter: any = {};
+    if (status && status !== 'all') {
+      filter.status = status;
+    }
+
+    const skip = (Number(page) - 1) * Number(limit);
+    
+    const [returns, total] = await Promise.all([
+      Return.find(filter)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(Number(limit)),
+      Return.countDocuments(filter)
+    ]);
+
+    console.log(`✅ Admin: Found ${returns.length} returns`);
+
+    res.status(200).json({
+      success: true,
+      data: returns,
+      pagination: {
+        currentPage: Number(page),
+        totalPages: Math.ceil(total / Number(limit)),
+        totalItems: total,
+        hasNext: skip + returns.length < total,
+        hasPrev: Number(page) > 1
+      }
+    });
+  } catch (error: any) {
+    console.error('❌ Admin: Get returns error:', error);
+    res.status(500).json({ 
+      success: false,
+      error: 'Failed to fetch returns',
+      message: error.message
+    });
+  }
+});
+
+// GET /api/admin/returns/:id - Get specific return
+router.get('/returns/:id', 
+  ...adminOnly,
+  async (req: express.Request, res: express.Response): Promise<void> => {
+    try {
+      const returnItem = await Return.findById(req.params.id);
+      
+      if (!returnItem) {
+        res.status(404).json({ 
+          success: false,
+          error: 'Return not found' 
+        });
+        return;
+      }
+      
+      res.status(200).json({
+        success: true,
+        data: returnItem
+      });
+    } catch (error: any) {
+      console.error('❌ Admin: Get return error:', error);
+      res.status(500).json({ 
+        success: false,
+        error: 'Failed to fetch return',
+        message: error.message
+      });
+    }
+  }
+);
+
+// PUT /api/admin/returns/:id/status - Update return status
+router.put('/returns/:id/status', [
+  ...adminOnly,
+  auditLog('return-status-update'),
+  body('status').isIn(['pending', 'approved', 'rejected', 'processed'])
+], handleValidationErrors, async (req: express.Request, res: express.Response): Promise<void> => {
+  try {
+    console.log(`🔄 Admin: Updating return ${req.params.id} status to ${req.body.status}`);
+    
+    const { status } = req.body;
+    
+    const updatedReturn = await Return.findByIdAndUpdate(
+      req.params.id,
+      { status },
+      { new: true, runValidators: true }
+    );
+
+    if (!updatedReturn) {
+      res.status(404).json({ 
+        success: false,
+        error: 'Return not found' 
+      });
+      return;
+    }
+
+    console.log('✅ Admin: Return status updated successfully');
+
+    res.status(200).json({
+      success: true,
+      data: updatedReturn,
+      message: `Return status updated to ${status}`
+    });
+  } catch (error: any) {
+    console.error('❌ Admin: Update return status error:', error);
+    res.status(500).json({ 
+      success: false,
+      error: 'Failed to update return status',
+      message: error.message
+    });
+  }
+});
+
+// POST /api/admin/returns - Create new return
+router.post('/returns', [
+  ...adminOnly,
+  auditLog('return-create'),
+  body('productId').notEmpty().withMessage('Product ID is required'),
+  body('productName').notEmpty().withMessage('Product name is required'),
+  body('userId').notEmpty().withMessage('User ID is required'),
+  body('userName').notEmpty().withMessage('User name is required'),
+  body('userEmail').isEmail().withMessage('Valid email is required'),
+  body('returnReason').notEmpty().withMessage('Return reason is required'),
+  body('refundAmount').isNumeric().withMessage('Valid refund amount is required')
+], handleValidationErrors, async (req: express.Request, res: express.Response): Promise<void> => {
+  try {
+    console.log('🔄 Admin: Creating new return');
+    
+    const newReturn = new Return(req.body);
+    const savedReturn = await newReturn.save();
+    
+    console.log('✅ Admin: Return created successfully');
+    
+    res.status(201).json({
+      success: true,
+      data: savedReturn,
+      message: 'Return created successfully'
+    });
+  } catch (error: any) {
+    console.error('❌ Admin: Create return error:', error);
+    res.status(500).json({ 
+      success: false,
+      error: 'Failed to create return',
+      message: error.message
+    });
+  }
+});
+
+// ===============================
+// ⭐ ADMIN REVIEWS MANAGEMENT
+// ===============================
+
+// GET /api/admin/reviews - Get all reviews with filtering
+router.get('/reviews', [
+  ...adminOnly,
+  query('productId').optional().isString(),
+  query('verified').optional().isBoolean(),
+  query('rating').optional().isInt({ min: 1, max: 5 }),
+  query('page').optional().isInt({ min: 1 }),
+  query('limit').optional().isInt({ min: 1, max: 100 })
+], async (req: express.Request, res: express.Response): Promise<void> => {
+  try {
+    console.log('⭐ Admin: Fetching reviews...');
+    
+    const { productId, verified, rating, page = 1, limit = 20 } = req.query;
+    
+    let filter: any = {};
+    if (productId) filter.productId = productId;
+    if (verified !== undefined) filter.verified = verified === 'true';
+    if (rating) filter.rating = Number(rating);
+
+    const skip = (Number(page) - 1) * Number(limit);
+    
+    const [reviews, total] = await Promise.all([
+      Review.find(filter)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(Number(limit)),
+      Review.countDocuments(filter)
+    ]);
+
+    console.log(`✅ Admin: Found ${reviews.length} reviews`);
+
+    res.status(200).json({
+      success: true,
+      data: reviews,
+      pagination: {
+        currentPage: Number(page),
+        totalPages: Math.ceil(total / Number(limit)),
+        totalItems: total,
+        hasNext: skip + reviews.length < total,
+        hasPrev: Number(page) > 1
+      }
+    });
+  } catch (error: any) {
+    console.error('❌ Admin: Get reviews error:', error);
+    res.status(500).json({ 
+      success: false,
+      error: 'Failed to fetch reviews',
+      message: error.message
+    });
+  }
+});
+
+// PUT /api/admin/reviews/:id/verify - Toggle review verification
+router.put('/reviews/:id/verify', 
+  ...adminOnly,
+  auditLog('review-verify'),
+  async (req: express.Request, res: express.Response): Promise<void> => {
+    try {
+      console.log(`⭐ Admin: Toggling verification for review ${req.params.id}`);
+      
+      const review = await Review.findById(req.params.id);
+      
+      if (!review) {
+        res.status(404).json({ 
+          success: false,
+          error: 'Review not found' 
+        });
+        return;
+      }
+
+      review.verified = !review.verified;
+      const updatedReview = await review.save();
+      
+      console.log(`✅ Admin: Review ${updatedReview.verified ? 'verified' : 'unverified'}`);
+      
+      res.status(200).json({
+        success: true,
+        data: updatedReview,
+        message: `Review ${updatedReview.verified ? 'verified' : 'unverified'} successfully`
+      });
+    } catch (error: any) {
+      console.error('❌ Admin: Update review verification error:', error);
+      res.status(500).json({ 
+        success: false,
+        error: 'Failed to update review verification',
+        message: error.message
+      });
+    }
+  }
+);
+
+// DELETE /api/admin/reviews/:id - Delete review
+router.delete('/reviews/:id', 
+  ...secureAdminOnly,
+  auditLog('review-delete'),
+  async (req: express.Request, res: express.Response): Promise<void> => {
+    try {
+      console.log(`⭐ Admin: Deleting review ${req.params.id}`);
+      
+      const deletedReview = await Review.findByIdAndDelete(req.params.id);
+      
+      if (!deletedReview) {
+        res.status(404).json({ 
+          success: false,
+          error: 'Review not found' 
+        });
+        return;
+      }
+      
+      console.log('✅ Admin: Review deleted successfully');
+      
+      res.status(200).json({ 
+        success: true,
+        message: 'Review deleted successfully' 
+      });
+    } catch (error: any) {
+      console.error('❌ Admin: Delete review error:', error);
+      res.status(500).json({ 
+        success: false,
+        error: 'Failed to delete review',
+        message: error.message
+      });
+    }
+  }
+);
+
+// ===============================
+// 💳 ADMIN PAYMENTS MANAGEMENT
+// ===============================
+
+// GET /api/admin/payments - Get all payments with filtering
+router.get('/payments', [
+  ...adminOnly,
+  query('status').optional().isIn(['completed', 'pending', 'failed', 'refunded']),
+  query('dateFilter').optional().isIn(['today', 'weekly', 'monthly']),
+  query('page').optional().isInt({ min: 1 }),
+  query('limit').optional().isInt({ min: 1, max: 100 })
+], async (req: express.Request, res: express.Response): Promise<void> => {
+  try {
+    console.log('💳 Admin: Fetching payments...');
+    
+    const { status, dateFilter, page = 1, limit = 20 } = req.query;
+    
+    let filter: any = {};
+    
+    // Status filter
+    if (status && status !== 'all') {
+      filter.status = status;
+    }
+
+    // Date filter
+    if (dateFilter) {
+      const now = new Date();
+      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      
+      switch (dateFilter) {
+        case 'today':
+          filter.paymentDate = { $gte: today };
+          break;
+        case 'weekly':
+          const weekAgo = new Date(today);
+          weekAgo.setDate(today.getDate() - 7);
+          filter.paymentDate = { $gte: weekAgo };
+          break;
+        case 'monthly':
+          const monthAgo = new Date(today);
+          monthAgo.setMonth(today.getMonth() - 1);
+          filter.paymentDate = { $gte: monthAgo };
+          break;
+      }
+    }
+
+    const skip = (Number(page) - 1) * Number(limit);
+    
+    const [payments, total] = await Promise.all([
+      Payment.find(filter)
+        .sort({ paymentDate: -1 })
+        .skip(skip)
+        .limit(Number(limit)),
+      Payment.countDocuments(filter)
+    ]);
+
+    console.log(`✅ Admin: Found ${payments.length} payments`);
+
+    res.status(200).json({
+      success: true,
+      data: payments,
+      pagination: {
+        currentPage: Number(page),
+        totalPages: Math.ceil(total / Number(limit)),
+        totalItems: total,
+        hasNext: skip + payments.length < total,
+        hasPrev: Number(page) > 1
+      }
+    });
+  } catch (error: any) {
+    console.error('❌ Admin: Get payments error:', error);
+    res.status(500).json({ 
+      success: false,
+      error: 'Failed to fetch payments',
+      message: error.message
+    });
+  }
+});
+
+// GET /api/admin/payments/stats - Get payment statistics
+router.get('/payments/stats', [
+  ...adminOnly,
+  query('dateFilter').optional().isIn(['today', 'weekly', 'monthly'])
+], async (req: express.Request, res: express.Response): Promise<void> => {
+  try {
+    console.log('💳 Admin: Fetching payment statistics...');
+    
+    const { dateFilter } = req.query;
+    let filter: any = {};
+
+    // Apply date filter if specified
+    if (dateFilter) {
+      const now = new Date();
+      const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      
+      switch (dateFilter) {
+        case 'today':
+          filter.paymentDate = { $gte: today };
+          break;
+        case 'weekly':
+          const weekAgo = new Date(today);
+          weekAgo.setDate(today.getDate() - 7);
+          filter.paymentDate = { $gte: weekAgo };
+          break;
+        case 'monthly':
+          const monthAgo = new Date(today);
+          monthAgo.setMonth(today.getMonth() - 1);
+          filter.paymentDate = { $gte: monthAgo };
+          break;
+      }
+    }
+
+    const stats = await Payment.aggregate([
+      { $match: filter },
+      {
+        $group: {
+          _id: null,
+          totalRevenue: {
+            $sum: {
+              $cond: [{ $eq: ['$status', 'completed'] }, '$amount', 0]
+            }
+          },
+          totalTransactions: { $sum: 1 },
+          completedPayments: {
+            $sum: {
+              $cond: [{ $eq: ['$status', 'completed'] }, 1, 0]
+            }
+          },
+          failedPayments: {
+            $sum: {
+              $cond: [{ $eq: ['$status', 'failed'] }, 1, 0]
+            }
+          },
+          pendingPayments: {
+            $sum: {
+              $cond: [{ $eq: ['$status', 'pending'] }, 1, 0]
+            }
+          },
+          refundedPayments: {
+            $sum: {
+              $cond: [{ $eq: ['$status', 'refunded'] }, 1, 0]
+            }
+          }
+        }
+      }
+    ]);
+
+    const result = stats[0] || {
+      totalRevenue: 0,
+      totalTransactions: 0,
+      completedPayments: 0,
+      failedPayments: 0,
+      pendingPayments: 0,
+      refundedPayments: 0
+    };
+
+    console.log('✅ Admin: Payment statistics calculated');
+
+    res.status(200).json({
+      success: true,
+      data: result
+    });
+  } catch (error: any) {
+    console.error('❌ Admin: Get payment stats error:', error);
+    res.status(500).json({ 
+      success: false,
+      error: 'Failed to fetch payment stats',
+      message: error.message
+    });
+  }
+});
+
+// PUT /api/admin/payments/:id/status - Update payment status
+router.put('/payments/:id/status', [
+  ...adminOnly,
+  auditLog('payment-status-update'),
+  body('status').isIn(['completed', 'pending', 'failed', 'refunded'])
+], handleValidationErrors, async (req: express.Request, res: express.Response): Promise<void> => {
+  try {
+    console.log(`💳 Admin: Updating payment ${req.params.id} status to ${req.body.status}`);
+    
+    const { status } = req.body;
+    
+    const updatedPayment = await Payment.findByIdAndUpdate(
+      req.params.id,
+      { status },
+      { new: true, runValidators: true }
+    );
+
+    if (!updatedPayment) {
+      res.status(404).json({ 
+        success: false,
+        error: 'Payment not found' 
+      });
+      return;
+    }
+
+    console.log('✅ Admin: Payment status updated successfully');
+
+    res.status(200).json({
+      success: true,
+      data: updatedPayment,
+      message: `Payment status updated to ${status}`
+    });
+  } catch (error: any) {
+    console.error('❌ Admin: Update payment status error:', error);
+    res.status(500).json({ 
+      success: false,
+      error: 'Failed to update payment status',
+      message: error.message
+    });
+  }
+});
 
 export default router;

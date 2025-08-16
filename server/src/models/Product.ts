@@ -49,7 +49,7 @@ const productSchema = new Schema({
     type: String,
     required: [true, 'Category is required'],
     enum: {
-      values: ['TWS', 'Bluetooth Neckbands', 'Data Cables', 'Mobile Chargers', 'Mobile ICs', 'Mobile Repairing Tools', 'Electronics', 'Accessories', 'Other'],
+      values: ['TWS', 'Bluetooth Neckbands', 'Data Cables', 'Mobile Chargers', 'Mobile ICs', 'Mobile Repairing Tools', 'Electronics', 'Accessories','Car Charger', 'Bleutooth Speaker','Power Bank','Other'],
       message: '{VALUE} is not a valid category'
     }
   },
@@ -109,6 +109,16 @@ productSchema.index({ category: 1, price: 1 });
 productSchema.index({ rating: -1 });
 productSchema.index({ isActive: 1, inStock: 1, status: 1 });
 productSchema.index({ createdAt: -1 });
+
+
+
+
+
+
+
+
+
+
 
 productSchema.pre('save', function(next) {
   this.inStock = this.stockQuantity > 0;

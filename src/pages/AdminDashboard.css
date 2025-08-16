@@ -1246,3 +1246,42 @@
     height: 80px;
   }
 }
+
+/* Add to your AdminDashboard.css file */
+.dashboard-nav .nav-items {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap; /* Allow wrapping for more buttons */
+}
+
+.dashboard-nav .nav-items button {
+  padding: 10px 16px;
+  border: none;
+  border-radius: 6px;
+  background: #f8f9fa;
+  color: #495057;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+.dashboard-nav .nav-items button:hover {
+  background: #e9ecef;
+  transform: translateY(-1px);
+}
+
+.dashboard-nav .nav-items button.active {
+  background: #007bff;
+  color: white;
+}
+
+.logout-btn {
+  background: #dc3545 !important;
+  color: white !important;
+}
+
+.logout-btn:hover {
+  background: #c82333 !important;
+}
+

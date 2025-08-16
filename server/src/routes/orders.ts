@@ -22,7 +22,7 @@ router.put('/:id/status', authenticate, authorize(['admin']), updateOrderStatus)
  */
 router.post('/', authenticate, createOrder);
 router.get('/', authenticate, getOrders);
-
+router.get('/:id', authenticate, getOrder);
 // Use ONE dynamic route for details
 router.get('/:id', authenticate, getOrderDetails);
 

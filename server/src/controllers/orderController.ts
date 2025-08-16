@@ -7,6 +7,8 @@ import Product from '../models/Product';
 // import OrderProcessingService from '../services/OrderProcessingService';
 // import InventoryService from '../services/InventoryService';
 import EmailAutomationService from '../config/emailService';
+import type {} from '../types/express';
+
 
 interface AuthenticatedUser {
   id: string;
@@ -145,16 +147,46 @@ export const createOrder = async (req: Request, res: Response): Promise<void> =>
 
 
       if (req.io) {
-      req.io.to('admins').emit('orderCreated', {
-        _id: savedOrder._id,
-        orderNumber: savedOrder.orderNumber,
-        total: savedOrder.total,
-        orderStatus: savedOrder.orderStatus,
-        paymentStatus: savedOrder.paymentStatus,
-        items: orderItems,
-        createdAt: savedOrder.createdAt
-      });
-    }
+  // Explicit interface for the user doc
+  interface IUserSummary {
+    _id: mongoose.Types.ObjectId;
+    name?: string;
+    email?: string;
+  }
+
+  let userDoc: IUserSummary | null = null;
+  try {
+    userDoc = await mongoose.model<IUserSummary>('User')
+      .findById(savedOrder.userId)
+      .select('name email')
+      .lean()
+      .exec();
+  } catch {
+    userDoc = null;
+  }
+
+  const userSummary = {
+    _id: savedOrder.userId.toString(),
+    name: userDoc?.name || savedOrder.shippingAddress?.fullName,
+    email: userDoc?.email || savedOrder.shippingAddress?.email,
+  };
+
+  req.io.to('admins').emit('orderCreated', {
+    _id: (savedOrder._id as mongoose.Types.ObjectId).toString(),
+    orderNumber: savedOrder.orderNumber,
+    // Provide a UI-ready status but also keep raw orderStatus
+    status: savedOrder.status || savedOrder.orderStatus || 'pending',
+    orderStatus: savedOrder.orderStatus,
+    paymentMethod, // already available from req.body above
+    paymentStatus: savedOrder.paymentStatus,
+    total: savedOrder.total,
+    items: orderItems, // [{ name, price, quantity, image }]
+    userId: userSummary, // name/email for UI
+    createdAt: savedOrder.createdAt,
+  });
+}
+
+
 
     console.log('✅ Order created successfully:', orderNumber);
 
@@ -378,50 +410,90 @@ export const getOrderDetails = async (req: Request, res: Response): Promise<void
 // ✅ UPDATE ORDER STATUS WITH EMAIL NOTIFICATIONS
 export const updateOrderStatus = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { status, trackingNumber, notes } = req.body;
+    const { status, trackingNumber, notes, carrierName, trackingUrl } = req.body;
 
     if (!req.user) {
       res.status(401).json({ message: 'Authentication required' });
       return;
     }
-
     const user = req.user as AuthenticatedUser;
-
-    // Check if user has admin privileges
     if (!['admin', 'super_admin'].includes(user.role)) {
       res.status(403).json({ message: 'Admin access required' });
       return;
     }
 
     const order = await Order.findById(req.params.id);
-    
     if (!order) {
-      res.status(404).json({ 
-        success: false,
-        message: 'Order not found' 
-      });
+      res.status(404).json({ success: false, message: 'Order not found' });
       return;
     }
 
     const previousStatus = order.orderStatus;
 
-    // Update order status
-    order.orderStatus = status;
-    order.status = status; // Update both status fields
-    
-    if (trackingNumber) {
-      order.trackingNumber = trackingNumber;
-      order.carrierName = req.body.carrierName || 'Standard Shipping';
-    }
-    
-    if (notes) {
-      order.notes = notes; // ✅ Using 'notes' field from your model
+    // Guard: if already delivered/cancelled, block destructive changes
+    if (['delivered', 'cancelled'].includes(previousStatus)) {
+      res.status(400).json({ success: false, message: `Order already ${previousStatus}` });
+      return;
     }
 
-    // Add timestamps for specific statuses
+    // --- Transition logic ---
+    // When moving to CONFIRMED for the first time: validate & deduct stock now
+    const isConfirmTransition =
+      (status === 'confirmed') &&
+      ['pending', 'processing'].includes(previousStatus);
+
+    if (isConfirmTransition) {
+      // Validate stock before deducting
+      for (const item of order.items) {
+        const product = await Product.findById(item.productId).lean();
+        if (!product || !product.inStock || product.stockQuantity < item.quantity) {
+          res.status(400).json({
+            success: false,
+            message: `Insufficient stock for an item. Please refresh inventory and try again.`
+          });
+          return;
+        }
+      }
+
+      // Deduct stock atomically (best-effort)
+      for (const item of order.items) {
+        const updated = await Product.findOneAndUpdate(
+          { _id: item.productId, stockQuantity: { $gte: item.quantity } },
+          { $inc: { stockQuantity: -item.quantity } },
+          { new: true }
+        ).lean();
+
+        if (!updated) {
+          // If any deduction fails, rollback the ones already deducted (simple compensating action)
+          for (const rollback of order.items) {
+            await Product.findByIdAndUpdate(
+              rollback.productId,
+              { $inc: { stockQuantity: rollback.quantity } }
+            );
+          }
+          res.status(409).json({
+            success: false,
+            message: 'Stock changed during confirmation. Please try again.'
+          });
+          return;
+        }
+      }
+    }
+
+    // Apply fields
+    order.orderStatus = status;
+    order.status = status;
+
+    if (trackingNumber) order.trackingNumber = trackingNumber;
+    if (carrierName) order.carrierName = carrierName;
+    if (trackingUrl) order.trackingUrl = trackingUrl;
+    if (notes) order.notes = notes;
+
+    // Timestamps for specific statuses
     switch (status) {
       case 'confirmed':
-        if (!order.paidAt) order.paidAt = new Date();
+        // Mark paidAt if you treat confirm as post-payment control
+        if (!order.paidAt && order.paymentStatus === 'paid') order.paidAt = new Date();
         break;
       case 'shipped':
         order.shippedAt = new Date();
@@ -436,51 +508,40 @@ export const updateOrderStatus = async (req: Request, res: Response): Promise<vo
 
     const updatedOrder = await order.save();
 
-    // ✅ EMAIL AUTOMATION FOR STATUS UPDATES
+    // --- Emails ---
     let emailSent = false;
     try {
-      console.log('📧 Sending status update email for order:', order.orderNumber);
       emailSent = await EmailAutomationService.sendOrderStatusUpdate(updatedOrder as any, previousStatus);
-      console.log('📧 Status update email result:', emailSent);
     } catch (emailError: any) {
       console.error('❌ Status update email failed (non-blocking):', emailError);
     }
 
+    // --- Socket events ---
+    if (req.io) {
+      // Admin dashboards
+      req.io.to('admins').emit('orderStatusUpdated', {
+        _id: updatedOrder._id,
+        userId: updatedOrder.userId.toString(),
+        orderNumber: updatedOrder.orderNumber,
+        orderStatus: updatedOrder.orderStatus,
+        trackingNumber: updatedOrder.trackingNumber,
+        carrierName: updatedOrder.carrierName,
+        trackingUrl: updatedOrder.trackingUrl,
+        updatedAt: updatedOrder.updatedAt
+      });
 
-
-
-
-
-    // ✅ SOCKET.IO: Notify all admins & the specific user
-if (req.io) {
-  // Notify admins so their dashboard updates
-  req.io.to('admins').emit('orderStatusUpdated', {
-    _id: updatedOrder._id,
-    orderNumber: updatedOrder.orderNumber,
-    orderStatus: updatedOrder.orderStatus,
-    trackingNumber: updatedOrder.trackingNumber,
-    updatedAt: updatedOrder.updatedAt
-  });
-
-  // Notify the specific user
-  req.io.to(updatedOrder.userId.toString()).emit('orderStatusUpdated', {
-    _id: updatedOrder._id,
-    orderNumber: updatedOrder.orderNumber,
-    orderStatus: updatedOrder.orderStatus,
-    trackingNumber: updatedOrder.trackingNumber,
-    updatedAt: updatedOrder.updatedAt
-  });
-}
-
-
-    console.log('✅ Order status updated:', {
-      orderId: order._id,
-      orderNumber: order.orderNumber,
-      previousStatus,
-      newStatus: status,
-      updatedBy: user.email,
-      emailSent
-    });
+      // Specific user
+      req.io.to(updatedOrder.userId.toString()).emit('orderStatusUpdated', {
+        _id: updatedOrder._id,
+        userId: updatedOrder.userId.toString(),
+        orderNumber: updatedOrder.orderNumber,
+        orderStatus: updatedOrder.orderStatus,
+        trackingNumber: updatedOrder.trackingNumber,
+        carrierName: updatedOrder.carrierName,
+        trackingUrl: updatedOrder.trackingUrl,
+        updatedAt: updatedOrder.updatedAt
+      });
+    }
 
     res.json({
       success: true,
@@ -490,6 +551,8 @@ if (req.io) {
         orderNumber: updatedOrder.orderNumber,
         orderStatus: updatedOrder.orderStatus,
         trackingNumber: updatedOrder.trackingNumber,
+        carrierName: updatedOrder.carrierName,
+        trackingUrl: updatedOrder.trackingUrl,
         updatedAt: updatedOrder.updatedAt
       },
       emailSent
@@ -497,13 +560,10 @@ if (req.io) {
 
   } catch (error: any) {
     console.error('❌ Update order status error:', error);
-    res.status(500).json({ 
-      success: false,
-      message: 'Server error',
-      error: error.message 
-    });
+    res.status(500).json({ success: false, message: 'Server error', error: error.message });
   }
 };
+
 
 // ✅ GET ALL ORDERS (ADMIN FUNCTION)
 export const getAllOrders = async (req: Request, res: Response): Promise<void> => {

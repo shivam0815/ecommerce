@@ -1,4 +1,4 @@
-// src/pages/ProductDetail.tsx - COMPLETE WITH WISHLIST INTEGRATION
+// src/pages/ProductDetail.tsx - COMPLETE WITH WISHLIST + SPECIFICATIONS NORMALIZATION
 import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
@@ -6,9 +6,48 @@ import { Star, ShoppingCart, Heart, Share2, ChevronLeft, Plus, Minus, Truck, Shi
 import { productService } from '../services/productService';
 import { Product } from '../types';
 import { useCart } from '../hooks/useCart';
-import { useWishlist } from '../hooks/useWishlist'; // ✅ Added wishlist import
+import { useWishlist } from '../hooks/useWishlist';
 import { resolveImageUrl } from '../utils/imageUtils';
 import toast from 'react-hot-toast';
+
+// --- Helpers for specs ---
+const normalizeSpecifications = (raw: any): Record<string, any> => {
+  if (!raw) return {};
+  if (raw instanceof Map) return Object.fromEntries(raw as Map<string, any>);
+  if (Array.isArray(raw)) {
+    // If it's entries like [["key","value"]]
+    if (raw.length && Array.isArray(raw[0]) && raw[0].length === 2) {
+      try { return Object.fromEntries(raw as any); } catch { return {}; }
+    }
+    return {};
+  }
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+    } catch {
+      return {};
+    }
+  }
+  if (typeof raw === 'object') return raw;
+  return {};
+};
+
+const prettyKey = (k: string) =>
+  k.replace(/_/g, ' ')
+   .replace(/([a-z])([A-Z])/g, '$1 $2')
+   .replace(/\b\w/g, c => c.toUpperCase());
+
+const renderSpecValue = (val: any) => {
+  if (val === null || val === undefined) return '—';
+  if (typeof val === 'boolean') return val ? 'Yes' : 'No';
+  if (typeof val === 'number') return String(val);
+  if (typeof val === 'string') return val;
+  if (Array.isArray(val)) return val.join(', ');
+  // object
+  return <code className="text-xs whitespace-pre-wrap break-words">{JSON.stringify(val, null, 2)}</code>;
+};
+// --- End helpers ---
 
 const ProductDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -18,68 +57,52 @@ const ProductDetail: React.FC = () => {
   const [selectedImage, setSelectedImage] = useState(0);
   const [quantity, setQuantity] = useState(1);
   const [activeTab, setActiveTab] = useState<'description' | 'specifications' | 'reviews'>('description');
-  
+
   const { addToCart, isLoading } = useCart();
-  
-  // ✅ Added wishlist hooks
-  const { 
-    addToWishlist, 
-    removeFromWishlist, 
-    isInWishlist, 
-    isLoading: wishlistLoading 
-  } = useWishlist();
+  const { addToWishlist, removeFromWishlist, isInWishlist, isLoading: wishlistLoading } = useWishlist();
 
   const getSafeImageUrl = (imagePath: string | undefined | null): string => {
     const resolvedUrl = resolveImageUrl(imagePath);
-    if (resolvedUrl) {
-      return resolvedUrl;
-    }
-    
-    // Fallback to placeholder image
+    if (resolvedUrl) return resolvedUrl;
     return 'https://images.unsplash.com/photo-1586953208448-b95a79798f07?w=400&h=400&fit=crop&crop=center&auto=format&q=60';
-  };
-
-  const getImageType = (imagePath: string | undefined | null): string => {
-    if (!imagePath || imagePath === 'undefined' || imagePath === 'null') return '❌ Invalid';
-    if (imagePath.includes('cloudinary.com')) return '☁️ Cloudinary';
-    if (imagePath.includes('unsplash.com')) return '🖼️ Placeholder';
-    if (imagePath.startsWith('/uploads/')) return '📁 Uploads';
-    if (imagePath.startsWith('/') && !imagePath.includes('undefined')) return '📁 Local';
-    if (imagePath.startsWith('http')) return '🌐 External';
-    return '❓ Unknown';
   };
 
   useEffect(() => {
     const fetchProduct = async () => {
       if (!id) return;
-      
       try {
         setLoading(true);
         setError(null);
-        
         const response = await productService.getProduct(id);
-        setProduct(response.product);
-        
+
+        // 🔧 Normalize specs + reviewsCount for safe rendering
+        const normalized = {
+          ...response.product,
+          specifications: normalizeSpecifications((response.product as any)?.specifications),
+          reviewsCount:
+            (response.product as any)?.reviewsCount ??
+            (response.product as any)?.reviews ??
+            0,
+        };
+
+        setProduct(normalized as Product);
       } catch (err: any) {
         setError(err.message || 'Failed to load product');
       } finally {
         setLoading(false);
       }
     };
-
     fetchProduct();
   }, [id]);
 
   const handleAddToCart = async () => {
     if (!product) return;
-    
     try {
-      const productId = product._id || product.id;
+      const productId = (product as any)._id || (product as any).id;
       if (!productId) {
         toast.error('Product ID not found');
         return;
       }
-
       await addToCart(productId, quantity);
       toast.success(`Added ${quantity} ${quantity === 1 ? 'item' : 'items'} to cart!`);
     } catch (error: any) {
@@ -87,18 +110,14 @@ const ProductDetail: React.FC = () => {
     }
   };
 
-  // ✅ Added real wishlist toggle handler
   const handleWishlistToggle = async () => {
     if (!product) return;
-    
     try {
-      const productId = product._id || product.id;
-      
+      const productId = (product as any)._id || (product as any).id;
       if (!productId) {
         toast.error('Product ID not found');
         return;
       }
-
       if (isInWishlist(productId)) {
         await removeFromWishlist(productId);
       } else {
@@ -121,38 +140,33 @@ const ProductDetail: React.FC = () => {
   }
 
   if (error) {
+    const invalidId = error.includes('Invalid product ID') || error.includes('Cast to ObjectId');
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="text-center max-w-md mx-auto p-6">
-          <div className="text-6xl mb-4">
-            {error.includes('Invalid product ID') || error.includes('Cast to ObjectId') ? '🔍' : '⚠️'}
-          </div>
+          <div className="text-6xl mb-4">{invalidId ? '🔍' : '⚠️'}</div>
           <h2 className="text-2xl font-bold text-gray-900 mb-2">
-            {error.includes('Invalid product ID') || error.includes('Cast to ObjectId') 
-              ? 'Invalid Product ID' 
-              : 'Oops! Something went wrong'}
+            {invalidId ? 'Invalid Product ID' : 'Oops! Something went wrong'}
           </h2>
           <p className="text-red-600 mb-6">{error}</p>
-          
-          {(error.includes('Invalid product ID') || error.includes('Cast to ObjectId')) && (
+          {invalidId && (
             <div className="bg-blue-50 p-4 rounded-lg mb-4 text-left">
               <h4 className="font-semibold text-blue-800 mb-2">Valid Product ID Format:</h4>
               <p className="text-blue-700 text-sm">
-                Product IDs must be 24-character MongoDB ObjectIds like: 
+                Product IDs must be 24-character MongoDB ObjectIds like:
                 <code className="bg-blue-100 px-1 rounded ml-1">6889d318a654a6aef33eb902</code>
               </p>
             </div>
           )}
-          
           <div className="space-y-3">
-            <button 
-              onClick={() => window.location.reload()} 
+            <button
+              onClick={() => window.location.reload()}
               className="w-full bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition-colors"
             >
               Try Again
             </button>
-            <Link 
-              to="/products" 
+            <Link
+              to="/products"
               className="block w-full bg-gray-100 text-gray-700 px-6 py-2 rounded-lg hover:bg-gray-200 transition-colors text-center"
             >
               Back to Products
@@ -170,8 +184,8 @@ const ProductDetail: React.FC = () => {
           <div className="text-6xl mb-4">🔍</div>
           <h2 className="text-2xl font-bold text-gray-900 mb-2">Product Not Found</h2>
           <p className="text-gray-600 mb-6">The product you're looking for doesn't exist or has been removed.</p>
-          <Link 
-            to="/products" 
+          <Link
+            to="/products"
             className="inline-flex items-center bg-blue-600 text-white px-6 py-2 rounded-lg hover:bg-blue-700 transition-colors"
           >
             <ChevronLeft className="h-4 w-4 mr-2" />
@@ -182,19 +196,13 @@ const ProductDetail: React.FC = () => {
     );
   }
 
-  const validImages = (product.images || []).filter(img => 
-    img && 
-    typeof img === 'string' && 
-    img.trim() !== '' && 
-    img !== 'undefined' && 
-    img !== 'null'
+  const validImages = (product.images || []).filter(
+    (img) => img && typeof img === 'string' && img.trim() !== '' && img !== 'undefined' && img !== 'null'
   );
-  
   const currentImage = validImages[selectedImage] || validImages[0];
   const hasMultipleImages = validImages.length > 1;
 
-  // ✅ Check if product is in wishlist
-  const productId = product._id || product.id;
+  const productId = (product as any)._id || (product as any).id;
   const inWishlist = productId ? isInWishlist(productId) : false;
 
   return (
@@ -213,7 +221,6 @@ const ProductDetail: React.FC = () => {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 p-6">
             {/* Image Gallery */}
             <div className="space-y-4">
-              {/* Main Image */}
               <div className="aspect-square bg-gray-100 rounded-xl overflow-hidden relative">
                 {currentImage ? (
                   <img
@@ -222,7 +229,8 @@ const ProductDetail: React.FC = () => {
                     className="w-full h-full object-cover"
                     onError={(e) => {
                       const target = e.target as HTMLImageElement;
-                      target.src = 'https://images.unsplash.com/photo-1586953208448-b95a79798f07?w=400&h=400&fit=crop&crop=center&auto=format&q=60';
+                      target.src =
+                        'https://images.unsplash.com/photo-1586953208448-b95a79798f07?w=400&h=400&fit=crop&crop=center&auto=format&q=60';
                     }}
                   />
                 ) : (
@@ -235,7 +243,6 @@ const ProductDetail: React.FC = () => {
                 )}
               </div>
 
-              {/* Thumbnail Images */}
               {hasMultipleImages && (
                 <div className="flex space-x-2 overflow-x-auto pb-2">
                   {validImages.map((img, index) => (
@@ -243,9 +250,7 @@ const ProductDetail: React.FC = () => {
                       key={index}
                       onClick={() => setSelectedImage(index)}
                       className={`flex-shrink-0 w-20 h-20 rounded-lg overflow-hidden border-2 transition-all ${
-                        selectedImage === index 
-                          ? 'border-blue-500 shadow-md' 
-                          : 'border-gray-200 hover:border-gray-300'
+                        selectedImage === index ? 'border-blue-500 shadow-md' : 'border-gray-200 hover:border-gray-300'
                       }`}
                     >
                       <img
@@ -254,7 +259,8 @@ const ProductDetail: React.FC = () => {
                         className="w-full h-full object-cover"
                         onError={(e) => {
                           const target = e.target as HTMLImageElement;
-                          target.src = 'https://images.unsplash.com/photo-1586953208448-b95a79798f07?w=80&h=80&fit=crop&crop=center&auto=format&q=60';
+                          target.src =
+                            'https://images.unsplash.com/photo-1586953208448-b95a79798f07?w=80&h=80&fit=crop&crop=center&auto=format&q=60';
                         }}
                       />
                     </button>
@@ -263,75 +269,73 @@ const ProductDetail: React.FC = () => {
               )}
             </div>
 
-            {/* Product Information */}
+            {/* Product Info */}
             <div className="space-y-6">
               <div>
                 <h1 className="text-3xl font-bold text-gray-900 mb-2">{product.name}</h1>
                 <div className="flex items-center space-x-2 text-sm text-gray-600">
                   <span className="bg-blue-100 text-blue-800 px-2 py-1 rounded-full">{product.category}</span>
-                  {product.brand && (
-                    <span className="bg-gray-100 text-gray-700 px-2 py-1 rounded-full">{product.brand}</span>
+                  {(product as any).brand && (
+                    <span className="bg-gray-100 text-gray-700 px-2 py-1 rounded-full">{(product as any).brand}</span>
                   )}
                 </div>
               </div>
 
               {/* Price */}
               <div className="flex items-center space-x-4">
-                <span className="text-3xl font-bold text-gray-900">
-                  ₹{product.price?.toLocaleString()}
-                </span>
-                {product.originalPrice && product.originalPrice > product.price && (
+                <span className="text-3xl font-bold text-gray-900">₹{product.price?.toLocaleString()}</span>
+                {(product as any).originalPrice && (product as any).originalPrice > product.price && (
                   <>
                     <span className="text-xl text-gray-500 line-through">
-                      ₹{product.originalPrice.toLocaleString()}
+                      ₹{(product as any).originalPrice.toLocaleString()}
                     </span>
                     <span className="bg-red-100 text-red-800 text-sm font-semibold px-3 py-1 rounded-full">
-                      {Math.round(((product.originalPrice - product.price) / product.originalPrice) * 100)}% OFF
+                      {Math.round((((product as any).originalPrice - product.price) / (product as any).originalPrice) * 100)}% OFF
                     </span>
                   </>
                 )}
               </div>
 
               {/* Rating */}
-              {product.rating && (
+              {(product as any).rating && (
                 <div className="flex items-center space-x-2">
                   <div className="flex">
                     {[...Array(5)].map((_, i) => (
                       <Star
                         key={i}
                         className={`h-5 w-5 ${
-                          i < Math.floor(product.rating || 0)
-                            ? 'text-yellow-400 fill-current'
-                            : 'text-gray-300'
+                          i < Math.floor((product as any).rating || 0) ? 'text-yellow-400 fill-current' : 'text-gray-300'
                         }`}
                       />
                     ))}
                   </div>
                   <span className="text-gray-600">
-                    {product.rating} ({product.reviewsCount || 0} reviews)
+                    {(product as any).rating} ({(product as any).reviewsCount || 0} reviews)
                   </span>
                 </div>
               )}
 
-              {/* Stock Status */}
+              {/* Stock */}
               <div className="flex items-center space-x-3">
-                <div className={`flex items-center space-x-2 px-3 py-1 rounded-full text-sm font-medium ${
-                  product.inStock 
-                    ? 'bg-green-100 text-green-800' 
-                    : 'bg-red-100 text-red-800'
-                }`}>
-                  <div className={`w-2 h-2 rounded-full ${product.inStock ? 'bg-green-500' : 'bg-red-500'}`}></div>
-                  <span>{product.inStock ? 'In Stock' : 'Out of Stock'}</span>
+                <div
+                  className={`flex items-center space-x-2 px-3 py-1 rounded-full text-sm font-medium ${
+                    (product as any).inStock ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
+                  }`}
+                >
+                  <div
+                    className={`w-2 h-2 rounded-full ${
+                      (product as any).inStock ? 'bg-green-500' : 'bg-red-500'
+                    }`}
+                  ></div>
+                  <span>{(product as any).inStock ? 'In Stock' : 'Out of Stock'}</span>
                 </div>
-                {product.stockQuantity && (
-                  <span className="text-gray-500 text-sm">
-                    {product.stockQuantity} available
-                  </span>
+                {(product as any).stockQuantity && (
+                  <span className="text-gray-500 text-sm">{(product as any).stockQuantity} available</span>
                 )}
               </div>
 
-              {/* Quantity Selector */}
-              {product.inStock && (
+              {/* Quantity */}
+              {(product as any).inStock && (
                 <div className="flex items-center space-x-4">
                   <label className="text-gray-700 font-medium">Quantity:</label>
                   <div className="flex items-center border border-gray-300 rounded-lg">
@@ -345,18 +349,21 @@ const ProductDetail: React.FC = () => {
                     <input
                       type="number"
                       min="1"
-                      max={product.stockQuantity || 99}
+                      max={(product as any).stockQuantity || 99}
                       value={quantity}
                       onChange={(e) => {
-                        const value = Math.max(1, Math.min(product.stockQuantity || 99, parseInt(e.target.value) || 1));
+                        const value = Math.max(
+                          1,
+                          Math.min((product as any).stockQuantity || 99, parseInt(e.target.value) || 1)
+                        );
                         setQuantity(value);
                       }}
                       className="w-16 text-center border-0 focus:ring-0 focus:outline-none"
                     />
                     <button
-                      onClick={() => setQuantity(Math.min(product.stockQuantity || 99, quantity + 1))}
+                      onClick={() => setQuantity(Math.min((product as any).stockQuantity || 99, quantity + 1))}
                       className="p-2 hover:bg-gray-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                      disabled={quantity >= (product.stockQuantity || 99)}
+                      disabled={quantity >= ((product as any).stockQuantity || 99)}
                     >
                       <Plus className="h-4 w-4" />
                     </button>
@@ -364,27 +371,24 @@ const ProductDetail: React.FC = () => {
                 </div>
               )}
 
-              {/* Action Buttons */}
+              {/* Actions */}
               <div className="flex space-x-4">
                 <motion.button
                   whileHover={{ scale: 1.02 }}
                   whileTap={{ scale: 0.98 }}
                   onClick={handleAddToCart}
-                  disabled={!product.inStock || isLoading}
+                  disabled={!(product as any).inStock || isLoading}
                   className={`flex-1 flex items-center justify-center space-x-2 py-3 px-6 rounded-lg font-medium transition-all duration-200 ${
-                    product.inStock && !isLoading
+                    (product as any).inStock && !isLoading
                       ? 'bg-blue-600 text-white hover:bg-blue-700 shadow-md hover:shadow-lg'
                       : 'bg-gray-300 text-gray-500 cursor-not-allowed'
                   }`}
                 >
                   <ShoppingCart className="h-5 w-5" />
-                  <span>
-                    {!product.inStock ? 'Out of Stock' : isLoading ? 'Adding...' : 'Add to Cart'}
-                  </span>
+                  <span>{!(product as any).inStock ? 'Out of Stock' : isLoading ? 'Adding...' : 'Add to Cart'}</span>
                 </motion.button>
-                
-                {/* ✅ Real wishlist button with proper functionality */}
-                <motion.button 
+
+                <motion.button
                   whileHover={{ scale: 1.05 }}
                   whileTap={{ scale: 0.95 }}
                   onClick={handleWishlistToggle}
@@ -398,21 +402,23 @@ const ProductDetail: React.FC = () => {
                 >
                   <Heart className={`h-5 w-5 ${inWishlist ? 'fill-current' : ''}`} />
                 </motion.button>
-                
-                <motion.button 
+
+                <motion.button
                   whileHover={{ scale: 1.05 }}
                   whileTap={{ scale: 0.95 }}
                   className="p-3 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
                   onClick={() => {
                     if (navigator.share) {
-                      navigator.share({
-                        title: product.name,
-                        text: product.description,
-                        url: window.location.href
-                      }).catch(() => {
-                        navigator.clipboard.writeText(window.location.href);
-                        toast.success('Product link copied to clipboard!');
-                      });
+                      navigator
+                        .share({
+                          title: product.name,
+                          text: product.description,
+                          url: window.location.href,
+                        })
+                        .catch(() => {
+                          navigator.clipboard.writeText(window.location.href);
+                          toast.success('Product link copied to clipboard!');
+                        });
                     } else {
                       navigator.clipboard.writeText(window.location.href);
                       toast.success('Product link copied to clipboard!');
@@ -452,7 +458,7 @@ const ProductDetail: React.FC = () => {
             </div>
           </div>
 
-          {/* Product Details Tabs */}
+          {/* Tabs */}
           <div className="border-t">
             <div className="flex border-b overflow-x-auto">
               {(['description', 'specifications', 'reviews'] as const).map((tab) => (
@@ -460,9 +466,7 @@ const ProductDetail: React.FC = () => {
                   key={tab}
                   onClick={() => setActiveTab(tab)}
                   className={`px-6 py-4 font-medium capitalize transition-colors whitespace-nowrap ${
-                    activeTab === tab
-                      ? 'border-b-2 border-blue-600 text-blue-600 bg-blue-50'
-                      : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
+                    activeTab === tab ? 'border-b-2 border-blue-600 text-blue-600 bg-blue-50' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
                   }`}
                 >
                   {tab}
@@ -476,12 +480,12 @@ const ProductDetail: React.FC = () => {
                   <div className="text-gray-700 leading-relaxed whitespace-pre-line">
                     {product.description || 'No description available for this product.'}
                   </div>
-                  
-                  {product.features && product.features.length > 0 && (
+
+                  {(product as any).features && (product as any).features.length > 0 && (
                     <div className="mt-8">
                       <h3 className="text-xl font-semibold mb-4 text-gray-900">Key Features</h3>
                       <div className="grid gap-3">
-                        {product.features.map((feature, index) => (
+                        {(product as any).features.map((feature: string, index: number) => (
                           <div key={index} className="flex items-start space-x-3">
                             <div className="w-2 h-2 bg-blue-600 rounded-full mt-2 flex-shrink-0"></div>
                             <span className="text-gray-700">{feature}</span>
@@ -495,18 +499,16 @@ const ProductDetail: React.FC = () => {
 
               {activeTab === 'specifications' && (
                 <div>
-                  {product.specifications && Object.keys(product.specifications).length > 0 ? (
+                  {(product as any).specifications && Object.keys((product as any).specifications).length > 0 ? (
                     <div className="overflow-x-auto">
                       <table className="w-full">
                         <tbody className="divide-y divide-gray-200">
-                          {Object.entries(product.specifications).map(([key, value]) => (
+                          {Object.entries((product as any).specifications).map(([key, value]) => (
                             <tr key={key} className="hover:bg-gray-50">
                               <td className="py-3 px-4 font-medium text-gray-900 bg-gray-50 w-1/3">
-                                {key}
+                                {prettyKey(key)}
                               </td>
-                              <td className="py-3 px-4 text-gray-700">
-                                {value}
-                              </td>
+                              <td className="py-3 px-4 text-gray-700">{renderSpecValue(value)}</td>
                             </tr>
                           ))}
                         </tbody>

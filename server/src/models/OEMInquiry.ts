@@ -25,7 +25,7 @@ const oemInquirySchema = new Schema<IOEMInquiry>({
   productCategory: {
     type: String,
     required: [true, 'Product category is required'],
-    enum: ['TWS', 'Bluetooth Neckbands', 'Data Cables', 'Mobile Chargers', 'Mobile ICs', 'Mobile Repairing Tools', 'Custom']
+    enum: ['TWS', 'Bluetooth Neckbands', 'Data Cables', 'Mobile Chargers', 'Mobile ICs', 'Mobile Repairing Tools', 'Car Charger','Bluetooth Speaker' ,'Power Bank','Custom']
   },
   quantity: {
     type: Number,

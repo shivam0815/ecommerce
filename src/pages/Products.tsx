@@ -55,7 +55,7 @@ const Products: React.FC = () => {
       
       if (response.products) {
         console.log('✅ Products loaded:', response.products.length);
-        setProducts(response.products);
+        setProducts(response.product);
         
         // Clear any refresh flags after successful fetch
         if (forceRefresh) {

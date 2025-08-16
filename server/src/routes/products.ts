@@ -36,8 +36,8 @@ router.get('/', async (req, res) => {
       .sort(sortOptions)
       .limit(Number(limit) * Number(page))
       .skip((Number(page) - 1) * Number(limit))
-      .select('name description price stockQuantity category brand images rating reviewCount inStock isActive');
-
+      .select('name description price stockQuantity category brand images rating reviews inStock isActive specifications')
+      .lean();
     const total = await Product.countDocuments(filter);
 
     console.log(`✅ Found ${products.length} active products`);
@@ -101,8 +101,9 @@ router.get('/:id', async (req, res) => {
     
     console.log(`🔍 Fetching product details: ${id}`);
     
-    const product = await Product.findById(id);
-
+    const product = await Product.findById(id)
+      .select('-__v') // contains specifications
+      .lean();
     if (!product) {
       return res.status(404).json({
         success: false,
@@ -196,3 +197,7 @@ router.get('/categories/list', async (req, res) => {
 });
 
 export default router;
+function lean() {
+  throw new Error('Function not implemented.');
+}
+

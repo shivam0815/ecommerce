@@ -25,8 +25,10 @@ import ForgotPassword from './components/Layout/ForgotPassword';
 import ProfessionalAuthWrapper from './pages/ProfessionalAuthWrapper'; // ✅ Make sure this import exists
 import OrderSuccess from './pages/OrderSuccess';
 import OrderDetails from './pages/OrderDetails';
+import Search from './pages/SearchResults';
+
 // ✅ Layout wrapper for public pages
-const PublicLayout = ({ children }) => (
+const PublicLayout = ({ children }: { children: React.ReactNode }) => (
   <>
     <Header />
     <main className="flex-1">
@@ -35,6 +37,7 @@ const PublicLayout = ({ children }) => (
     <Footer />
   </>
 );
+
 
 function App() {
   return (
@@ -68,7 +71,7 @@ function App() {
           <Route path="/products/:id" element={<ProductDetail />} />
 <Route path="/products/:id" element={<ProductDetail />} />
  <Route path="/order-success/:orderId" element={<OrderSuccess />} />
- 
+ <Route path="/search" element={<Search />} />
   <Route path="/order-details/:orderId" element={<OrderDetails />} />
         </Routes>
 

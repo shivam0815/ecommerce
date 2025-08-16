@@ -53,17 +53,19 @@ export interface Product {
   category: string;
   subcategory?: string;
   image?: string;
+  
   images?: string[];
   rating: number;
   reviews: number;
+   reviewsCount?: number;
   inStock: boolean;
   stockQuantity: number;
   features: string[];
   specifications: Record<string, any>; // ✅ Fixed: Complete Record type
   tags: string[];
   isActive: boolean;
-  createdAt: Date;
-  updatedAt: Date;
+    createdAt?: string | Date;
+  updatedAt?: string | Date;
 }
 
 export interface ICart extends Document {
@@ -212,3 +214,52 @@ export interface AdminStats {
     stockQuantity: number;
   }>;
 } // ✅ Fixed closing brace
+// backend/src/types/index.ts
+
+
+// Database Models (with Document extension)
+export interface IReturn extends Document {
+  _id: Types.ObjectId;
+  productId: string;
+  productName: string;
+  userId: string;
+  userName: string;
+  userEmail: string;
+  returnReason: string;
+  returnDate: Date;
+  status: 'pending' | 'approved' | 'rejected' | 'processed';
+  refundAmount: number;
+  imageUrl?: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface IReviewModel extends Document {
+  _id: Types.ObjectId;
+  productId: string;
+  productName: string;
+  userId: string;
+  userName: string;
+  rating: number;
+  comment: string;
+  reviewDate: Date;
+  helpful: number;
+  verified: boolean;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface IPaymentModel extends Document {
+  _id: Types.ObjectId;
+  userId: string;
+  userName: string;
+  userEmail: string;
+  amount: number;
+  paymentMethod: string;
+  status: 'completed' | 'pending' | 'failed' | 'refunded';
+  transactionId: string;
+  paymentDate: Date;
+  orderId: string;
+  createdAt: Date;
+  updatedAt: Date;
+}

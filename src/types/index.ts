@@ -258,3 +258,83 @@ export interface AdminStats {
     stockQuantity: number;
   }>;
 }
+// frontend/src/types/index.ts
+// Your existing types...
+
+// Admin Dashboard Types (without Document extension)
+export interface ReturnedProduct {
+  _id?: string;
+  productId: string;
+  productName: string;
+  userId: string;
+  userName: string;
+  userEmail: string;
+  returnReason: string;
+  returnDate: Date;
+  status: 'pending' | 'approved' | 'rejected' | 'processed';
+  refundAmount: number;
+  imageUrl?: string;
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
+export interface Review {
+  _id?: string;
+  productId: string;
+  productName: string;
+  userId: string;
+  userName: string;
+  rating: number;
+  comment: string;
+  reviewDate: Date;
+  helpful: number;
+  verified: boolean;
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
+export interface Payment {
+  _id?: string;
+  userId: string;
+  userName: string;
+  userEmail: string;
+  amount: number;
+  paymentMethod: string;
+  status: 'completed' | 'pending' | 'failed' | 'refunded';
+  transactionId: string;
+  paymentDate: Date;
+  orderId: string;
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
+// Frontend-specific types
+export type ReturnStatus = 'all' | 'pending' | 'approved' | 'rejected';
+export type PaymentStatusFilter = 'all' | 'completed' | 'pending' | 'failed';
+export type DateFilter = 'today' | 'weekly' | 'monthly' | 'all';
+
+export interface PaymentStats {
+  totalRevenue: number;
+  totalTransactions: number;
+  completedPayments: number;
+  failedPayments: number;
+  pendingPayments: number;
+}
+
+export interface ChartData {
+  labels: string[];
+  datasets: Array<{
+    label: string;
+    data: number[];
+    backgroundColor: string | string[];
+    borderColor?: string | string[];
+    borderWidth?: number;
+  }>;
+}
+
+export interface QualityAssessment {
+  excellent: number;
+  good: number;
+  average: number;
+  poor: number;
+}

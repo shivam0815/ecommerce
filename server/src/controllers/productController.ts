@@ -3,6 +3,45 @@ import { Request, Response } from 'express';
 import Product from '../models/Product';
 import { AuthRequest } from '../types';
 
+
+
+
+const normArray = (v: any) => {
+  if (Array.isArray(v)) return v;
+  if (typeof v === 'string') {
+    // Try JSON first, fallback to CSV
+    try {
+      const parsed = JSON.parse(v);
+      if (Array.isArray(parsed)) return parsed;
+    } catch {}
+    return v
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+  }
+  return [];
+};
+
+const normNumber = (v: any, def = 0) => (v === '' || v == null ? def : Number(v));
+
+const normSpecs = (value: any) => {
+  if (!value) return {};
+  if (value instanceof Map) return Object.fromEntries(value as Map<string, any>);
+  if (typeof value === 'object' && !Array.isArray(value)) return value;
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value);
+      return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+    } catch {
+      return {};
+    }
+  }
+  return {};
+};
+
+
+
+
 // ✅ FIXED: Create Product (Admin)
 export const createProduct = async (req: AuthRequest, res: Response) => {
   try {

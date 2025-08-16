@@ -1,9 +1,13 @@
 import React, { useState, useEffect, useRef, useCallback, memo } from 'react';
 import { getAdminStats, uploadProduct, bulkUploadProducts, getProducts, updateProduct, deleteProduct, bulkUpdateProducts } from '../config/adminApi';
 import './AdminDashboard.css';
-import ImageUpload from '../components/Layout/ImageUpload';
-import OrdersTab from './OrdersTab'; // adjust path if in a subfolder
-
+// import ImageUpload from '../components/Layout/ImageUpload';
+import OrdersTab from '../components/Layout/OrderTab';
+import ReturnProduct from '../components/Layout/ReturnProduct';
+import ProductReview from '../components/Layout/ProductReview';
+import PaymentSection from '../components/Layout/PaymentSection';
+ // adjust path if in a subfolder
+import { io } from "socket.io-client";
 import { 
   uploadToBrowser, 
   uploadMultipleToBrowser, 
@@ -137,6 +141,32 @@ const CloudinaryImageUpload = memo<{
     onUploadProgress?.(0);
   }
 };
+
+
+const socket = io("http://localhost:5000", { withCredentials: true });
+
+useEffect(() => {
+  socket.emit("join", { role: "admin" });
+
+  socket.on("orderCreated", (order) => {
+    console.log("📦 New order:", order);
+    // Update your orders table or show notification
+  });
+
+  socket.on("orderStatusUpdated", (order) => {
+    console.log("✅ Order updated:", order);
+    // Refresh row or show toast
+  });
+
+  return () => {
+    socket.off("orderCreated");
+    socket.off("orderStatusUpdated");
+  };
+}, []);
+
+
+
+
 
 
   const handleDrag = (e: React.DragEvent) => {
@@ -277,8 +307,15 @@ const InventoryManagement = memo<{
   // Categories for filtering
   const categories = [
     'TWS', 'Bluetooth Neckbands', 'Data Cables', 
-    'Mobile Chargers', 'Mobile ICs', 'Mobile Repairing Tools'
+    'Mobile Chargers', 'Mobile ICs', 'Mobile Repairing Tools', 'Car Charger','Bluetooth Speaker', 'Power Bank'
   ];
+
+
+
+
+
+
+
 
   // ✅ Fetch products with filters and pagination
   const fetchProducts = useCallback(async () => {
@@ -481,7 +518,7 @@ const InventoryManagement = memo<{
 
   // ✅ Export products to CSV
   const handleExportCSV = () => {
-    const headers = ['Name', 'Price', 'Stock', 'Category', 'Status', 'Description'];
+    const headers = ['Name', 'Price', 'Stock', 'Category', 'Status', 'Description', 'Specifications'];
     const csvData = [
       headers.join(','),
       ...products.map(product => [
@@ -752,6 +789,25 @@ const InventoryManagement = memo<{
                       <span className="category">{product.category}</span>
                     )}
                   </td>
+<td>
+  {product.specifications && typeof product.specifications === 'object' ? (
+    <details>
+      <summary style={{ cursor: 'pointer' }}>
+        {Object.keys(product.specifications).length} fields
+      </summary>
+      <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: 12 }}>
+        {JSON.stringify(product.specifications, null, 2)}
+      </pre>
+    </details>
+  ) : (
+    <span style={{ color: '#888' }}>—</span>
+  )}
+</td>
+
+
+
+
+
                   <td>
                     {editingProduct === product._id ? (
                       <select
@@ -897,11 +953,47 @@ const ProductManagement = memo<{
     price: '',
     stock: '',
     category: '',
-    description: ''
+    description: '',
+    
   });
   const [uploadedImages, setUploadedImages] = useState<any[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
+
+
+    
+
+// --- Specifications state (single upload) ---
+const [specificationsText, setSpecificationsText] = useState<string>('');
+const [specificationsError, setSpecificationsError] = useState<string | null>(null);
+const [specificationsObj, setSpecificationsObj] = useState<Record<string, any> | null>(null);
+
+const handleSpecificationsChange = (value: string) => {
+  setSpecificationsText(value);
+  if (!value.trim()) {
+    setSpecificationsError(null);
+    setSpecificationsObj(null);
+    return;
+  }
+  try {
+    const parsed = JSON.parse(value);
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      setSpecificationsObj(parsed);
+      setSpecificationsError(null);
+    } else {
+      setSpecificationsObj(null);
+      setSpecificationsError('JSON must be an object, not an array or primitive.');
+    }
+  } catch (e: any) {
+    setSpecificationsObj(null);
+    setSpecificationsError(e.message || 'Invalid JSON');
+  }
+};
+
+
+
+
+
 
   // Bulk upload states
   const [uploadMode, setUploadMode] = useState<'single' | 'bulk'>('single');
@@ -968,6 +1060,23 @@ const ProductManagement = memo<{
             product[header] = values[i] || '';
           });
 
+          // Parse JSON in `specifications` if present
+if (product.specifications) {
+  try {
+    const parsed = JSON.parse(product.specifications);
+    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
+      product.specifications = parsed;
+    } else {
+      product.errors.push('specifications must be a JSON object');
+      product.isValid = false;
+    }
+  } catch {
+    product.errors.push('Invalid specifications JSON');
+    product.isValid = false;
+  }
+}
+
+
           product.isValid = product.name && product.price && product.category;
           product.errors = [];
           
@@ -1010,7 +1119,9 @@ const ProductManagement = memo<{
       uploadData.append('stock', formData.stock || '0');
       uploadData.append('category', formData.category);
       uploadData.append('description', formData.description.trim());
-      
+      if (specificationsObj) {
+  uploadData.append('specifications', JSON.stringify(specificationsObj));
+}
       // Add Cloudinary image URLs
       if (uploadedImages.length > 0) {
         uploadData.append('imageUrl', uploadedImages[0].secure_url);
@@ -1025,7 +1136,10 @@ const ProductManagement = memo<{
         setFormData({ name: '', price: '', stock: '', category: '', description: '' });
         setUploadedImages([]);
         setUploadProgress(0);
-        
+        setSpecificationsText('');
+setSpecificationsObj(null);
+setSpecificationsError(null);
+
         showNotification('✅ Product uploaded successfully with Cloudinary images!', 'success');
         onStatsRefresh();
       } else {
@@ -1064,22 +1178,27 @@ const ProductManagement = memo<{
     setIsBulkSubmitting(true);
     
     try {
-      const productsData = validProducts.map(product => ({
-        name: product.name,
-        price: parseFloat(product.price),
-        stockQuantity: parseInt(product.stock) || 0,
-        category: product.category,
-        description: product.description || ''
-      }));
+     const productsData = validProducts.map(product => ({
+  name: product.name,
+  price: parseFloat(product.price),
+  stockQuantity: parseInt(product.stock) || 0, // ensure this matches your API (stock vs stockQuantity)
+  category: product.category,
+  description: product.description || '',
+  specifications: (product.specifications && typeof product.specifications === 'object')
+    ? product.specifications
+    : undefined // if your backend expects a string: JSON.stringify(product.specifications)
+}));
+
 
       const response = await bulkUploadProducts(productsData);
       
       if (response && response.success) {
         showNotification(`✅ Successfully uploaded ${response.successCount} products!`, 'success');
         
-        if (response.failureCount > 0) {
-          showNotification(`⚠️ ${response.failureCount} products failed to upload`, 'error');
-        }
+     if (response.failureCount && response.failureCount > 0) {
+  showNotification(`⚠️ ${response.failureCount} products failed to upload`, 'error');
+}
+
 
         setBulkProducts([]);
         setCsvFile(null);
@@ -1098,12 +1217,13 @@ const ProductManagement = memo<{
   };
 
   const downloadSampleCSV = () => {
-    const sampleData = [
-      'name,price,stock,category,description',
-      'Sample TWS Earbuds,1299,50,TWS,High-quality wireless earbuds',
-      'Sample Bluetooth Neckband,899,30,Bluetooth Neckbands,Comfortable neckband',
-      'Sample Data Cable,299,100,Data Cables,Fast charging USB cable'
-    ].join('\n');
+   const sampleData = [
+  'name,price,stock,category,description,specifications',
+  'Sample TWS Earbuds,1299,50,TWS,"High-quality wireless earbuds","{""input"":""AC 100-240V"",""output"":""5V 2.4A"",""warranty"":""6 months""}"',
+  'Sample Bluetooth Neckband,899,30,Bluetooth Neckbands,"Comfortable neckband","{""battery"":""220mAh"",""bluetooth"":""5.3""}"',
+  'Sample Data Cable,299,100,Data Cables,"Fast charging USB cable","{""length"":""1m"",""type"":""USB-C""}"'
+].join('\n');
+
 
     const blob = new Blob([sampleData], { type: 'text/csv' });
     const url = window.URL.createObjectURL(blob);
@@ -1205,10 +1325,13 @@ const ProductManagement = memo<{
                   <option value="Mobile Chargers">Mobile Chargers</option>
                   <option value="Mobile ICs">Mobile ICs</option>
                   <option value="Mobile Repairing Tools">Mobile Repairing Tools</option>
+                  <option value="Car Charger">Car Chargers</option>
+                  <option value="Bluetooth Speaker">Bluetooth Speaker</option>
+                  <option value="Power Bank">Power Bank</option>
                 </select>
               </div>
             </div>
-
+                
             <div className="form-group">
               <label htmlFor="description">Description</label>
               <textarea
@@ -1221,6 +1344,53 @@ const ProductManagement = memo<{
                 rows={3}
               />
             </div>
+
+
+
+<div className="form-group">
+  <label htmlFor="specifications">Product Specifications (JSON)</label>
+  <textarea
+    id="specifications"
+    name="specifications"
+    value={specificationsText}
+    onChange={(e) => handleSpecificationsChange(e.target.value)}
+    disabled={isSubmitting}
+    placeholder={`{
+  "input": "AC 100-240V",
+  "output": "DC 5V 2.4A",
+  "ports": "USB-A x 2",
+  "cable": "Type-C 1m",
+  "warranty": "6 months",
+  "color": "Black"
+}`}
+    rows={8}
+    style={{ fontFamily: 'monospace', fontSize: '14px' }}
+  />
+  <small style={{ color: '#666', fontSize: 12, marginTop: 6, display: 'block' }}>
+    Paste valid JSON (object). Example above.
+  </small>
+
+  {specificationsError ? (
+    <div style={{
+      marginTop: 8, padding: 8, backgroundColor: '#fdecea',
+      border: '1px solid #f5c2c7', borderRadius: 4, color: '#842029', fontSize: 12
+    }}>
+      ❌ {specificationsError}
+    </div>
+  ) : specificationsObj ? (
+    <div style={{
+      marginTop: 8, padding: 8, backgroundColor: '#e7f5ff',
+      border: '1px solid #a5d8ff', borderRadius: 4, color: '#0b7285', fontSize: 12
+    }}>
+      ✅ {Object.keys(specificationsObj).length} specs loaded
+    </div>
+  ) : null}
+</div>
+
+
+
+
+
 
             {/* ✅ Enhanced Cloudinary Image Upload Section */}
             <div className="form-group">
@@ -1325,6 +1495,8 @@ const ProductManagement = memo<{
                         <th>Stock</th>
                         <th>Category</th>
                         <th>Status</th>
+                        <th>Specs</th>
+
                       </tr>
                     </thead>
                     <tbody>
@@ -1409,6 +1581,7 @@ const Overview = memo<{ stats: any }>(({ stats }) => (
 ));
 
 // ✅ Navigation component (UNCHANGED - All existing functionality preserved)
+// Update your Navigation component (around line 550+ in your file)
 const Navigation = memo<{
   activeTab: string;
   setActiveTab: (tab: string) => void;
@@ -1435,24 +1608,37 @@ const Navigation = memo<{
       >
         📦 Products
       </button>
-
-       <button
-  className={activeTab === 'orders' ? 'active' : ''}
-  onClick={() => setActiveTab('orders')}
->
-  📦 Orders
-</button>
-
-
-
+      <button
+        className={activeTab === 'orders' ? 'active' : ''}
+        onClick={() => setActiveTab('orders')}
+      >
+        📦 Orders
+      </button>
       <button 
         className={activeTab === 'inventory' ? 'active' : ''}
         onClick={() => setActiveTab('inventory')}
       >
         📋 Inventory
       </button>
-
-
+      {/* ADD THESE NEW BUTTONS */}
+      <button 
+        className={activeTab === 'returns' ? 'active' : ''}
+        onClick={() => setActiveTab('returns')}
+      >
+        🔄 Returns
+      </button>
+      <button 
+        className={activeTab === 'reviews' ? 'active' : ''}
+        onClick={() => setActiveTab('reviews')}
+      >
+        ⭐ Reviews
+      </button>
+      <button 
+        className={activeTab === 'payments' ? 'active' : ''}
+        onClick={() => setActiveTab('payments')}
+      >
+        💳 Payments
+      </button>
       {onLogout && (
         <button className="logout-btn" onClick={onLogout}>
           🚪 Logout
@@ -1462,9 +1648,10 @@ const Navigation = memo<{
   </nav>
 ));
 
+
 // ✅ Main AdminDashboard component (UNCHANGED - All existing functionality preserved)
 const AdminDashboard: React.FC<AdminDashboardProps> = ({ adminData, onLogout }) => {
-  const [activeTab, setActiveTab] = useState('overview');
+   const [activeTab, setActiveTab] = useState<'overview' | 'products' | 'inventory' | 'orders' | 'returns' | 'reviews' | 'payments'>('overview');
   const [stats, setStats] = useState({
     totalProducts: 0,
     pendingOrders: 0,
@@ -1559,25 +1746,30 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ adminData, onLogout }) 
         );
         case 'orders':
   return <OrdersTab />;
-
+ case 'returns':
+      return <ReturnProduct />;
+    case 'reviews':
+      return <ProductReview />;
+    case 'payments':
+      return <PaymentSection />;
       default:
         return <Overview stats={stats} />;
     }
   };
 
   return (
-    <div className="admin-dashboard">
-      <Navigation 
-        activeTab={activeTab}
-        setActiveTab={setActiveTab}
-        adminData={adminData}
-        onLogout={onLogout}
-      />
-      <main className="dashboard-main">
-        {renderActiveComponent()}
-      </main>
-    </div>
-  );
+  <div className="admin-dashboard">
+    <Navigation 
+      activeTab={activeTab}
+      setActiveTab={setActiveTab as (tab: string) => void}  // ✅ Type casting
+      adminData={adminData}
+      onLogout={onLogout}
+    />
+    <main className="dashboard-main">
+      {renderActiveComponent()}
+    </main>
+  </div>
+);
 };
 
 export default AdminDashboard;
