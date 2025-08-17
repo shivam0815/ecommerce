@@ -3,7 +3,7 @@ import dotenv from 'dotenv';
 dotenv.config();
 import searchRoutes from './routes/searchRoutes';
 import express from 'express';
-import cors from 'cors';
+import cors, { CorsOptions } from 'cors'; // ⬅️ include CorsOptions
 import helmet from 'helmet';
 import morgan from 'morgan';
 import compression from 'compression';
@@ -51,35 +51,65 @@ if (missingEnvVars.length > 0) {
   });
   process.exit(1);
 }
+
 const devOrigins = [
   'http://localhost:5173',
   'http://127.0.0.1:5173',
   'http://localhost:3000',
   'http://127.0.0.1:3000',
- 'https://ecommerce-three-phi-86.vercel.app',
 ];
 
 const prodOrigins = [
   'https://yourdomain.com',
   'https://www.yourdomain.com',
+  'https://ecommerce-three-phi-86.vercel.app',
 ];
+
+/* ------------------------------- C O R S  ------------------------------- */
+/*  place CORS BEFORE helmet/limiter/routes and reply to all preflights     */
+const STATIC_ALLOW = new Set<string>([
+  'https://ecommerce-three-phi-86.vercel.app', // stable Vercel URL
+  'https://nakoda-mobile.com',                  // (optional) custom domains
+  'https://www.nakoda-mobile.com',
+]);
+
+// allow preview deploys like https://ecommerce-xxxxx-shivam0815s-projects.vercel.app
+const VERCEL_PREVIEW = /^https:\/\/[a-z0-9-]+-shivam0815s-projects\.vercel\.app$/i;
+
+const corsOptions: CorsOptions = {
+  origin(origin, cb) {
+    if (!origin) return cb(null, true); // curl/Postman/no Origin
+    if (STATIC_ALLOW.has(origin) || VERCEL_PREVIEW.test(origin)) return cb(null, true);
+    console.warn(`❌ CORS blocked origin: ${origin}`);
+    return cb(new Error('Not allowed by CORS'));
+  },
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'x-auth-token', 'Authorization', 'x-requested-with'],
+  optionsSuccessStatus: 204,
+};
+
+app.use(cors(corsOptions));
+app.options('*', cors(corsOptions)); // preflight responder
+/* ---------------------------- END C O R S  ----------------------------- */
+
 // ✅ Setup Socket.IO
 const allowedSocketOrigins =
   process.env.NODE_ENV === 'production' ? prodOrigins : devOrigins;
 
 const io = new Server(server, {
-  path: '/socket.io', // explicit (default, but good to be explicit)
+  path: '/socket.io',
   cors: {
     origin(origin, cb) {
       if (!origin) return cb(null, true); // SSR / curl
-      if (allowedSocketOrigins.includes(origin)) return cb(null, true);
+      if (allowedSocketOrigins.includes(origin) || VERCEL_PREVIEW.test(origin)) return cb(null, true); // allow previews too
       console.warn('❌ Socket.IO CORS blocked:', origin);
       cb(new Error('Not allowed by Socket.IO CORS'));
     },
     credentials: true,
     methods: ['GET', 'POST'],
   },
-  transports: ['websocket', 'polling'], // allow fallback
+  transports: ['websocket', 'polling'],
 });
 
 // Connect to database
@@ -99,11 +129,11 @@ io.on('connection', (socket: Socket) => {
   // Generic join handler
   socket.on('join', ({ role, userId }: { role?: string; userId?: string }) => {
     if (role === 'admin') {
-      socket.join('admins'); // plural, unified
+      socket.join('admins');
       console.log('👑 Admin joined:', socket.id);
     }
     if (userId) {
-      socket.join(userId); // user-specific room
+      socket.join(userId);
       console.log(`👤 User room joined: ${userId} (${socket.id})`);
     }
   });
@@ -210,36 +240,6 @@ app.use((req, res, next): void => {
 
 // Apply rate limiting to all API routes (except test endpoints)
 app.use('/api/', limiter);
-
-// ✅ CORS configuration with detailed logging
-app.use(cors({
-  origin: function (origin, callback) {
-    if (!origin) return callback(null, true);
-
-    const allowedOrigins = process.env.NODE_ENV === 'production'
-      ? [
-          'https://yourdomain.com',
-          'https://www.yourdomain.com'
-        ]
-      : [
-          'http://localhost:5173',
-          'http://localhost:3000',
-          'http://127.0.0.1:5173',
-          'http://127.0.0.1:3000'
-        ];
-
-    if (allowedOrigins.includes(origin)) {
-      callback(null, true);
-    } else {
-      console.warn(`❌ CORS blocked origin: ${origin}`);
-      callback(new Error('Not allowed by CORS'));
-    }
-  },
-  credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
-  allowedHeaders: ['Content-Type', 'x-auth-token', 'Authorization', 'x-requested-with'],
-  optionsSuccessStatus: 200
-}));
 
 // ✅ Basic route for API health check
 app.get('/', (req, res): void => {
@@ -352,9 +352,7 @@ app.use('/api/user', userRoutes);
 app.use('/api', searchRoutes);
 // ❌ Removed duplicate: app.use('/uploads', express.static('uploads'));
 
-// ✅ TEST ENDPOINTS (MOVED TO CORRECT POSITION - BEFORE ERROR HANDLERS)
-
-// Test uploads endpoint
+// ✅ TEST ENDPOINTS
 app.get('/api/test/uploads', (req, res) => {
   try {
     const uploadsExists = fs.existsSync(uploadsDir);
@@ -377,12 +375,10 @@ app.get('/api/test/uploads', (req, res) => {
   }
 });
 
-// ✅ CLOUDINARY TEST ENDPOINT (MOVED FROM BOTTOM)
 app.get('/api/test/cloudinary', async (req, res) => {
   try {
     console.log('🧪 Testing Cloudinary connection...');
 
-    // Check environment variables first
     const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
     const apiKey = process.env.CLOUDINARY_API_KEY;
     const apiSecret = process.env.CLOUDINARY_API_SECRET;
@@ -390,7 +386,7 @@ app.get('/api/test/cloudinary', async (req, res) => {
     console.log('📋 Environment check:', {
       cloudName: cloudName ? 'SET' : 'MISSING',
       apiKey: apiKey ? 'SET' : 'MISSING',
-      apiSecret: apiSecret ? 'MISSING' : 'MISSING' // intentionally not logging secret value
+      apiSecret: apiSecret ? 'MISSING' : 'MISSING'
     });
 
     if (!cloudName || !apiKey || !apiSecret) {
@@ -406,10 +402,7 @@ app.get('/api/test/cloudinary', async (req, res) => {
       });
     }
 
-    // Test Cloudinary connection
     const cloudinary = require('cloudinary').v2;
-
-    // Configure cloudinary (in case it's not configured)
     cloudinary.config({
       cloud_name: cloudName,
       api_key: apiKey,
@@ -450,12 +443,10 @@ app.get('/api/test/cloudinary', async (req, res) => {
   }
 });
 
-// ✅ CLOUDINARY UPLOAD TEST ENDPOINT
 app.post('/api/test/upload', async (req, res) => {
   try {
     const { uploadProductImages } = require('./config/cloudinary');
 
-    // Create a simple test image (1x1 pixel PNG)
     const testImageBuffer = Buffer.from(
       'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8/5+hHgAHggJ/PchI7wAAAABJRU5ErkJggg==',
       'base64'
@@ -508,7 +499,6 @@ app.get('/api/health', async (req, res): Promise<void> => {
     dbStatus = 'Error';
   }
 
-  // Test Cloudinary status
   try {
     const cloudinary = require('cloudinary').v2;
     await cloudinary.api.ping();
@@ -698,7 +688,6 @@ app.get('/api/test/razorpay', async (req, res) => {
   try {
     console.log('🧪 Testing Razorpay connection...');
 
-    // Check environment variables
     const keyId = process.env.RAZORPAY_KEY_ID;
     const keySecret = process.env.RAZORPAY_KEY_SECRET;
 
@@ -719,14 +708,12 @@ app.get('/api/test/razorpay', async (req, res) => {
       });
     }
 
-    // Test Razorpay connection
     const Razorpay = require('razorpay');
     const razorpay = new Razorpay({
       key_id: keyId,
       key_secret: keySecret
     });
 
-    // Create a test order
     const testOrder = await razorpay.orders.create({
       amount: 100, // ₹1.00 in paise
       currency: 'INR',
