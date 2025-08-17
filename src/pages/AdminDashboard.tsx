@@ -143,24 +143,36 @@ const CloudinaryImageUpload = memo<{
 };
 
 
-const socket = io("http://localhost:5000", { withCredentials: true });
+// 🔌 Socket setup (inside CloudinaryImageUpload component, before useEffect)
+const socketRef = useRef<ReturnType<typeof io> | null>(null);
 
 useEffect(() => {
-  socket.emit("join", { role: "admin" });
+  // Prefer explicit Vercel env; fallback to API base without /api; final fallback dev
+  const SOCKET_URL =
+    import.meta.env.VITE_SOCKET_URL ||
+    (import.meta.env.VITE_API_URL ? import.meta.env.VITE_API_URL.replace(/\/api$/, '') : '') ||
+    'http://localhost:5000';
 
-  socket.on("orderCreated", (order) => {
-    console.log("📦 New order:", order);
-    // Update your orders table or show notification
+  const socket = io(SOCKET_URL, {
+    withCredentials: true,
+    path: '/socket.io',
+    transports: ['websocket', 'polling'],
   });
+  socketRef.current = socket;
 
-  socket.on("orderStatusUpdated", (order) => {
-    console.log("✅ Order updated:", order);
-    // Refresh row or show toast
+  socket.emit('join', { role: 'admin' });
+
+  socket.on('orderCreated', (order) => {
+    console.log('📦 New order:', order);
+  });
+  socket.on('orderStatusUpdated', (order) => {
+    console.log('✅ Order updated:', order);
   });
 
   return () => {
-    socket.off("orderCreated");
-    socket.off("orderStatusUpdated");
+    socket.off('orderCreated');
+    socket.off('orderStatusUpdated');
+    socket.disconnect();
   };
 }, []);
 
