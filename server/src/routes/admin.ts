@@ -16,7 +16,7 @@ import {
 } from '../controllers/adminController';
 import Product from '../models/Product';
 import Return from '../models/Return';
-import Review from '../models/AdminReview';
+import Review from '../models/Review';
 import Payment from '../models/Payment';
 import {
   getAllOrders,
@@ -652,43 +652,48 @@ router.get('/reviews', [
 });
 
 // PUT /api/admin/reviews/:id/verify - Toggle review verification
-router.put('/reviews/:id/verify', 
+// PUT /api/admin/reviews/:id/status - Approve/Reject reviews
+// Add this route to your admin.ts file in the ADMIN REVIEWS MANAGEMENT section
+// PUT /api/admin/reviews/:id/status - Approve/Reject reviews
+router.put('/reviews/:id/status', [
   ...adminOnly,
-  auditLog('review-verify'),
-  async (req: express.Request, res: express.Response): Promise<void> => {
-    try {
-      console.log(`⭐ Admin: Toggling verification for review ${req.params.id}`);
-      
-      const review = await Review.findById(req.params.id);
-      
-      if (!review) {
-        res.status(404).json({ 
-          success: false,
-          error: 'Review not found' 
-        });
-        return;
-      }
+  auditLog('review-status-update'),
+  body('status').isIn(['pending', 'approved', 'rejected'])
+], handleValidationErrors, async (req: express.Request, res: express.Response): Promise<void> => {
+  try {
+    console.log(`⭐ Admin: Updating review ${req.params.id} status to ${req.body.status}`);
+    const { status } = req.body;
+    
+    const updatedReview = await Review.findByIdAndUpdate(
+      req.params.id,
+      { status },
+      { new: true, runValidators: true }
+    );
 
-      review.verified = !review.verified;
-      const updatedReview = await review.save();
-      
-      console.log(`✅ Admin: Review ${updatedReview.verified ? 'verified' : 'unverified'}`);
-      
-      res.status(200).json({
-        success: true,
-        data: updatedReview,
-        message: `Review ${updatedReview.verified ? 'verified' : 'unverified'} successfully`
-      });
-    } catch (error: any) {
-      console.error('❌ Admin: Update review verification error:', error);
-      res.status(500).json({ 
+    if (!updatedReview) {
+      res.status(404).json({
         success: false,
-        error: 'Failed to update review verification',
-        message: error.message
+        error: 'Review not found'
       });
+      return;
     }
+
+    console.log('✅ Admin: Review status updated successfully');
+    res.status(200).json({
+      success: true,
+      data: updatedReview,
+      message: `Review ${status} successfully`
+    });
+  } catch (error: any) {
+    console.error('❌ Admin: Update review status error:', error);
+    res.status(500).json({
+      success: false,
+      error: 'Failed to update review status',
+      message: error.message
+    });
   }
-);
+});
+
 
 // DELETE /api/admin/reviews/:id - Delete review
 router.delete('/reviews/:id', 

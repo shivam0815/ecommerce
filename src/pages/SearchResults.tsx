@@ -15,6 +15,10 @@ import {
 import { useCart } from '../hooks/useCart';
 import { useWishlist } from '../hooks/useWishlist';
 import { Product, CartItem } from '../types';
+import SEO from '../components/Layout/SEO';
+const location = window.location;
+
+const q = new URLSearchParams(location.search).get('q') || '';
 
 interface SearchResponse {
   success: boolean;
@@ -149,29 +153,33 @@ const Search: React.FC = () => {
       removeFromWishlist(productId);
     } else {
       // Pass the complete Product object with all required properties
-      const wishlistProduct: Product = {
-        _id: product._id,
-        id: product.id,
-        name: product.name,
-        description: product.description, // Required property
-        price: product.price,
-        originalPrice: product.originalPrice,
-        category: product.category,
-        subcategory: product.subcategory,
-        images: product.images || [], // Required property
-        image: product.image,
-        rating: product.rating, // Required property
-        reviewsCount: product.reviewsCount, // Required property
-        inStock: product.inStock,
-        stockQuantity: product.stockQuantity,
-        features: product.features || [], // Required property
-        specifications: product.specifications || {}, // Required property
-        tags: product.tags,
-        isActive: product.isActive,
-        brand: product.brand,
-        createdAt: product.createdAt,
-        updatedAt: product.updatedAt
-      };
+     const wishlistProduct: Product = {
+  _id: product._id,
+  id: product.id,
+  name: product.name,
+  description: product.description,
+  price: product.price,
+  originalPrice: product.originalPrice,
+  category: product.category,
+  subcategory: product.subcategory,
+  images: product.images || [],
+  image: product.image,
+  rating: product.rating,
+  reviewsCount: product.reviewsCount,
+  inStock: product.inStock,
+  stockQuantity: product.stockQuantity,
+  features: product.features || [],
+  specifications: product.specifications || {},
+  tags: product.tags,
+  isActive: product.isActive,
+  brand: product.brand,
+  createdAt: product.createdAt,
+  updatedAt: product.updatedAt,
+  
+  // ✅ Add currency
+  currency: product.currency || "INR", 
+};
+
       
       addToWishlist(wishlistProduct);
     }
@@ -193,6 +201,12 @@ const Search: React.FC = () => {
   if (!query.trim()) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        
+<SEO
+  title={q ? `Search: ${q}` : 'Search'}
+  description={q ? `Results for "${q}"` : 'Search Nakoda Mobile'}
+  canonicalPath={`/search${location.search}`}
+/>
         <div className="text-center">
           <SearchIcon className="mx-auto h-16 w-16 text-gray-400 mb-6" />
           <h2 className="text-2xl font-semibold text-gray-900 mb-3">

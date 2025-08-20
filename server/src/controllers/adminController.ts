@@ -1,3 +1,4 @@
+// src/controllers/adminController.ts
 import { Request, Response } from 'express';
 import jwt from 'jsonwebtoken';
 import bcrypt from 'bcryptjs';
@@ -27,7 +28,38 @@ interface OTPData {
 
 const otpStorage = new Map<string, OTPData>();
 
-// Get authorized admin emails from environment
+// ---------- Helpers (arrays/specs normalization) ----------
+const asArray = (v: any): string[] => {
+  if (!v) return [];
+  if (Array.isArray(v)) return v.filter(Boolean).map(String);
+  if (typeof v === 'string') {
+    try {
+      const parsed = JSON.parse(v);
+      if (Array.isArray(parsed)) return parsed.filter(Boolean).map(String);
+    } catch {}
+    return v
+      .split(',')
+      .map(s => s.trim())
+      .filter(Boolean);
+  }
+  return [];
+};
+
+const parseSpecs = (v: any): Record<string, any> => {
+  if (!v) return {};
+  if (typeof v === 'object' && !Array.isArray(v)) return v;
+  if (typeof v === 'string') {
+    try {
+      const obj = JSON.parse(v);
+      return obj && typeof obj === 'object' ? obj : {};
+    } catch {
+      return {};
+    }
+  }
+  return {};
+};
+
+// ---------- Authorized Admin Emails ----------
 const getAuthorizedEmails = (): string[] => {
   const emails = process.env.AUTHORIZED_ADMIN_EMAILS || '';
   return emails
@@ -36,17 +68,17 @@ const getAuthorizedEmails = (): string[] => {
     .filter(email => email.length > 0);
 };
 
-// Check if email is authorized for admin access
 const isAuthorizedAdminEmail = (email: string): boolean => {
   const authorizedEmails = getAuthorizedEmails();
   const normalizedEmail = email.trim().toLowerCase();
-  
+
   console.log('🔍 Checking email authorization:', normalizedEmail);
   console.log('📋 Authorized emails:', authorizedEmails);
-  
+
   return authorizedEmails.includes(normalizedEmail);
 };
 
+// ---------- Mail Transport ----------
 const transporter = nodemailer.createTransport({
   host: process.env.SMTP_HOST || 'smtp.gmail.com',
   port: 465,
@@ -57,6 +89,7 @@ const transporter = nodemailer.createTransport({
   }
 });
 
+// ---------- OTP Utilities ----------
 const generateOTP = (): string => {
   return crypto.randomInt(100000, 999999).toString();
 };
@@ -70,6 +103,10 @@ const cleanExpiredOTPs = () => {
   }
 };
 
+// ======================================
+// 🔐 ADMIN AUTH (OTP + PASSWORD)
+// ======================================
+
 // Send Admin OTP
 export const sendAdminOtp = async (req: Request, res: Response) => {
   try {
@@ -81,7 +118,6 @@ export const sendAdminOtp = async (req: Request, res: Response) => {
       });
     }
 
-    // Check if email is authorized for admin access
     if (!isAuthorizedAdminEmail(email)) {
       console.log('❌ Unauthorized admin access attempt:', email);
       return res.status(403).json({
@@ -158,7 +194,6 @@ export const verifyAdminOtp = async (req: Request, res: Response) => {
 
     const normalizedEmail = email.trim().toLowerCase();
 
-    // Double-check email authorization during verification
     if (!isAuthorizedAdminEmail(normalizedEmail)) {
       console.log('❌ Unauthorized verification attempt:', normalizedEmail);
       return res.status(403).json({
@@ -202,13 +237,12 @@ export const verifyAdminOtp = async (req: Request, res: Response) => {
     otpStorage.delete(normalizedEmail);
 
     // Find or create admin user
-    let admin = await User.findOne({ 
+    let admin = await User.findOne({
       email: normalizedEmail,
-      role: 'admin' 
+      role: 'admin'
     });
-    
+
     if (!admin) {
-      // Create admin user for authorized email
       console.log('🆕 Creating new admin user for:', normalizedEmail);
       admin = new User({
         name: `Admin (${normalizedEmail.split('@')[0]})`,
@@ -267,7 +301,6 @@ export const adminLogin = async (req: Request, res: Response): Promise<void> => 
 
     const normalizedEmail = email.trim().toLowerCase();
 
-    // Check if email is authorized
     if (!isAuthorizedAdminEmail(normalizedEmail)) {
       console.log('❌ Unauthorized admin login attempt:', normalizedEmail);
       res.status(403).json({
@@ -342,7 +375,9 @@ export const adminLogin = async (req: Request, res: Response): Promise<void> => 
   }
 };
 
-// Get Admin Dashboard Stats
+// ======================================
+// 📊 ADMIN DASHBOARD
+// ======================================
 export const getAdminStats = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     console.log('📊 Getting admin stats for user:', req.user);
@@ -355,7 +390,6 @@ export const getAdminStats = async (req: AuthRequest, res: Response): Promise<vo
       return;
     }
 
-    // Additional check: ensure user email is still authorized
     if (!isAuthorizedAdminEmail(req.user.email)) {
       console.log('❌ Admin access revoked for:', req.user.email);
       res.status(403).json({
@@ -430,24 +464,38 @@ export const getAdminStats = async (req: AuthRequest, res: Response): Promise<vo
   }
 };
 
-// Upload New Product
+// ======================================
+//
+// 📦 PRODUCT CREATE (multi-image + JSON specs)
+//
+// ======================================
 export const uploadProduct = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     console.log('📦 Product upload started');
-    console.log('📋 Request body:', req.body);
-    console.log('📁 Uploaded file:', req.file || (req as any).files);
+    console.log('📋 Request body keys:', Object.keys(req.body || {}));
+    console.log('📁 Uploaded file(s):', (req as any).file ? 'single' : (req as any).files ? 'multiple/fields' : 'none');
 
-    const { name, price, stock, category, description } = req.body;
+    const {
+      name,
+      price,
+      stock,
+      category,
+      description,
+      // optional/advanced fields:
+      features,
+      tags,
+      images,          // optional URLs provided in body
+      specifications   // JSON string or object
+    } = req.body as any;
 
-    // Enhanced validation
+    // Validation
     if (!name || !price || !category) {
-      console.log('❌ Missing required fields');
       res.status(400).json({
         success: false,
         message: 'Name, price, and category are required',
         missing: {
           name: !name,
-          price: !price, 
+          price: !price,
           category: !category
         }
       });
@@ -458,33 +506,21 @@ export const uploadProduct = async (req: AuthRequest, res: Response): Promise<vo
     const parsedStock = parseInt(stock) || 0;
 
     if (isNaN(parsedPrice) || parsedPrice <= 0) {
-      console.log('❌ Invalid price:', price);
-      res.status(400).json({
-        success: false,
-        message: 'Price must be a positive number'
-      });
+      res.status(400).json({ success: false, message: 'Price must be a positive number' });
       return;
     }
-
     if (isNaN(parsedStock) || parsedStock < 0) {
-      console.log('❌ Invalid stock:', stock);
-      res.status(400).json({
-        success: false,
-        message: 'Stock must be a non-negative number'
-      });
+      res.status(400).json({ success: false, message: 'Stock must be a non-negative number' });
       return;
     }
-
-    // Handle image upload to Cloudinary (supports multiple images & common field names)
-    let imageUrls: string[] = [];
-    const files: any[] = [];
 
     // Collect file buffers from possible multer shapes
+    const files: Express.Multer.File[] = [];
     const anyReq: any = req as any;
-    if (req.file && (req.file as any).buffer) {
-      files.push(req.file);
+    if (anyReq.file && anyReq.file.buffer) {
+      files.push(anyReq.file);
     } else if (anyReq.files) {
-      const f = anyReq.files;
+      const f = anyReq.files as Record<string, Express.Multer.File[]>;
       if (Array.isArray(f)) {
         files.push(...f);
       } else {
@@ -499,17 +535,12 @@ export const uploadProduct = async (req: AuthRequest, res: Response): Promise<vo
       }
     }
 
-    // Also accept a direct imageUrl in body as fallback
-    const bodyImageUrl = (req.body?.imageUrl || req.body?.image)?.toString?.().trim?.();
-
+    // Upload each file to Cloudinary via your helper
+    let uploadedUrls: string[] = [];
     if (files.length > 0) {
       try {
-        console.log('📤 Uploading image to Cloudinary...');
-        
-        // Import Cloudinary function
+        console.log(`📤 Uploading ${files.length} image(s) to Cloudinary...`);
         const { uploadProductImages } = await import('../config/cloudinary');
-        
-        // Upload all provided files (multi-image support)
         for (const file of files) {
           const publicId = `product_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
           const uploadResult = await uploadProductImages(
@@ -517,11 +548,9 @@ export const uploadProduct = async (req: AuthRequest, res: Response): Promise<vo
             publicId,
             file.originalname
           );
-          const cloudinaryUrl = uploadResult.secure_url;
-          imageUrls.push(cloudinaryUrl);
+          uploadedUrls.push(uploadResult.secure_url);
         }
-        
-        console.log(`✅ Uploaded ${imageUrls.length} image(s) to Cloudinary`);
+        console.log(`✅ Uploaded ${uploadedUrls.length} image(s)`);
       } catch (uploadError: any) {
         console.error('❌ Cloudinary upload failed:', uploadError);
         res.status(500).json({
@@ -531,18 +560,25 @@ export const uploadProduct = async (req: AuthRequest, res: Response): Promise<vo
         });
         return;
       }
-    } else if (bodyImageUrl && (bodyImageUrl.startsWith('http://') || bodyImageUrl.startsWith('https://'))) {
-      imageUrls = [bodyImageUrl];
-      console.log('ℹ️ Using provided imageUrl from body:', bodyImageUrl);
+    } else {
+      console.log('ℹ️ No files to upload via multipart');
     }
 
+    // Also accept direct image URLs passed in body
+    const bodyImageUrls = asArray(images);
+    const finalImageUrls = [...bodyImageUrls, ...uploadedUrls];
+
+    // Build and save product
     const newProduct = new Product({
-      name: name.trim(),
-      description: description?.trim() || '',
+      name: String(name).trim(),
+      description: String(description || '').trim(),
       price: parsedPrice,
       stockQuantity: parsedStock,
-      category: category.trim(),
-      images: imageUrls, // Use Cloudinary URLs
+      category: String(category).trim(),
+      images: finalImageUrls,                 // ✅ ALL images
+      features: asArray(features),
+      tags: asArray(tags),
+      specifications: parseSpecs(specifications), // ✅ JSON -> object
       inStock: parsedStock > 0,
       isActive: true,
       createdAt: new Date(),
@@ -561,7 +597,10 @@ export const uploadProduct = async (req: AuthRequest, res: Response): Promise<vo
         price: savedProduct.price,
         stockQuantity: savedProduct.stockQuantity,
         category: savedProduct.category,
-        images: savedProduct.images
+        images: savedProduct.images,
+        features: savedProduct.features,
+        tags: savedProduct.tags,
+        specifications: savedProduct.specifications
       }
     });
   } catch (error: any) {
@@ -574,7 +613,9 @@ export const uploadProduct = async (req: AuthRequest, res: Response): Promise<vo
   }
 };
 
-// ✅ COMPLETE: Update Product Status
+// ======================================
+// 🔄 PRODUCT STATUS
+// ======================================
 export const updateProductStatus = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     console.log('🔄 Product status update started');
@@ -584,16 +625,12 @@ export const updateProductStatus = async (req: AuthRequest, res: Response): Prom
     const { id } = req.params;
     const { status } = req.body;
 
-    // Validation
     if (!id) {
-      res.status(400).json({
-        success: false,
-        message: 'Product ID is required'
-      });
+      res.status(400).json({ success: false, message: 'Product ID is required' });
       return;
     }
 
-    if (!status || !['active', 'inactive'].includes(status.toLowerCase())) {
+    if (!status || !['active', 'inactive'].includes(String(status).toLowerCase())) {
       res.status(400).json({
         success: false,
         message: 'Valid status is required (active or inactive)',
@@ -602,37 +639,26 @@ export const updateProductStatus = async (req: AuthRequest, res: Response): Prom
       return;
     }
 
-    // Check if product exists
     const existingProduct = await Product.findById(id);
     if (!existingProduct) {
       console.log('❌ Product not found:', id);
-      res.status(404).json({
-        success: false,
-        message: 'Product not found'
-      });
+      res.status(404).json({ success: false, message: 'Product not found' });
       return;
     }
 
-    const isActive = status.toLowerCase() === 'active';
+    const isActive = String(status).toLowerCase() === 'active';
 
-    // Update product status
     const updatedProduct = await Product.findByIdAndUpdate(
       id,
       {
-        isActive: isActive,
+        isActive,
         updatedAt: new Date()
       },
-      { 
-        new: true,
-        runValidators: true
-      }
+      { new: true, runValidators: true }
     );
 
     if (!updatedProduct) {
-      res.status(500).json({
-        success: false,
-        message: 'Failed to update product status'
-      });
+      res.status(500).json({ success: false, message: 'Failed to update product status' });
       return;
     }
 
@@ -645,7 +671,7 @@ export const updateProductStatus = async (req: AuthRequest, res: Response): Prom
 
     res.json({
       success: true,
-      message: `Product status updated to ${status.toLowerCase()}`,
+      message: `Product status updated to ${String(status).toLowerCase()}`,
       product: {
         id: updatedProduct._id,
         name: updatedProduct.name,
@@ -654,7 +680,6 @@ export const updateProductStatus = async (req: AuthRequest, res: Response): Prom
         updatedAt: updatedProduct.updatedAt
       }
     });
-
   } catch (error: any) {
     console.error('❌ Product status update error:', error);
     res.status(500).json({
@@ -665,7 +690,11 @@ export const updateProductStatus = async (req: AuthRequest, res: Response): Prom
   }
 };
 
-// ✅ BONUS: Get All Products with Pagination
+// ======================================
+// 📚 ADMIN PRODUCT LISTING / UTILITIES
+// ======================================
+
+// Get All Products (Admin)
 export const getAllProducts = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     console.log('📦 Getting all products');
@@ -676,17 +705,16 @@ export const getAllProducts = async (req: AuthRequest, res: Response): Promise<v
     const category = req.query.category as string;
     const search = req.query.search as string;
 
-    // Build filter object
     const filter: any = {};
-    
+
     if (status && ['active', 'inactive'].includes(status.toLowerCase())) {
       filter.isActive = status.toLowerCase() === 'active';
     }
-    
+
     if (category) {
       filter.category = { $regex: category, $options: 'i' };
     }
-    
+
     if (search) {
       filter.$or = [
         { name: { $regex: search, $options: 'i' } },
@@ -726,7 +754,6 @@ export const getAllProducts = async (req: AuthRequest, res: Response): Promise<v
         limit
       }
     });
-
   } catch (error: any) {
     console.error('❌ Get products error:', error);
     res.status(500).json({
@@ -737,7 +764,7 @@ export const getAllProducts = async (req: AuthRequest, res: Response): Promise<v
   }
 };
 
-// ✅ BONUS: Delete Product
+// Delete Product (soft delete -> inactive)
 export const deleteProduct = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     console.log('🗑️ Product deletion started');
@@ -760,7 +787,6 @@ export const deleteProduct = async (req: AuthRequest, res: Response): Promise<vo
       return;
     }
 
-    // Soft delete - mark as inactive instead of hard delete
     await Product.findByIdAndUpdate(id, {
       isActive: false,
       deletedAt: new Date(),
@@ -777,7 +803,6 @@ export const deleteProduct = async (req: AuthRequest, res: Response): Promise<vo
       message: 'Product deleted successfully',
       productName: product.name
     });
-
   } catch (error: any) {
     console.error('❌ Product deletion error:', error);
     res.status(500).json({
@@ -788,7 +813,7 @@ export const deleteProduct = async (req: AuthRequest, res: Response): Promise<vo
   }
 };
 
-// ✅ BONUS: Update Product Stock
+// Update Product Stock
 export const updateProductStock = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     console.log('📊 Product stock update started');
@@ -796,10 +821,7 @@ export const updateProductStock = async (req: AuthRequest, res: Response): Promi
     const { stockQuantity } = req.body;
 
     if (!id) {
-      res.status(400).json({
-        success: false,
-        message: 'Product ID is required'
-      });
+      res.status(400).json({ success: false, message: 'Product ID is required' });
       return;
     }
 
@@ -824,10 +846,7 @@ export const updateProductStock = async (req: AuthRequest, res: Response): Promi
     );
 
     if (!updatedProduct) {
-      res.status(404).json({
-        success: false,
-        message: 'Product not found'
-      });
+      res.status(404).json({ success: false, message: 'Product not found' });
       return;
     }
 
@@ -847,7 +866,6 @@ export const updateProductStock = async (req: AuthRequest, res: Response): Promi
         inStock: updatedProduct.inStock
       }
     });
-
   } catch (error: any) {
     console.error('❌ Product stock update error:', error);
     res.status(500).json({
@@ -858,20 +876,20 @@ export const updateProductStock = async (req: AuthRequest, res: Response): Promi
   }
 };
 
-// ✅ BONUS: Get Low Stock Products
+// Low Stock Products
 export const getLowStockProducts = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     console.log('⚠️ Getting low stock products');
-    
+
     const threshold = parseInt(req.query.threshold as string) || 10;
 
     const lowStockProducts = await Product.find({
       stockQuantity: { $lte: threshold },
       isActive: true
     })
-    .sort({ stockQuantity: 1 })
-    .select('name stockQuantity category price')
-    .lean();
+      .sort({ stockQuantity: 1 })
+      .select('name stockQuantity category price')
+      .lean();
 
     console.log('✅ Low stock products fetched:', lowStockProducts.length);
 
@@ -881,7 +899,6 @@ export const getLowStockProducts = async (req: AuthRequest, res: Response): Prom
       threshold,
       products: lowStockProducts
     });
-
   } catch (error: any) {
     console.error('❌ Low stock products error:', error);
     res.status(500).json({
@@ -891,7 +908,7 @@ export const getLowStockProducts = async (req: AuthRequest, res: Response): Prom
   }
 };
 
-// ✅ BONUS: Admin Profile Management
+// Admin Profile
 export const getAdminProfile = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     if (!req.user) {
@@ -924,7 +941,6 @@ export const getAdminProfile = async (req: AuthRequest, res: Response): Promise<
         updatedAt: admin.updatedAt
       }
     });
-
   } catch (error: any) {
     console.error('❌ Get admin profile error:', error);
     res.status(500).json({

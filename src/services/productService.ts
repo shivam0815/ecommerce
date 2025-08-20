@@ -1,4 +1,3 @@
-// src/services/productService.ts
 import api from '../config/api';
 import { Product } from '../types';
 
@@ -20,11 +19,13 @@ export interface ProductFilters {
   page?: number;
   limit?: number;
   category?: string;
+  brand?: string;
   search?: string;
   minPrice?: number;
   maxPrice?: number;
   sortBy?: string;
   sortOrder?: 'asc' | 'desc';
+  excludeId?: string; // handy for "similar but not this one"
 }
 
 /* ---------- normalize helpers ---------- */
@@ -49,61 +50,71 @@ function normalizeProduct(p: any): Product {
   return {
     ...p,
     specifications: normalizeSpecifications(p?.specifications),
-  };
+  } as Product;
 }
 
 function normalizeProductsResponse(data: any): ProductsResponse {
+  // Accept multiple common shapes: {products: []}, {data: []}, or [] directly
+  const raw =
+    (Array.isArray(data?.products) && data.products) ||
+    (Array.isArray(data?.data) && data.data) ||
+    (Array.isArray(data) && data) ||
+    [];
+
+  const products: Product[] = raw.map(normalizeProduct);
+
   const pagination = data?.pagination || {};
-  const products = (data?.products || []).map(normalizeProduct);
-
   const totalPages =
-    data?.totalPages ??
-    pagination.totalPages ??
-    pagination.pages ??
-    1;
-
+    Number(data?.totalPages ?? pagination.totalPages ?? pagination.pages ?? 1);
   const currentPage =
-    data?.currentPage ??
-    pagination.currentPage ??
-    pagination.page ??
-    1;
-
+    Number(data?.currentPage ?? pagination.currentPage ?? pagination.page ?? 1);
   const total =
-    data?.total ??
-    pagination.totalProducts ??
-    pagination.total ??
-    products.length;
-
-  const limit = pagination.limit ?? data?.limit ?? 12;
-
+    Number(data?.total ?? pagination.totalProducts ?? pagination.total ?? products.length);
+  const limit = Number(pagination.limit ?? data?.limit ?? 12);
   const hasMore =
-    pagination.hasMore ??
-    (Number(currentPage) < Number(totalPages));
+    Boolean(pagination.hasMore ?? (Number(currentPage) < Number(totalPages)));
 
   return {
     products,
-    totalPages: Number(totalPages),
-    currentPage: Number(currentPage),
-    total: Number(total),
+    totalPages,
+    currentPage,
+    total,
     pagination: {
-      currentPage: Number(currentPage),
-      totalPages: Number(totalPages),
-      totalProducts: Number(total),
-      hasMore: Boolean(hasMore),
-      limit: Number(limit),
+      currentPage,
+      totalPages,
+      totalProducts: total,
+      hasMore,
+      limit,
     },
   };
 }
 
+/* ---------- tiny in-memory cache (per-tab) ---------- */
+const memCache = new Map<string, { data: ProductsResponse; ts: number }>();
+const MC_TTL = 60_000; // 60s: keeps rails snappy without stale issues
+const keyOf = (path: string, params?: Record<string, any>) => `${path}?${new URLSearchParams(Object.entries(params||{}).reduce((acc,[k,v])=>{ if(v!=null) acc[k]=String(v); return acc;},{} as Record<string,string>)).toString()}`;
+
 /* ---------- service ---------- */
 export const productService = {
+  /* Core listing */
   async getProducts(filters: ProductFilters = {}, forceRefresh = false): Promise<ProductsResponse> {
     try {
-      const params = { ...filters, ...(forceRefresh && { _t: Date.now() }) };
-      console.log('📤 Fetching products with params:', params);
-      const response = await api.get('/products', { params });
+      const params = { ...filters, ...(forceRefresh ? { _t: Date.now() } : {}) } as Record<string, any>;
+      const urlKey = keyOf('/products', params);
 
+      // mem cache first
+      if (!forceRefresh) {
+        const hit = memCache.get(urlKey);
+        if (hit && Date.now() - hit.ts < MC_TTL) return hit.data;
+      }
+
+      const response = await api.get('/products', { params });
       const normalized = normalizeProductsResponse(response.data);
+
+      // mem cache
+      memCache.set(urlKey, { data: normalized, ts: Date.now() });
+
+      // localStorage cache as fallback for big pages
       localStorage.setItem(
         'products-cache',
         JSON.stringify({ data: normalized, timestamp: Date.now() })
@@ -122,6 +133,66 @@ export const productService = {
     }
   },
 
+  /* Syntactic sugar used by ProductDetail rails */
+  async list(filters: ProductFilters = {}, limit = filters.limit): Promise<Product[]> {
+    const res = await this.getProducts({ ...filters, limit });
+    // Optionally drop excluded id from results
+    const items = res.products.filter(p => {
+      const pid = (p as any)._id || (p as any).id;
+      return !filters.excludeId || pid !== filters.excludeId;
+    });
+    return items;
+  },
+
+  /* Try dedicated endpoint -> fallback to category-based similar */
+  async getRelatedProducts(id: string, limit = 12): Promise<Product[]> {
+    try {
+      // 1) try backend related endpoint variants
+      try {
+        const r1 = await api.get(`/products/${id}/related`, { params: { limit } });
+        const list = (Array.isArray(r1?.data?.products) ? r1.data.products : r1?.data) || [];
+        if (Array.isArray(list) && list.length) return list.map(normalizeProduct);
+      } catch {}
+      try {
+        const r2 = await api.get(`/products/related/${id}`, { params: { limit } });
+        const list = (Array.isArray(r2?.data?.products) ? r2.data.products : r2?.data) || [];
+        if (Array.isArray(list) && list.length) return list.map(normalizeProduct);
+      } catch {}
+
+      // 2) fallback: fetch product -> use its category/brand to find similars
+      const { product } = await this.getProduct(id);
+      const byCat = await this.list({ category: (product as any).category, limit: limit + 5, excludeId: (product as any)._id || (product as any).id });
+      if (byCat.length) return byCat.slice(0, limit);
+
+      // 3) last resort: trending
+      return await this.getTrending(limit);
+    } catch (e) {
+      console.warn('getRelatedProducts fallback due to error', e);
+      return this.getTrending(limit);
+    }
+  },
+
+  async getTrending(limit = 12): Promise<Product[]> {
+    // try explicit endpoint then fallback to sortBy param
+    try {
+      const r = await api.get('/products/trending', { params: { limit } });
+      const arr = (Array.isArray(r?.data?.products) ? r.data.products : r?.data) || [];
+      if (Array.isArray(arr) && arr.length) return arr.map(normalizeProduct);
+    } catch {}
+    const list = await this.list({ sortBy: 'trending', sortOrder: 'desc', limit });
+    return list.slice(0, limit);
+  },
+
+  async getByBrand(brand: string, limit = 12, excludeId?: string): Promise<Product[]> {
+    const items = await this.list({ brand, limit, excludeId });
+    return items.slice(0, limit);
+  },
+
+  async search(query: string, filters: Omit<ProductFilters, 'search'> = {}, limit = 12): Promise<Product[]> {
+    const items = await this.list({ ...filters, search: query, limit });
+    return items.slice(0, limit);
+  },
+
   async getProduct(id: string): Promise<{ success: boolean; product: Product; message?: string }> {
     try {
       console.log('📤 Fetching single product:', id);
@@ -131,11 +202,10 @@ export const productService = {
       }
 
       const response = await api.get(`/products/${id}`);
-      const product = normalizeProduct(response.data.product);
+      const product = normalizeProduct(response?.data?.product);
 
       console.log('✅ Single product fetched:', product?.name || 'Unknown');
-
-      return { success: true, product, message: response.data.message };
+      return { success: true, product, message: response?.data?.message };
     } catch (error: any) {
       console.error('❌ Failed to fetch single product:', error);
       if (error.response?.status === 404) {
@@ -152,14 +222,13 @@ export const productService = {
 
   async createProduct(formData: FormData): Promise<{ message: string; product: Product }> {
     try {
-      console.log('📤 Creating product...');
       const response = await api.post('/products', formData, {
         headers: { 'Content-Type': 'multipart/form-data' },
       });
       this.clearCache();
       this.setRefreshFlag();
-      const product = normalizeProduct(response.data.product);
-      return { ...response.data, product };
+      const product = normalizeProduct(response?.data?.product);
+      return { ...(response.data || {}), product };
     } catch (error) {
       console.error('❌ Product creation failed:', error);
       throw error;
@@ -173,8 +242,8 @@ export const productService = {
       });
       this.clearCache();
       this.setRefreshFlag();
-      const product = normalizeProduct(response.data.product);
-      return { ...response.data, product };
+      const product = normalizeProduct(response?.data?.product);
+      return { ...(response.data || {}), product };
     } catch (error) {
       console.error('❌ Product update failed:', error);
       throw error;
@@ -210,8 +279,8 @@ export const productService = {
     if (sessionFlag || globalFlag) {
       sessionStorage.removeItem('force-refresh-products');
       if (globalFlag) {
-        const flagTime = parseInt(globalFlag);
-        if (Date.now() - flagTime > 30000) {
+        const flagTime = parseInt(globalFlag, 10);
+        if (Date.now() - flagTime > 30_000) {
           localStorage.removeItem('force-refresh-products');
         }
       }
@@ -223,6 +292,7 @@ export const productService = {
   clearCache() {
     localStorage.removeItem('products-cache');
     sessionStorage.removeItem('products-cache');
+    memCache.clear();
     console.log('🗑️ Product cache cleared');
   },
 
@@ -231,7 +301,7 @@ export const productService = {
       const cached = localStorage.getItem('products-cache');
       if (cached) {
         const { data, timestamp } = JSON.parse(cached);
-        if (Date.now() - timestamp < 300000) return data; // 5 minutes
+        if (Date.now() - timestamp < 300_000) return data; // 5 minutes
       }
     } catch (error) {
       console.error('Cache read error:', error);

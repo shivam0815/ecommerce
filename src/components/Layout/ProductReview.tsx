@@ -10,8 +10,38 @@ import {
   Tooltip,
   Legend,
 } from 'chart.js';
-import { Review, ChartData, QualityAssessment } from '../../types';
+import toast from 'react-hot-toast'; // ✅ Add missing import
 import './ProductReview.css';
+
+// ✅ Define proper Review interface
+interface Review {
+  _id: string;
+  productId: string;
+  productName: string;
+  userId: string;
+  userName: string;
+  rating: number;
+  comment: string;
+  verified: boolean;
+  status: 'pending' | 'approved' | 'rejected';
+  helpful: number;
+  reviewDate: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+// ✅ Define other required interfaces
+interface ChartData {
+  labels: string[];
+  datasets: any[];
+}
+
+interface QualityAssessment {
+  excellent: number;
+  good: number;
+  average: number;
+  poor: number;
+}
 
 ChartJS.register(
   CategoryScale,
@@ -24,28 +54,27 @@ ChartJS.register(
 );
 
 const ProductReview: React.FC = () => {
-  // ✅ Initialize as empty array to prevent filter errors
+  // ✅ Properly typed state
   const [reviews, setReviews] = useState<Review[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [selectedProduct, setSelectedProduct] = useState<string>('all');
+  const [updating, setUpdating] = useState<string | null>(null); // ✅ Track which review is being updated
 
   useEffect(() => {
     fetchReviews();
   }, []);
 
-  const fetchReviews = async () => {
+  const fetchReviews = async (): Promise<void> => {
     try {
       setError(null);
       
-      // ✅ Add authentication headers to fix 401 error
-      const token = localStorage.getItem('adminToken'); // or wherever you store your auth token
+      const token = localStorage.getItem('adminToken');
       
       const response = await fetch('/api/admin/reviews', {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
-          // ✅ Add authorization header
           ...(token && { 'Authorization': `Bearer ${token}` })
         }
       });
@@ -59,7 +88,6 @@ const ProductReview: React.FC = () => {
       
       const data = await response.json();
       
-      // ✅ Ensure data is always an array
       if (data.success && Array.isArray(data.data)) {
         setReviews(data.data);
       } else if (Array.isArray(data)) {
@@ -71,37 +99,78 @@ const ProductReview: React.FC = () => {
     } catch (error: any) {
       console.error('Error fetching reviews:', error);
       setError(error.message || 'Failed to load reviews. Please check your connection.');
-      // ✅ Set empty array on error to prevent filter issues
       setReviews([]);
     } finally {
       setLoading(false);
     }
   };
 
-  // ✅ Safe filtering with array check
-  const filteredReviews = selectedProduct === 'all' 
+  // ✅ Fix the update review status function
+  const updateReviewStatus = async (reviewId: string, status: 'approved' | 'rejected'): Promise<void> => {
+    try {
+      setUpdating(reviewId);
+      const token = localStorage.getItem('adminToken');
+      
+      const response = await fetch(`/api/admin/reviews/${reviewId}/status`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({ status })
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to update review status');
+      }
+
+      const result = await response.json();
+      
+      if (result.success) {
+        // ✅ Update local state instead of refetching
+        setReviews(prevReviews => 
+          prevReviews.map(review => 
+            review._id === reviewId 
+              ? { ...review, status } 
+              : review
+          )
+        );
+        toast.success(`Review ${status} successfully!`);
+      } else {
+        throw new Error(result.message || 'Failed to update review');
+      }
+    } catch (error: any) {
+      console.error('Update review status error:', error);
+      toast.error(error.message || 'Failed to update review status');
+    } finally {
+      setUpdating(null);
+    }
+  };
+
+  // ✅ Safe filtering with proper typing
+  const filteredReviews: Review[] = selectedProduct === 'all' 
     ? reviews 
-    : reviews.filter(review => review.productId === selectedProduct);
+    : reviews.filter((review: Review) => review.productId === selectedProduct);
 
   // Calculate rating distribution
-  const ratingDistribution = [1, 2, 3, 4, 5].map(rating => 
-    filteredReviews.filter(review => review.rating === rating).length
+  const ratingDistribution: number[] = [1, 2, 3, 4, 5].map((rating: number) => 
+    filteredReviews.filter((review: Review) => review.rating === rating).length
   );
 
   // Calculate average rating
-  const averageRating = filteredReviews.length > 0 
-    ? filteredReviews.reduce((sum, review) => sum + review.rating, 0) / filteredReviews.length 
+  const averageRating: number = filteredReviews.length > 0 
+    ? filteredReviews.reduce((sum: number, review: Review) => sum + review.rating, 0) / filteredReviews.length 
     : 0;
 
   // Quality assessment based on rating
-  const qualityData = {
-    excellent: filteredReviews.filter(r => r.rating >= 4.5).length,
-    good: filteredReviews.filter(r => r.rating >= 3.5 && r.rating < 4.5).length,
-    average: filteredReviews.filter(r => r.rating >= 2.5 && r.rating < 3.5).length,
-    poor: filteredReviews.filter(r => r.rating < 2.5).length,
+  const qualityData: QualityAssessment = {
+    excellent: filteredReviews.filter((r: Review) => r.rating >= 4.5).length,
+    good: filteredReviews.filter((r: Review) => r.rating >= 3.5 && r.rating < 4.5).length,
+    average: filteredReviews.filter((r: Review) => r.rating >= 2.5 && r.rating < 3.5).length,
+    poor: filteredReviews.filter((r: Review) => r.rating < 2.5).length,
   };
 
-  const barChartData = {
+  const barChartData: ChartData = {
     labels: ['1 Star', '2 Stars', '3 Stars', '4 Stars', '5 Stars'],
     datasets: [{
       label: 'Number of Reviews',
@@ -116,7 +185,7 @@ const ProductReview: React.FC = () => {
     }]
   };
 
-  const pieChartData = {
+  const pieChartData: ChartData = {
     labels: ['Excellent', 'Good', 'Average', 'Poor'],
     datasets: [{
       data: [qualityData.excellent, qualityData.good, qualityData.average, qualityData.poor],
@@ -124,11 +193,11 @@ const ProductReview: React.FC = () => {
     }]
   };
 
-  // Get unique products for filter (with safety check)
-  const uniqueProducts = Array.from(new Set(reviews.map(r => r.productId)))
-    .map(id => ({
+  // Get unique products for filter
+  const uniqueProducts = Array.from(new Set(reviews.map((r: Review) => r.productId)))
+    .map((id: string) => ({
       id,
-      name: reviews.find(r => r.productId === id)?.productName || 'Unknown'
+      name: reviews.find((r: Review) => r.productId === id)?.productName || 'Unknown'
     }));
 
   if (loading) return <div className="loading">Loading reviews...</div>;
@@ -176,7 +245,7 @@ const ProductReview: React.FC = () => {
           <div className="rating-display">
             <span className="rating-number">{averageRating.toFixed(1)}</span>
             <div className="stars">
-              {[1, 2, 3, 4, 5].map(star => (
+              {[1, 2, 3, 4, 5].map((star: number) => (
                 <span 
                   key={star} 
                   className={star <= averageRating ? 'star filled' : 'star'}
@@ -196,7 +265,7 @@ const ProductReview: React.FC = () => {
         <div className="stat-card">
           <h3>Verified Reviews</h3>
           <span className="stat-number">
-            {filteredReviews.filter(r => r.verified).length}
+            {filteredReviews.filter((r: Review) => r.verified).length}
           </span>
         </div>
       </div>
@@ -223,7 +292,7 @@ const ProductReview: React.FC = () => {
             options={{
               responsive: true,
               plugins: {
-                legend: { position: 'bottom' },
+                legend: { position: 'bottom' as const },
                 title: { display: true, text: 'Review Quality Distribution' }
               }
             }}
@@ -238,12 +307,12 @@ const ProductReview: React.FC = () => {
             <p>📝 No reviews found</p>
           </div>
         ) : (
-          filteredReviews.slice(0, 10).map((review) => (
+          filteredReviews.slice(0, 10).map((review: Review) => (
             <div key={review._id} className="review-item">
               <div className="review-header">
                 <span className="user-name">{review.userName}</span>
                 <div className="rating">
-                  {[1, 2, 3, 4, 5].map(star => (
+                  {[1, 2, 3, 4, 5].map((star: number) => (
                     <span 
                       key={star} 
                       className={star <= review.rating ? 'star filled' : 'star'}
@@ -257,10 +326,38 @@ const ProductReview: React.FC = () => {
                 </span>
                 {review.verified && <span className="verified">✅ Verified</span>}
               </div>
+              
               <p className="comment">{review.comment}</p>
+              
               <div className="review-footer">
                 <span className="product-name">{review.productName}</span>
                 <span className="helpful">👍 {review.helpful} helpful</span>
+                
+                {/* ✅ Add review status and action buttons */}
+                <div className="review-actions">
+                  <span className={`status status-${review.status}`}>
+                    {review.status.toUpperCase()}
+                  </span>
+                  
+                  {review.status === 'pending' && (
+                    <div className="action-buttons">
+                      <button 
+                        onClick={() => updateReviewStatus(review._id, 'approved')}
+                        className="approve-btn"
+                        disabled={updating === review._id}
+                      >
+                        {updating === review._id ? '⏳' : '✅'} Approve
+                      </button>
+                      <button 
+                        onClick={() => updateReviewStatus(review._id, 'rejected')}
+                        className="reject-btn"
+                        disabled={updating === review._id}
+                      >
+                        {updating === review._id ? '⏳' : '❌'} Reject
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           ))

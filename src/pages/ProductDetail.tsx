@@ -1,21 +1,23 @@
-// src/pages/ProductDetail.tsx - COMPLETE WITH WISHLIST + SPECIFICATIONS NORMALIZATION
-import React, { useState, useEffect } from 'react';
+// src/pages/ProductDetail.tsx - COMPLETE WITH WISHLIST + SPEC NORMALIZATION + WORKING REVIEWS
+import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Star, ShoppingCart, Heart, Share2, ChevronLeft, Plus, Minus, Truck, Shield, RotateCcw } from 'lucide-react';
+import { Star, ShoppingCart, Heart, Share2, ChevronLeft, Plus, Minus, Truck, Shield, RotateCcw, ChevronRight, MessageCircle } from 'lucide-react';
 import { productService } from '../services/productService';
-import { Product } from '../types';
+import type { Product } from '../types';
 import { useCart } from '../hooks/useCart';
 import { useWishlist } from '../hooks/useWishlist';
 import { resolveImageUrl } from '../utils/imageUtils';
 import toast from 'react-hot-toast';
+import SEO from '../components/Layout/SEO';
+// ⬇️ import your Reviews component (must have a textarea with id="review-textarea")
+// import Reviews from '../components/Layout/Reviews';
 
 // --- Helpers for specs ---
 const normalizeSpecifications = (raw: any): Record<string, any> => {
   if (!raw) return {};
   if (raw instanceof Map) return Object.fromEntries(raw as Map<string, any>);
   if (Array.isArray(raw)) {
-    // If it's entries like [["key","value"]]
     if (raw.length && Array.isArray(raw[0]) && raw[0].length === 2) {
       try { return Object.fromEntries(raw as any); } catch { return {}; }
     }
@@ -44,10 +46,79 @@ const renderSpecValue = (val: any) => {
   if (typeof val === 'number') return String(val);
   if (typeof val === 'string') return val;
   if (Array.isArray(val)) return val.join(', ');
-  // object
   return <code className="text-xs whitespace-pre-wrap break-words">{JSON.stringify(val, null, 2)}</code>;
 };
 // --- End helpers ---
+
+// --- Helpers for product rails ---
+const fmtINR = (v?: number) => typeof v === 'number' ? `₹${v.toLocaleString('en-IN')}` : 'Contact for price';
+
+const safeImage = (src?: string | null, w = 400, h = 400) => {
+  const resolved = resolveImageUrl(src ?? undefined);
+  if (resolved) return resolved;
+  return `https://images.unsplash.com/photo-1586953208448-b95a79798f07?w=${w}&h=${h}&fit=crop&crop=center&auto=format&q=60`;
+};
+
+const MiniCard: React.FC<{ p: Product }> = ({ p }) => {
+  const pid = (p as any)._id || (p as any).id;
+  const img = (p.images && p.images.find(i => i && i !== 'null' && i !== 'undefined')) || '';
+  return (
+    <Link to={`/product/${pid}`} className="group block rounded-xl border border-gray-200 hover:border-blue-300 hover:shadow-md transition-all bg-white">
+      <div className="aspect-square w-full overflow-hidden rounded-t-xl bg-gray-50">
+        <img src={safeImage(img, 300, 300)} alt={p.name} className="h-full w-full object-cover group-hover:scale-105 transition-transform duration-300" onError={(e) => { (e.target as HTMLImageElement).src = safeImage(img,300,300); }} />
+      </div>
+      <div className="p-3 space-y-1">
+        <div className="text-sm font-medium line-clamp-2 text-gray-900">{p.name}</div>
+        <div className="flex items-center gap-2">
+          <span className="text-base font-semibold text-gray-900">{fmtINR(p.price)}</span>
+          {(p as any).originalPrice && (p as any).originalPrice > (p.price ?? 0) && (
+            <>
+              <span className="text-xs text-gray-500 line-through">₹{(p as any).originalPrice.toLocaleString('en-IN')}</span>
+              <span className="text-[10px] font-semibold text-red-700 bg-red-50 px-1.5 py-0.5 rounded">{Math.round((((p as any).originalPrice - (p.price ?? 0)) / (p as any).originalPrice) * 100)}% OFF</span>
+            </>
+          )}
+        </div>
+        {(p as any).rating && (
+          <div className="flex items-center gap-1 text-xs text-gray-600">
+            <Star className={`h-4 w-4 ${Math.floor((p as any).rating) >= 1 ? 'text-yellow-400 fill-current' : 'text-gray-300'}`} />
+            <span>{(p as any).rating}</span>
+          </div>
+        )}
+      </div>
+    </Link>
+  );
+};
+
+const ProductRail: React.FC<{ title: string; items: Product[]; to?: string }>
+= ({ title, items, to }) => {
+  if (!items?.length) return null;
+  return (
+    <section className="mt-10">
+      <div className="flex items-center justify-between mb-3">
+        <h3 className="text-lg font-semibold text-gray-900">{title}</h3>
+        {to && (
+          <Link to={to} className="text-sm text-blue-600 hover:text-blue-700 inline-flex items-center gap-1">View all <ChevronRight className="h-4 w-4"/></Link>
+        )}
+      </div>
+      {/* mobile scroll, desktop grid like Meesho */}
+      <div className="sm:hidden -mx-4 px-4 overflow-x-auto [scrollbar-width:none] [-ms-overflow-style:none]">
+        <div className="flex gap-3 snap-x">
+          {items.map((p) => (
+            <div className="snap-start min-w-[56%]" key={(p as any)._id || (p as any).id}>
+              <MiniCard p={p} />
+            </div>
+          ))}
+        </div>
+      </div>
+      <div className="hidden sm:grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+        {items.slice(0, 10).map((p) => (
+          <MiniCard key={(p as any)._id || (p as any).id} p={p} />
+        ))}
+      </div>
+    </section>
+  );
+};
+// --- End product rails helpers ---
 
 const ProductDetail: React.FC = () => {
   const { id } = useParams<{ id: string }>();
@@ -61,12 +132,15 @@ const ProductDetail: React.FC = () => {
   const { addToCart, isLoading } = useCart();
   const { addToWishlist, removeFromWishlist, isInWishlist, isLoading: wishlistLoading } = useWishlist();
 
-  const getSafeImageUrl = (imagePath: string | undefined | null): string => {
-    const resolvedUrl = resolveImageUrl(imagePath);
-    if (resolvedUrl) return resolvedUrl;
-    return 'https://images.unsplash.com/photo-1586953208448-b95a79798f07?w=400&h=400&fit=crop&crop=center&auto=format&q=60';
-  };
+  const getSafeImageUrl = (imagePath: string | undefined | null): string => safeImage(imagePath);
 
+  // Related rails state
+  const [similarByCategory, setSimilarByCategory] = useState<Product[]>([]);
+  const [moreFromBrand, setMoreFromBrand] = useState<Product[]>([]);
+  const [trending, setTrending] = useState<Product[]>([]);
+  const [railsLoading, setRailsLoading] = useState(false);
+
+  // Fetch product
   useEffect(() => {
     const fetchProduct = async () => {
       if (!id) return;
@@ -75,7 +149,6 @@ const ProductDetail: React.FC = () => {
         setError(null);
         const response = await productService.getProduct(id);
 
-        // 🔧 Normalize specs + reviewsCount for safe rendering
         const normalized = {
           ...response.product,
           specifications: normalizeSpecifications((response.product as any)?.specifications),
@@ -95,6 +168,44 @@ const ProductDetail: React.FC = () => {
     fetchProduct();
   }, [id]);
 
+  // Fetch rails after product is loaded
+  useEffect(() => {
+    const run = async () => {
+      if (!product) return;
+      try {
+        setRailsLoading(true);
+        const pid = (product as any)._id || (product as any).id;
+
+        // Try explicit endpoints if available; fall back to list queries
+        const [relCat, relBrand, top] = await Promise.all([
+          (productService as any).getRelatedProducts?.(pid) ?? (productService as any).list?.({ category: product.category, limit: 12 }) ?? [],
+          product?.['brand'] ? ( (productService as any).list?.({ brand: (product as any).brand, excludeId: pid, limit: 12 }) ?? [] ) : [],
+          (productService as any).list?.({ sort: 'trending', limit: 12 }) ?? [],
+        ]);
+
+        setSimilarByCategory(Array.isArray(relCat) ? relCat.filter((p: any) => ((p._id || p.id) !== pid)) : []);
+        setMoreFromBrand(Array.isArray(relBrand) ? relBrand : []);
+        setTrending(Array.isArray(top) ? top : []);
+      } catch (e) {
+        // silent fail for rails
+      } finally {
+        setRailsLoading(false);
+      }
+    };
+    run();
+  }, [product]);
+
+  // If URL has #reviews, auto-open the tab and focus the form
+  useEffect(() => {
+    if (window.location.hash === '#reviews') {
+      setActiveTab('reviews');
+      setTimeout(() => {
+        const el = document.getElementById('review-textarea') as HTMLTextAreaElement | null;
+        if (el) el.focus();
+      }, 300);
+    }
+  }, []);
+
   const handleAddToCart = async () => {
     if (!product) return;
     try {
@@ -105,8 +216,8 @@ const ProductDetail: React.FC = () => {
       }
       await addToCart(productId, quantity);
       toast.success(`Added ${quantity} ${quantity === 1 ? 'item' : 'items'} to cart!`);
-    } catch (error: any) {
-      toast.error(error.message || 'Failed to add to cart');
+    } catch (err: any) {
+      toast.error(err.message || 'Failed to add to cart');
     }
   };
 
@@ -123,10 +234,13 @@ const ProductDetail: React.FC = () => {
       } else {
         await addToWishlist(product);
       }
-    } catch (error: any) {
-      toast.error(error.message || 'Wishlist operation failed');
+    } catch (err: any) {
+      toast.error(err.message || 'Wishlist operation failed');
     }
   };
+
+  const productId = useMemo(() => (product ? ((product as any)._id || (product as any).id) : undefined), [product]);
+  const inWishlist = productId ? isInWishlist(productId) : false;
 
   if (loading) {
     return (
@@ -143,6 +257,17 @@ const ProductDetail: React.FC = () => {
     const invalidId = error.includes('Invalid product ID') || error.includes('Cast to ObjectId');
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <SEO
+  title="Shop Products"
+  description="Browse TWS, Bluetooth neckbands, data cables, chargers, ICs, and tools."
+  canonicalPath="/products"
+  jsonLd={{
+    '@context': 'https://schema.org',
+    '@type': 'CollectionPage',
+    name: 'Products',
+    url: 'https://www.your-domain.com/products'
+  }}
+/>
         <div className="text-center max-w-md mx-auto p-6">
           <div className="text-6xl mb-4">{invalidId ? '🔍' : '⚠️'}</div>
           <h2 className="text-2xl font-bold text-gray-900 mb-2">
@@ -180,6 +305,8 @@ const ProductDetail: React.FC = () => {
   if (!product) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
+
+        
         <div className="text-center max-w-md mx-auto p-6">
           <div className="text-6xl mb-4">🔍</div>
           <h2 className="text-2xl font-bold text-gray-900 mb-2">Product Not Found</h2>
@@ -201,9 +328,6 @@ const ProductDetail: React.FC = () => {
   );
   const currentImage = validImages[selectedImage] || validImages[0];
   const hasMultipleImages = validImages.length > 1;
-
-  const productId = (product as any)._id || (product as any).id;
-  const inWishlist = productId ? isInWishlist(productId) : false;
 
   return (
     <div className="min-h-screen bg-gray-50 py-8">
@@ -229,8 +353,7 @@ const ProductDetail: React.FC = () => {
                     className="w-full h-full object-cover"
                     onError={(e) => {
                       const target = e.target as HTMLImageElement;
-                      target.src =
-                        'https://images.unsplash.com/photo-1586953208448-b95a79798f07?w=400&h=400&fit=crop&crop=center&auto=format&q=60';
+                      target.src = safeImage(undefined);
                     }}
                   />
                 ) : (
@@ -259,8 +382,7 @@ const ProductDetail: React.FC = () => {
                         className="w-full h-full object-cover"
                         onError={(e) => {
                           const target = e.target as HTMLImageElement;
-                          target.src =
-                            'https://images.unsplash.com/photo-1586953208448-b95a79798f07?w=80&h=80&fit=crop&crop=center&auto=format&q=60';
+                          target.src = safeImage(undefined,80,80);
                         }}
                       />
                     </button>
@@ -283,14 +405,14 @@ const ProductDetail: React.FC = () => {
 
               {/* Price */}
               <div className="flex items-center space-x-4">
-                <span className="text-3xl font-bold text-gray-900">₹{product.price?.toLocaleString()}</span>
-                {(product as any).originalPrice && (product as any).originalPrice > product.price && (
+                <span className="text-3xl font-bold text-gray-900">₹{product.price?.toLocaleString('en-IN')}</span>
+                {(product as any).originalPrice && (product as any).originalPrice > (product.price ?? 0) && (
                   <>
                     <span className="text-xl text-gray-500 line-through">
-                      ₹{(product as any).originalPrice.toLocaleString()}
+                      ₹{(product as any).originalPrice.toLocaleString('en-IN')}
                     </span>
                     <span className="bg-red-100 text-red-800 text-sm font-semibold px-3 py-1 rounded-full">
-                      {Math.round((((product as any).originalPrice - product.price) / (product as any).originalPrice) * 100)}% OFF
+                      {Math.round((((product as any).originalPrice - (product.price ?? 0)) / (product as any).originalPrice) * 100)}% OFF
                     </span>
                   </>
                 )}
@@ -408,25 +530,35 @@ const ProductDetail: React.FC = () => {
                   whileTap={{ scale: 0.95 }}
                   className="p-3 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
                   onClick={() => {
+                    const url = window.location.href;
+                    const text = `${product.name} - ${product.description ?? ''}`.slice(0, 180);
+                    // prefer native share
                     if (navigator.share) {
                       navigator
-                        .share({
-                          title: product.name,
-                          text: product.description,
-                          url: window.location.href,
-                        })
+                        .share({ title: product.name, text, url })
                         .catch(() => {
-                          navigator.clipboard.writeText(window.location.href);
+                          navigator.clipboard.writeText(url);
                           toast.success('Product link copied to clipboard!');
                         });
                     } else {
-                      navigator.clipboard.writeText(window.location.href);
+                      navigator.clipboard.writeText(url);
                       toast.success('Product link copied to clipboard!');
                     }
                   }}
                 >
                   <Share2 className="h-5 w-5" />
                 </motion.button>
+
+                {/* Quick WhatsApp share like Meesho */}
+                <a
+                  href={`https://wa.me/?text=${encodeURIComponent(`${product.name} ${window.location.href}`)}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="p-3 border border-green-300 rounded-lg hover:bg-green-50 text-green-700 inline-flex items-center"
+                  title="Share on WhatsApp"
+                >
+                  <MessageCircle className="h-5 w-5" />
+                </a>
               </div>
 
               {/* Trust Badges */}
@@ -525,18 +657,75 @@ const ProductDetail: React.FC = () => {
               )}
 
               {activeTab === 'reviews' && (
-                <div className="text-center py-12">
-                  <Star className="h-16 w-16 text-gray-300 mx-auto mb-4" />
-                  <h3 className="text-xl font-semibold mb-2 text-gray-900">No Reviews Yet</h3>
-                  <p className="text-gray-600 mb-6">Be the first customer to share your experience!</p>
-                  <button className="bg-blue-600 text-white px-8 py-3 rounded-lg hover:bg-blue-700 transition-colors font-medium">
-                    Write a Review
-                  </button>
+                <div id="reviews">
+                  <div className="flex items-center justify-between mb-4">
+                    <h3 className="text-lg font-semibold text-gray-900">Customer Reviews</h3>
+                    <button
+                      onClick={() => {
+                        // ensure tab is open + focus the textarea in the Reviews component
+                        setActiveTab('reviews');
+                        window.location.hash = '#reviews';
+                        setTimeout(() => {
+                          const el = document.getElementById('review-textarea') as HTMLTextAreaElement | null;
+                          if (el) el.focus();
+                        }, 250);
+                      }}
+                      className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors font-medium"
+                    >
+                      Write a Review
+                    </button>
+                  </div>
+
+                  {/* Mount your reviews list + form (shows approved reviews and a submission form) */}
+                  {/* <Reviews productId={productId!} productName={product.name} /> */}
                 </div>
               )}
             </div>
           </div>
         </div>
+
+        {/* Meesho-style product rails */}
+        <div className="mt-6">
+          {railsLoading && (
+            <div className="animate-pulse grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
+              {Array.from({ length: 10 }).map((_, i) => (
+                <div key={i} className="h-72 bg-white rounded-xl border border-gray-200" />
+              ))}
+            </div>
+          )}
+
+          <ProductRail title="Similar products you may like" items={similarByCategory} to={`/products?category=${encodeURIComponent(product.category)}`} />
+
+          {(product as any).brand && (
+            <ProductRail title={`More from ${(product as any).brand}`} items={moreFromBrand} to={`/products?brand=${encodeURIComponent((product as any).brand)}`} />
+          )}
+
+          <ProductRail title="Trending now" items={trending} to="/products?sort=trending" />
+        </div>
+
+        {/* SEO: product structured data (helps rich results) */}
+        <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify({
+          '@context': 'https://schema.org/',
+          '@type': 'Product',
+          name: product.name,
+          image: validImages?.map((i) => getSafeImageUrl(i))?.slice(0, 6),
+          description: product.description,
+          sku: productId,
+          brand: (product as any).brand ? { '@type': 'Brand', name: (product as any).brand } : undefined,
+          category: product.category,
+          offers: {
+            '@type': 'Offer',
+            availability: (product as any).inStock ? 'https://schema.org/InStock' : 'https://schema.org/OutOfStock',
+            priceCurrency: 'INR',
+            price: product.price ?? undefined,
+            url: typeof window !== 'undefined' ? window.location.href : undefined,
+          },
+          aggregateRating: (product as any).rating ? {
+            '@type': 'AggregateRating',
+            ratingValue: (product as any).rating,
+            reviewCount: (product as any).reviewsCount || 0
+          } : undefined
+        }) }} />
       </div>
     </div>
   );

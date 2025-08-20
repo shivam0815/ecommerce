@@ -1,17 +1,13 @@
 import axios, { AxiosInstance, AxiosResponse } from 'axios';
 
-/**
- * Base config (Vite envs)
- */
+// Vite Environment Variables (import.meta.env instead of process.env)
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 const APP_NAME = import.meta.env.VITE_APP_NAME || 'Nakoda Mobile';
 const API_TIMEOUT = 30000;
 const IS_DEVELOPMENT = import.meta.env.DEV;
 const IS_PRODUCTION = import.meta.env.PROD;
 
-/**
- * Types
- */
+// Type definitions
 export interface ApiResponse {
   success: boolean;
   sessionToken?: string;
@@ -40,7 +36,7 @@ export interface Product {
   _id: string;
   name: string;
   price: number;
-  stock: number; // if your API uses stockQuantity, map it on the backend or adapt here
+  stockQuantity: number;
   status: 'active' | 'inactive' | 'pending';
   category: string;
   description?: string;
@@ -48,7 +44,6 @@ export interface Product {
   images?: string[];
   createdAt?: string;
   updatedAt?: string;
-  specifications?: Record<string, any>;
 }
 
 export interface ProductsResponse {
@@ -71,38 +66,33 @@ export interface ProductFilters {
   status?: string;
 }
 
-/**
- * Logging helpers (dev only)
- */
+// Utility functions for logging
 const log = (message: string, ...args: any[]) => {
-  if (IS_DEVELOPMENT) console.log(message, ...args);
-};
-const logError = (message: string, ...args: any[]) => {
-  if (IS_DEVELOPMENT) console.error(message, ...args);
+  if (IS_DEVELOPMENT) {
+    console.log(message, ...args);
+  }
 };
 
-/**
- * Axios instance
- */
+const logError = (message: string, ...args: any[]) => {
+  if (IS_DEVELOPMENT) {
+    console.error(message, ...args);
+  }
+};
+
+// Create axios instance for admin API
 const adminApi: AxiosInstance = axios.create({
   baseURL: API_BASE_URL,
   timeout: API_TIMEOUT,
-  headers: { 'Content-Type': 'application/json' },
+  headers: {
+    'Content-Type': 'application/json',
+  },
 });
 
-/**
- * Auth helpers
- */
-export const isAdminAuthenticated = (): boolean => !!localStorage.getItem('adminToken');
-export const getAdminToken = (): string | null => localStorage.getItem('adminToken');
-export const clearAdminSession = (): void => localStorage.removeItem('adminToken');
-
-/**
- * Interceptors
- */
+// Request interceptor to add auth token
 adminApi.interceptors.request.use(
   (config) => {
     log('🚀 API Request:', config.method?.toUpperCase(), config.url);
+    
     const token = getAdminToken();
     if (token) {
       config.headers.Authorization = `Bearer ${token}`;
@@ -110,6 +100,7 @@ adminApi.interceptors.request.use(
     } else {
       log('⚠️ Token check: Missing');
     }
+    
     return config;
   },
   (error) => {
@@ -118,6 +109,7 @@ adminApi.interceptors.request.use(
   }
 );
 
+// Response interceptor for error handling
 adminApi.interceptors.response.use(
   (response: AxiosResponse) => {
     log('✅ API Response:', response.status, response.config.url);
@@ -126,6 +118,7 @@ adminApi.interceptors.response.use(
   (error) => {
     logError('❌ API Error:', error.response?.status, error.config?.url);
     logError('Error details:', error.response?.data);
+    
     if (error.response?.status === 401) {
       log('🔒 Unauthorized - clearing token');
       clearAdminSession();
@@ -133,72 +126,43 @@ adminApi.interceptors.response.use(
         window.location.href = '/admin/login';
       }
     }
+    
     return Promise.reject(error);
   }
 );
 
-/**
- * Utils
- */
-const validateEmail = (email: string): boolean => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+// Utility functions
+export const isAdminAuthenticated = (): boolean => {
+  const token = localStorage.getItem('adminToken');
+  return !!token;
+};
 
-/**
- * 🔒 Normalizer to guarantee a products array for the UI
- * Accepts common backend shapes and returns a stable ProductsResponse
- */
-function normalizeProductsPayload(payload: any, params: ProductFilters = {}): ProductsResponse {
-  // Accept shapes:
-  // 1) { products: [...] }
-  // 2) { data: [...] }
-  // 3) [ ... ] (array directly)
-  const list: Product[] = Array.isArray(payload?.products)
-    ? payload.products
-    : Array.isArray(payload?.data)
-    ? payload.data
-    : Array.isArray(payload)
-    ? payload
-    : [];
+export const getAdminToken = (): string | null => {
+  return localStorage.getItem('adminToken');
+};
 
-  // If your API sends stockQuantity, map to stock here (optional safeguard)
-  const mapped = list.map((p: any) => ({
-    ...p,
-    stock: typeof p.stock === 'number' ? p.stock : (typeof p.stockQuantity === 'number' ? p.stockQuantity : 0),
-  }));
+export const clearAdminSession = (): void => {
+  localStorage.removeItem('adminToken');
+};
 
-  const totalProducts =
-    typeof payload?.totalProducts === 'number'
-      ? payload.totalProducts
-      : mapped.length;
+// Email validation utility
+const validateEmail = (email: string): boolean => {
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  return emailRegex.test(email);
+};
 
-  const limit = params.limit ?? 10;
-  const totalPages =
-    typeof payload?.totalPages === 'number'
-      ? payload.totalPages
-      : Math.max(1, Math.ceil(totalProducts / Math.max(1, limit)));
+// ✅ AUTHENTICATION FUNCTIONS
 
-  const currentPage =
-    typeof payload?.currentPage === 'number' ? payload.currentPage : (params.page ?? 1);
-
-  return {
-    success: true,
-    products: mapped,
-    totalProducts,
-    totalPages,
-    currentPage,
-    message: payload?.message,
-  };
-}
-
-/**
- * AUTH
- */
 export const adminSendOtp = async (data: { email: string }): Promise<ApiResponse> => {
   try {
-    if (!validateEmail(data.email)) throw new Error('Invalid email format');
+    if (!validateEmail(data.email)) {
+      throw new Error('Invalid email format');
+    }
+
     log('📧 Sending OTP to email:', data.email);
-    const res = await adminApi.post('/admin/send-otp', data);
+    const response = await adminApi.post('/admin/send-otp', data);
     log('✅ Email OTP sent successfully');
-    return res.data;
+    return response.data;
   } catch (error: any) {
     logError('❌ Send email OTP failed:', error.response?.data || error.message);
     throw error;
@@ -207,254 +171,264 @@ export const adminSendOtp = async (data: { email: string }): Promise<ApiResponse
 
 export const adminVerifyOtp = async (data: { email: string; otp: string }): Promise<ApiResponse> => {
   try {
-    if (!validateEmail(data.email)) throw new Error('Invalid email format');
-    if (!/^\d{6}$/.test(data.otp)) throw new Error('OTP must be 6 digits');
+    if (!validateEmail(data.email)) {
+      throw new Error('Invalid email format');
+    }
+
+    if (!/^\d{6}$/.test(data.otp)) {
+      throw new Error('OTP must be 6 digits');
+    }
 
     log('🔑 Verifying email OTP for:', data.email);
-    const res = await adminApi.post('/admin/verify-otp', data);
-
-    if (res.data.sessionToken || res.data.token) {
-      const token = res.data.sessionToken || res.data.token;
+    const response = await adminApi.post('/admin/verify-otp', data);
+    
+    if (response.data.sessionToken || response.data.token) {
+      const token = response.data.sessionToken || response.data.token;
       localStorage.setItem('adminToken', token);
       log('✅ Email OTP verification successful');
     }
-    return res.data;
+    
+    return response.data;
   } catch (error: any) {
     logError('❌ Email OTP verification failed:', error.response?.data || error.message);
     throw error;
   }
 };
 
-/**
- * DASHBOARD
- */
+// ✅ DASHBOARD FUNCTIONS
+
 export const getAdminStats = async (): Promise<AdminStats> => {
   try {
     log('📊 Fetching admin stats...');
-    const res = await adminApi.get('/admin/stats');
+    const response = await adminApi.get('/admin/stats');
     log('✅ Stats fetched successfully');
-    return res.data;
+    return response.data;
   } catch (error: any) {
     logError('❌ Get stats failed:', error.response?.data || error.message);
     throw error;
   }
 };
 
-/**
- * PRODUCT MANAGEMENT
- */
+// ✅ PRODUCT MANAGEMENT FUNCTIONS
+
+// Single product upload
 export const uploadProduct = async (formData: FormData): Promise<ApiResponse> => {
   try {
     log('⬆️ Uploading single product...');
-    const res = await adminApi.post('/admin/products/upload', formData, {
-      headers: { 'Content-Type': 'multipart/form-data' },
+    const response = await adminApi.post('/admin/products/upload', formData, {
+      headers: {
+        'Content-Type': 'multipart/form-data',
+      },
       timeout: 60000,
     });
     log('✅ Product uploaded successfully');
-    return res.data;
+    return response.data;
   } catch (error: any) {
     logError('❌ Upload product failed:', error.response?.data || error.message);
     throw error;
   }
 };
 
+// Bulk product upload
 export const bulkUploadProducts = async (products: Partial<Product>[]): Promise<ApiResponse> => {
   try {
     if (!Array.isArray(products) || products.length === 0) {
       throw new Error('Products array is required and cannot be empty');
     }
+
     log('📦 Bulk uploading products...', products.length, 'products');
-    const res = await adminApi.post('/admin/products/bulk-upload', { products }, { timeout: 120000 });
+    const response = await adminApi.post('/admin/products/bulk-upload', {
+      products
+    }, {
+      timeout: 120000,
+    });
     log('✅ Bulk upload completed');
-    return res.data;
+    return response.data;
   } catch (error: any) {
     logError('❌ Bulk upload failed:', error.response?.data || error.message);
     throw error;
   }
 };
 
-/**
- * INVENTORY (list + CRUD)
- */
+// ✅ INVENTORY MANAGEMENT FUNCTIONS
+
+// Get products with pagination and filters (for inventory management)
 export const getProducts = async (params: ProductFilters = {}): Promise<ProductsResponse> => {
   try {
     log('📦 Fetching products with filters:', params);
-    const res = await adminApi.get('/admin/products', { params });
-    log('✅ Raw products payload received:', res.data);
-    // Always normalize to a safe structure with a guaranteed array
-    return normalizeProductsPayload(res.data, params);
+    const response = await adminApi.get('/admin/products', { params });
+    log('✅ Products fetched successfully');
+    return response.data;
   } catch (error: any) {
     logError('❌ Get products failed:', error.response?.data || error.message);
-    // Return a safe, empty result so the UI never crashes
-    return {
-      success: false,
-      products: [],
-      totalProducts: 0,
-      totalPages: 1,
-      currentPage: params.page ?? 1,
-      message: error.response?.data?.message || error.message || 'Failed to fetch products',
-    };
+    throw error;
   }
 };
 
-export const getProductById = async (
-  productId: string
-): Promise<{ success: boolean; product: Product; message?: string }> => {
+// Get single product by ID
+export const getProductById = async (productId: string): Promise<{ success: boolean; product: Product; message?: string }> => {
   try {
     log('📦 Fetching product by ID:', productId);
-    const res = await adminApi.get(`/admin/products/${productId}`);
+    const response = await adminApi.get(`/admin/products/${productId}`);
     log('✅ Product fetched successfully');
-    return res.data;
+    return response.data;
   } catch (error: any) {
     logError('❌ Get product by ID failed:', error.response?.data || error.message);
     throw error;
   }
 };
 
+// Update single product
 export const updateProduct = async (
-  productId: string,
+  productId: string, 
   productData: Partial<Product>
 ): Promise<ApiResponse> => {
   try {
     log('✏️ Updating product:', productId);
-    const res = await adminApi.put(`/admin/products/${productId}`, productData);
+    const response = await adminApi.put(`/admin/products/${productId}`, productData);
     log('✅ Product updated successfully');
-    return res.data;
+    return response.data;
   } catch (error: any) {
     logError('❌ Update product failed:', error.response?.data || error.message);
     throw error;
   }
 };
 
+// Delete single product
 export const deleteProduct = async (productId: string): Promise<ApiResponse> => {
   try {
     log('🗑️ Deleting product:', productId);
-    const res = await adminApi.delete(`/admin/products/${productId}`);
+    const response = await adminApi.delete(`/admin/products/${productId}`);
     log('✅ Product deleted successfully');
-    return res.data;
+    return response.data;
   } catch (error: any) {
     logError('❌ Delete product failed:', error.response?.data || error.message);
     throw error;
   }
 };
 
+// Bulk update products
 export const bulkUpdateProducts = async (
-  productIds: string[],
+  productIds: string[], 
   updateData: Partial<Product>
 ): Promise<ApiResponse> => {
   try {
     if (!Array.isArray(productIds) || productIds.length === 0) {
       throw new Error('Product IDs array is required and cannot be empty');
     }
+
     log('📝 Bulk updating products:', productIds.length, 'products');
-    const res = await adminApi.put('/admin/products/bulk-update', { productIds, updateData });
+    const response = await adminApi.put('/admin/products/bulk-update', {
+      productIds,
+      updateData
+    });
     log('✅ Bulk update completed');
-    return res.data;
+    return response.data;
   } catch (error: any) {
     logError('❌ Bulk update failed:', error.response?.data || error.message);
     throw error;
   }
 };
 
+// Bulk delete products
 export const bulkDeleteProducts = async (productIds: string[]): Promise<ApiResponse> => {
   try {
     if (!Array.isArray(productIds) || productIds.length === 0) {
       throw new Error('Product IDs array is required and cannot be empty');
     }
+
     log('🗑️ Bulk deleting products:', productIds.length, 'products');
-    const res = await adminApi.delete('/admin/products/bulk-delete', { data: { productIds } });
+    const response = await adminApi.delete('/admin/products/bulk-delete', {
+      data: { productIds }
+    });
     log('✅ Bulk delete completed');
-    return res.data;
+    return response.data;
   } catch (error: any) {
     logError('❌ Bulk delete failed:', error.response?.data || error.message);
     throw error;
   }
 };
 
+// Update product status
 export const updateProductStatus = async (
-  productId: string,
+  productId: string, 
   status: 'active' | 'inactive' | 'pending'
 ): Promise<ApiResponse> => {
   try {
     log('🔄 Updating product status:', productId, status);
-    const res = await adminApi.patch(`/admin/products/${productId}/status`, { status });
+    const response = await adminApi.patch(`/admin/products/${productId}/status`, { status });
     log('✅ Product status updated successfully');
-    return res.data;
+    return response.data;
   } catch (error: any) {
     logError('❌ Update product status failed:', error.response?.data || error.message);
     throw error;
   }
 };
 
-export const updateProductStock = async (productId: string, stock: number): Promise<ApiResponse> => {
+// Update product stock
+export const updateProductStock = async (
+  productId: string, 
+  stock: number
+): Promise<ApiResponse> => {
   try {
     log('📦 Updating product stock:', productId, stock);
-    const res = await adminApi.patch(`/admin/products/${productId}/stock`, { stock });
+    const response = await adminApi.patch(`/admin/products/${productId}/stock`, { stock });
     log('✅ Product stock updated successfully');
-    return res.data;
+    return response.data;
   } catch (error: any) {
     logError('❌ Update product stock failed:', error.response?.data || error.message);
     throw error;
   }
 };
 
-/**
- * ANALYTICS / REPORTS
- */
+// ✅ ANALYTICS AND REPORTING FUNCTIONS
+
+// Get low stock products
 export const getLowStockProducts = async (threshold: number = 10): Promise<ProductsResponse> => {
   try {
     log('📉 Fetching low stock products...');
-    const res = await adminApi.get(`/admin/products/low-stock?threshold=${threshold}`);
+    const response = await adminApi.get(`/admin/products/low-stock?threshold=${threshold}`);
     log('✅ Low stock products fetched');
-    return normalizeProductsPayload(res.data, { limit: 10, page: 1 });
+    return response.data;
   } catch (error: any) {
     logError('❌ Get low stock products failed:', error.response?.data || error.message);
-    return {
-      success: false,
-      products: [],
-      totalProducts: 0,
-      totalPages: 1,
-      currentPage: 1,
-      message: error.response?.data?.message || error.message || 'Failed to fetch low stock products',
-    };
+    throw error;
   }
 };
 
+// Get products by category
 export const getProductsByCategory = async (): Promise<{ success: boolean; categories: Record<string, number> }> => {
   try {
     log('📊 Fetching products by category...');
-    const res = await adminApi.get('/admin/products/by-category');
+    const response = await adminApi.get('/admin/products/by-category');
     log('✅ Products by category fetched');
-    return res.data;
+    return response.data;
   } catch (error: any) {
     logError('❌ Get products by category failed:', error.response?.data || error.message);
     throw error;
   }
 };
 
+// Export products to CSV
 export const exportProducts = async (filters?: ProductFilters): Promise<Blob> => {
   try {
     log('📊 Exporting products to CSV...');
-    const res = await adminApi.get('/admin/products/export', {
+    const response = await adminApi.get('/admin/products/export', {
       params: filters,
-      responseType: 'blob',
+      responseType: 'blob'
     });
     log('✅ Products exported successfully');
-    return res.data;
+    return response.data;
   } catch (error: any) {
     logError('❌ Export products failed:', error.response?.data || error.message);
     throw error;
   }
 };
 
-/**
- * Legacy alias
- */
-export const getAdminProducts = getProducts;
+// ✅ LEGACY SUPPORT (keeping for backward compatibility)
+export const getAdminProducts = getProducts; // Alias for backward compatibility
 
-/**
- * Expose env for UI
- */
+// Export environment variables for use in components
 export const env = {
   apiUrl: API_BASE_URL,
   appName: APP_NAME,

@@ -6,6 +6,7 @@ import OrdersTab from '../components/Layout/OrderTab';
 import ReturnProduct from '../components/Layout/ReturnProduct';
 import ProductReview from '../components/Layout/ProductReview';
 import PaymentSection from '../components/Layout/PaymentSection';
+import BlogTab from '../components/Layout/BlogTab';
  // adjust path if in a subfolder
 import { io } from "socket.io-client";
 import { 
@@ -13,7 +14,7 @@ import {
   uploadMultipleToBrowser, 
   generateResponsiveImageUrl 
 } from '../utils/cloudinaryBrowser';
-
+import Papa from "papaparse";
 interface AdminDashboardProps {
   adminData?: any;
   onLogout?: () => void;
@@ -143,36 +144,24 @@ const CloudinaryImageUpload = memo<{
 };
 
 
-// 🔌 Socket setup (inside CloudinaryImageUpload component, before useEffect)
-const socketRef = useRef<ReturnType<typeof io> | null>(null);
+const socket = io("http://localhost:5000", { withCredentials: true });
 
 useEffect(() => {
-  // Prefer explicit Vercel env; fallback to API base without /api; final fallback dev
-  const SOCKET_URL =
-    import.meta.env.VITE_SOCKET_URL ||
-    (import.meta.env.VITE_API_URL ? import.meta.env.VITE_API_URL.replace(/\/api$/, '') : '') ||
-    'http://localhost:5000';
+  socket.emit("join", { role: "admin" });
 
-  const socket = io(SOCKET_URL, {
-    withCredentials: true,
-    path: '/socket.io',
-    transports: ['websocket', 'polling'],
+  socket.on("orderCreated", (order) => {
+    console.log("📦 New order:", order);
+    // Update your orders table or show notification
   });
-  socketRef.current = socket;
 
-  socket.emit('join', { role: 'admin' });
-
-  socket.on('orderCreated', (order) => {
-    console.log('📦 New order:', order);
-  });
-  socket.on('orderStatusUpdated', (order) => {
-    console.log('✅ Order updated:', order);
+  socket.on("orderStatusUpdated", (order) => {
+    console.log("✅ Order updated:", order);
+    // Refresh row or show toast
   });
 
   return () => {
-    socket.off('orderCreated');
-    socket.off('orderStatusUpdated');
-    socket.disconnect();
+    socket.off("orderCreated");
+    socket.off("orderStatusUpdated");
   };
 }, []);
 
@@ -319,13 +308,13 @@ const InventoryManagement = memo<{
   // Categories for filtering
   const categories = [
     'TWS', 'Bluetooth Neckbands', 'Data Cables', 
-    'Mobile Chargers', 'Mobile ICs', 'Mobile Repairing Tools', 'Car Charger','Bluetooth Speaker', 'Power Bank'
+    'Mobile Chargers', 'Mobile ICs', 'Mobile Repairing Tools', 'Car Chargers','Bluetooth Speakers', 'Power Banks','others'
   ];
 
 
 
 
-
+      
 
 
 
@@ -530,7 +519,7 @@ const InventoryManagement = memo<{
 
   // ✅ Export products to CSV
   const handleExportCSV = () => {
-    const headers = ['Name', 'Price', 'Stock', 'Category', 'Status', 'Description', 'Specifications'];
+    const headers = ['Name', 'Price', 'Stock', 'Category', 'Status', 'Description', 'Specifications', 'images'];
     const csvData = [
       headers.join(','),
       ...products.map(product => [
@@ -1031,85 +1020,177 @@ const handleSpecificationsChange = (value: string) => {
     setUploadProgress(progress);
   };
 
-  // ✅ CSV upload handler
-  const handleCSVUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
 
-    if (file.type !== 'text/csv' && !file.name.endsWith('.csv')) {
-      showNotification('Please select a CSV file', 'error');
-      if (csvInputRef.current) csvInputRef.current.value = '';
-      return;
-    }
 
-    setCsvFile(file);
-    
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      try {
-        const csv = e.target?.result as string;
-        const lines = csv.split('\n').filter(line => line.trim());
-        
-        if (lines.length < 2) {
-          showNotification('CSV file must contain headers and at least one product', 'error');
-          return;
-        }
-
-        const headers = lines[0].split(',').map(h => h.trim().toLowerCase());
-        const requiredHeaders = ['name', 'price', 'category'];
-        
-        const missingHeaders = requiredHeaders.filter(h => !headers.includes(h));
-        if (missingHeaders.length > 0) {
-          showNotification(`CSV missing required columns: ${missingHeaders.join(', ')}`, 'error');
-          return;
-        }
-
-        const products = lines.slice(1).map((line, index) => {
-          const values = line.split(',').map(v => v.trim());
-          const product: any = { id: index + 1 };
-          
-          headers.forEach((header, i) => {
-            product[header] = values[i] || '';
-          });
-
-          // Parse JSON in `specifications` if present
-if (product.specifications) {
-  try {
-    const parsed = JSON.parse(product.specifications);
-    if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-      product.specifications = parsed;
-    } else {
-      product.errors.push('specifications must be a JSON object');
-      product.isValid = false;
-    }
-  } catch {
-    product.errors.push('Invalid specifications JSON');
-    product.isValid = false;
+  // ---- CSV helpers ----
+const norm = (h: string) => h.trim().toLowerCase().replace(/\s+/g, " ");
+const toNumber = (val: any, opts?: { allowMillions?: boolean }) => {
+  if (val === null || val === undefined) return NaN;
+  let s = String(val).trim();
+  if (opts?.allowMillions && /^[\d.]+\s*m$/i.test(s)) {
+    const m = parseFloat(s.replace(/m/i, ""));
+    return Math.round(m * 1_000_000);
   }
-}
+  s = s.replace(/[^\d.]/g, ""); // strip ₹, commas, spaces
+  if (!s) return NaN;
+  return Number(s);
+};
+const kvSemiToJson = (txt: string) => {
+  const out: Record<string, any> = {};
+  txt.split(";").forEach((pair) => {
+    const [k, v] = pair.split(":");
+    if (!k) return;
+    out[k.trim()] = (v ?? "").toString().trim();
+  });
+  return out;
+};
+const splitImages = (val: any) =>
+  String(val)
+    .split(/[|,]/)
+    .map((u) => u.trim())
+    .filter(Boolean);
 
 
-          product.isValid = product.name && product.price && product.category;
-          product.errors = [];
-          
-          if (!product.name) product.errors.push('Missing name');
-          if (!product.price || isNaN(Number(product.price))) product.errors.push('Invalid price');
-          if (!product.category) product.errors.push('Missing category');
+  // ✅ CSV upload handler
+ // ✅ CSV upload handler (Papa Parse + cleaning + multi-images)
+const handleCSVUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const file = e.target.files?.[0];
+  if (!file) return;
 
-          return product;
-        }).filter(product => product.name || product.price || product.category);
+  if (file.type !== "text/csv" && !file.name.endsWith(".csv")) {
+    showNotification("Please select a CSV file", "error");
+    if (csvInputRef.current) csvInputRef.current.value = "";
+    return;
+  }
 
-        setBulkProducts(products);
-        showNotification(`Loaded ${products.length} products from CSV`, 'success');
+  setCsvFile(file);
 
-      } catch (error) {
-        showNotification('Error parsing CSV file', 'error');
-        console.error('CSV Parse Error:', error);
+  const reader = new FileReader();
+  reader.onload = (ev) => {
+    try {
+      const csvText = (ev.target?.result as string) || "";
+
+      const parsed = Papa.parse(csvText, {
+        header: true,
+        skipEmptyLines: true,
+        transformHeader: (h) => norm(h),
+      });
+
+      if (parsed.errors?.length) {
+        const first = parsed.errors[0];
+        showNotification(`CSV parse error: ${first.message}`, "error");
+        return;
       }
-    };
-    
-    reader.readAsText(file);
+
+      const rows = (parsed.data as any[]) || [];
+      const fields = (parsed.meta.fields || []).map(norm);
+
+      // required columns
+      const required = ["name", "price", "category"];
+      const missing = required.filter((h) => !fields.includes(h));
+      if (missing.length) {
+        showNotification(
+          `CSV missing required columns: ${missing.join(", ")}`,
+          "error"
+        );
+        return;
+      }
+
+      // helper to pick by alias (if needed)
+      const pick = (row: any, keys: string[]) => {
+        for (const k of keys) {
+          const kk = norm(k);
+          if (kk in row && row[kk] !== undefined) return row[kk];
+        }
+        return "";
+      };
+
+      const products = rows
+        .map((raw, index) => {
+          // normalize keys on each row
+          const row: Record<string, any> = {};
+          for (const key in raw) row[norm(key)] = raw[key];
+
+          const product: any = {
+            id: index + 1,
+            name: String(pick(row, ["name"])).trim(),
+            price: pick(row, ["price", "selling price", "amount"]),
+            stock: pick(row, ["stock", "qty", "quantity", "inventory"]),
+            category: String(pick(row, ["category", "cat"])).trim(),
+            description: pick(row, ["description", "desc"]),
+            specifications: pick(row, ["specifications", "specs"]),
+            images: pick(row, ["images", "image urls", "image"]),
+            errors: [],
+            isValid: true,
+          };
+
+          // price cleanup (₹, commas, etc.)
+          const priceNum = toNumber(product.price, { allowMillions: true });
+          if (isNaN(priceNum) || priceNum <= 0) {
+            product.errors.push("Invalid price");
+          } else {
+            product.price = priceNum;
+          }
+
+          // stock cleanup
+          const stockNum = toNumber(product.stock);
+          if (!isNaN(stockNum)) product.stock = Math.floor(stockNum);
+          else product.errors.push("Invalid stock");
+
+          if (!product.name) product.errors.push("Missing name");
+          if (!product.category) product.errors.push("Missing category");
+
+          // specifications: JSON or "Key:Val;Key2:Val2"
+          if (
+            typeof product.specifications === "string" &&
+            product.specifications.trim()
+          ) {
+            const text = product.specifications.trim();
+            if (text.startsWith("{") || text.startsWith("[")) {
+              try {
+                const js = JSON.parse(text);
+                if (js && typeof js === "object") product.specifications = js;
+                else product.errors.push("specifications must be an object");
+              } catch {
+                product.errors.push("Invalid specifications JSON");
+              }
+            } else {
+              product.specifications = kvSemiToJson(text);
+            }
+          }
+
+          // images: split by | or ,
+          if (typeof product.images === "string" && product.images.trim()) {
+            product.images = splitImages(product.images);
+          }
+
+          product.isValid = product.errors.length === 0;
+          return product;
+        })
+        // keep rows that have at least some content
+        .filter((p) => p.name || p.price || p.category);
+
+      setBulkProducts(products);
+
+      const validCount = products.filter((x) => x.isValid).length;
+      const noteType: "success" | "error" =
+  validCount === products.length ? "success" : "error";
+
+showNotification(
+  `Loaded ${products.length} products (Valid: ${validCount}, Invalid: ${
+    products.length - validCount
+  })`,
+  noteType
+);
+
+    } catch (err) {
+      console.error("CSV Parse Error:", err);
+      showNotification("Error parsing CSV file", "error");
+    }
   };
+
+  reader.readAsText(file);
+};
 
   // ✅ Enhanced single product submit with Cloudinary integration
   const handleSingleSubmit = async (e: React.FormEvent) => {
@@ -1190,16 +1271,28 @@ setSpecificationsError(null);
     setIsBulkSubmitting(true);
     
     try {
-     const productsData = validProducts.map(product => ({
+ const productsData = validProducts.map((product) => ({
   name: product.name,
-  price: parseFloat(product.price),
-  stockQuantity: parseInt(product.stock) || 0, // ensure this matches your API (stock vs stockQuantity)
-  category: product.category,
-  description: product.description || '',
-  specifications: (product.specifications && typeof product.specifications === 'object')
+  description: product.description || "No description provided",
+  price: Number(product.price),
+  originalPrice: product.originalPrice ? Number(product.originalPrice) : undefined,
+  category: product.category,                      // must match enum
+  subcategory: product.subcategory || undefined,
+  brand: product.brand || "Nakoda",
+  stockQuantity: Number(product.stock) || 0,       // schema uses stockQuantity
+  images: Array.isArray(product.images) ? product.images : (product.images ? [product.images] : []),
+  specifications: (product.specifications && typeof product.specifications === "object")
     ? product.specifications
-    : undefined // if your backend expects a string: JSON.stringify(product.specifications)
+    : {},
+  features: Array.isArray(product.features) ? product.features : String(product.features || "")
+              .split(/[;,]/).map(s => s.trim()).filter(Boolean),
+  tags: Array.isArray(product.tags) ? product.tags : String(product.tags || "")
+              .split(/[;,]/).map(s => s.trim()).filter(Boolean),
+  status: product.status || "active",
+  isActive: true
 }));
+
+
 
 
       const response = await bulkUploadProducts(productsData);
@@ -1332,14 +1425,15 @@ setSpecificationsError(null);
                 >
                   <option value="">Select Category</option>
                   <option value="TWS">TWS Earbuds</option>
-                  <option value="Bluetooth Neckbands">Bluetooth Neckbands</option>
+                  <option value="Bluetooth Neckbands">Bluetooth Neckband</option>
                   <option value="Data Cables">Data Cables</option>
                   <option value="Mobile Chargers">Mobile Chargers</option>
                   <option value="Mobile ICs">Mobile ICs</option>
                   <option value="Mobile Repairing Tools">Mobile Repairing Tools</option>
-                  <option value="Car Charger">Car Chargers</option>
-                  <option value="Bluetooth Speaker">Bluetooth Speaker</option>
-                  <option value="Power Bank">Power Bank</option>
+                  <option value="Car Chargers">Car Charger</option>
+                  <option value="Bluetooth Speakers">Bluetooth Speaker</option>
+                  <option value="Power Banks">Power Bank</option>
+                  <option value="Others">Other</option>
                 </select>
               </div>
             </div>
@@ -1651,6 +1745,15 @@ const Navigation = memo<{
       >
         💳 Payments
       </button>
+<button 
+  className={activeTab === 'blog' ? 'active' : ''}
+  onClick={() => setActiveTab('blog')}
+>
+  📝 Blog
+</button>
+
+
+
       {onLogout && (
         <button className="logout-btn" onClick={onLogout}>
           🚪 Logout
@@ -1663,7 +1766,8 @@ const Navigation = memo<{
 
 // ✅ Main AdminDashboard component (UNCHANGED - All existing functionality preserved)
 const AdminDashboard: React.FC<AdminDashboardProps> = ({ adminData, onLogout }) => {
-   const [activeTab, setActiveTab] = useState<'overview' | 'products' | 'inventory' | 'orders' | 'returns' | 'reviews' | 'payments'>('overview');
+   const [activeTab, setActiveTab] = useState<'overview' | 'products' | 'inventory' | 'orders' | 'returns' | 'reviews' | 'payments' | 'blog'>('overview');
+
   const [stats, setStats] = useState({
     totalProducts: 0,
     pendingOrders: 0,
@@ -1756,6 +1860,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ adminData, onLogout }) 
             checkNetworkStatus={checkNetworkStatus}
           />
         );
+
+
         case 'orders':
   return <OrdersTab />;
  case 'returns':
@@ -1764,6 +1870,16 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ adminData, onLogout }) 
       return <ProductReview />;
     case 'payments':
       return <PaymentSection />;
+
+      case 'blog':
+  return (
+    <BlogTab
+      showNotification={showNotification}
+      checkNetworkStatus={checkNetworkStatus}
+    />
+  );
+
+      
       default:
         return <Overview stats={stats} />;
     }

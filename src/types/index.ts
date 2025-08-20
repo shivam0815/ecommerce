@@ -21,6 +21,7 @@ export interface Product {
   rating: number;
   reviewsCount: number;
   inStock: boolean;
+  currency:string;
   stockQuantity?: number;
   features: string[];
   specifications: Record<string, any>; // ✅ Fixed: Complete Record type
@@ -77,19 +78,39 @@ export interface Order {
   createdAt: string;
 }
 
+export type OEMStatus =
+  | 'pending'
+  | 'contacted'
+  | 'quoted'
+  | 'closed';
+
+export type OEMCategory =
+  | 'TWS'
+  | 'Bluetooth Neckbands'
+  | 'Data Cables'
+  | 'Mobile Chargers'
+  | 'Mobile ICs'
+  | 'Mobile Repairing Tools'
+  | 'Car Charger'
+  | 'Bluetooth Speaker'
+  | 'Power Bank'
+  | 'Custom'; // backend normalizes "Custom Product" -> "Custom"
+
 export interface OEMInquiry {
-  id: string;
+  id: string;        // FE-normalized id
+  _id?: string;      // sometimes BE returns _id; keep optional to be safe
   companyName: string;
   contactPerson: string;
   email: string;
   phone: string;
-  productCategory: string;
+  productCategory: OEMCategory;
   quantity: number;
   customization: string;
-  message: string;
+  message?: string;
+  status: OEMStatus; // <-- add this
   createdAt: string;
+  updatedAt?: string;
 }
-
 // ✅ FIXED: Database interfaces with proper syntax
 export interface IUser extends Document {
   name: string;
@@ -202,6 +223,7 @@ export interface IOEMInquiry extends Document {
   status: 'pending' | 'contacted' | 'quoted' | 'closed';
   createdAt: Date;
   updatedAt: Date;
+  
 }
 
 export interface IReview extends Document {

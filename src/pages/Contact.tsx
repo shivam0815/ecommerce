@@ -17,39 +17,63 @@ import {
   CheckCircle
 } from 'lucide-react';
 import toast from 'react-hot-toast';
-
+import { contactService } from '../services/contactService';
+const isEmail = (e: string) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/i.test(e.trim());
 const Contact: React.FC = () => {
   const [formData, setFormData] = useState({
     name: '',
     email: '',
     phone: '',
     subject: '',
-    message: ''
+    message: '',
+      website: '',
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+ const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    setIsSubmitting(true);
 
-    // Simulate form submission
-    setTimeout(() => {
-      toast.success('Message sent successfully! We\'ll get back to you soon.');
+    if (!formData.name.trim()) return toast.error('Name is required');
+    if (!isEmail(formData.email)) return toast.error('Valid email required');
+    if (!formData.subject) return toast.error('Please select a department');
+    if (!formData.message.trim()) return toast.error('Message is required');
+    if (formData.phone && !/^\d{10}$/.test(formData.phone.trim())) {
+      return toast.error('Phone must be 10 digits');
+    }
+
+    setIsSubmitting(true);
+    try {
+      await contactService.send({
+        name: formData.name.trim(),
+        email: formData.email.trim(),
+        phone: formData.phone.trim() || undefined,
+        subject: formData.subject as any,
+        message: formData.message.trim(),
+        website: formData.website, // honeypot (empty for humans)
+      });
+
       setFormData({
         name: '',
         email: '',
         phone: '',
         subject: '',
-        message: ''
+        message: '',
+        website: '',
       });
+    } catch {
+      // toasts handled in service
+    } finally {
       setIsSubmitting(false);
-    }, 2000);
+    }
   };
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
+   const handleChange = (
+    e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>
+  ) => {
+    const { name, value } = e.target;
     setFormData(prev => ({
       ...prev,
-      [e.target.name]: e.target.value
+      [name]: name === 'phone' ? value.replace(/[^\d]/g, '') : value,
     }));
   };
 
@@ -58,7 +82,7 @@ const Contact: React.FC = () => {
       icon: MapPin,
       title: 'Visit Our Store',
       details: [
-        'Shop No. 123, Electronics Market',
+        'Nakoda Mobile near church gali no. 2, Electronics Market',
         'Karol bhag, New Delhi - 110055',
         'India'
       ]
@@ -76,7 +100,7 @@ const Contact: React.FC = () => {
       icon: Mail,
       title: 'Email Us',
       details: [
-        'info@nakodamobile.com',
+        'nakodamobile150579@gmail.com',
         'support@nakodamobile.com',
         'oem@nakodamobile.com'
       ]
