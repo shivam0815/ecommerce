@@ -1,4 +1,3 @@
-// src/pages/Profile.tsx
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -17,12 +16,28 @@ import {
   TruckIcon,
   CreditCardIcon,
   EyeIcon,
-  ArrowPathIcon
+  ArrowPathIcon,
+  BellIcon,
+  LifebuoyIcon,
+  QuestionMarkCircleIcon,
+  DocumentTextIcon,
+  EnvelopeIcon,
 } from '@heroicons/react/24/solid';
 
+import SettingsTab from '../components/Layout/SettingsTab';
+import Contact from './Contact';
+import NotificationCenter from '../components/Layout/NotificationCenter';
+import HelpSupport from '../components/Layout/HelpSupport';
+import FAQs from '../components/Layout/FAQs';
+import Terms from './Terms';
+
+
+
+
 // Prefer Vite env → axios baseURL → window origin (no trailing slash)
+const { VITE_API_URL } = (import.meta as any).env as { VITE_API_URL?: string };
 const SOCKET_URL =
-  (import.meta as any)?.env?.VITE_API_URL?.replace(/\/+$/, '') ||
+  (VITE_API_URL?.replace(/\/+$/, '')) ||
   ((api as any).defaults?.baseURL?.replace(/\/+$/, '')) ||
   window.location.origin;
 
@@ -68,58 +83,42 @@ interface Order {
   trackingNumber?: string;
 }
 
-const fadeVariants = {
-  hidden: { opacity: 0, y: 24 },
+const fade = {
+  hidden: { opacity: 0, y: 16 },
   visible: { opacity: 1, y: 0 },
-  exit: { opacity: 0, y: -24 }
+  exit: { opacity: 0, y: -16 },
 };
 
-const statVariants = {
-  hidden: { scale: 0.7, opacity: 0 },
-  visible: (i: number) => ({
-    scale: 1,
-    opacity: 1,
-    transition: { delay: 0.07 * i }
-  })
+const formatDate = (s?: string) => {
+  if (!s) return '—';
+  const d = new Date(s);
+  return isNaN(d.getTime())
+    ? '—'
+    : d.toLocaleDateString('en-US', { year: 'numeric', month: 'short', day: 'numeric' });
 };
 
-const formatDate = (dateString: string | undefined): string => {
-  if (!dateString) return 'Not available';
-  try {
-    const date = new Date(dateString);
-    if (isNaN(date.getTime())) return 'Invalid date';
-    return date.toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric'
-    });
-  } catch {
-    return 'Invalid date';
-  }
-};
-
-const getStatusColor = (status: string) => {
+const statusPill = (status: string) => {
   switch (status.toLowerCase()) {
     case 'delivered':
     case 'paid':
     case 'cod_paid':
-      return 'text-green-600 bg-green-100';
+      return 'text-emerald-700 bg-emerald-100';
     case 'shipped':
     case 'processing':
-      return 'text-blue-600 bg-blue-100';
+      return 'text-indigo-700 bg-indigo-100';
     case 'pending':
     case 'awaiting_payment':
     case 'cod_pending':
-      return 'text-yellow-600 bg-yellow-100';
+      return 'text-amber-700 bg-amber-100';
     case 'cancelled':
     case 'failed':
-      return 'text-red-600 bg-red-100';
+      return 'text-rose-700 bg-rose-100';
     default:
-      return 'text-gray-600 bg-gray-100';
+      return 'text-gray-700 bg-gray-100';
   }
 };
 
-const getStatusIcon = (status: string) => {
+const statusIcon = (status: string) => {
   switch (status.toLowerCase()) {
     case 'delivered':
     case 'paid':
@@ -143,12 +142,12 @@ const Profile: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [ordersLoading, setOrdersLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [activeTab, setActiveTab] = useState<'profile' | 'orders' | 'settings' | 'security'>('profile');
+  const [activeTab, setActiveTab] = useState<
+    'profile' | 'orders' | 'settings' | 'security' | 'notifications' | 'support' | 'faqs' | 'terms' | 'contact'
+  >('profile');
   const [orderFilter, setOrderFilter] = useState<'all' | 'pending' | 'completed'>('all');
   const [isUpdating, setIsUpdating] = useState(false);
   const navigate = useNavigate();
-
-  // Keep a single socket instance
   const socketRef = useRef<ReturnType<typeof io> | null>(null);
 
   const fetchProfileData = useCallback(async () => {
@@ -156,16 +155,14 @@ const Profile: React.FC = () => {
       setLoading(true);
       const [profileRes, statsRes] = await Promise.all([
         api.get('/auth/profile'),
-        api.get('/user/stats').catch(() => {
-          return { data: { totalOrders: 0, totalSpent: 0, pendingOrders: 0, completedOrders: 0 } };
-        })
+        api.get('/user/stats').catch(() => ({ data: { totalOrders: 0, totalSpent: 0, pendingOrders: 0, completedOrders: 0 } })),
       ]);
       setUser(profileRes.data.user);
       setStats(statsRes.data);
       setError(null);
     } catch (err: any) {
-      setError(err.response?.data?.message || 'Failed to load profile');
-      if (err.response?.status === 401) navigate('/login');
+      setError(err?.response?.data?.message || 'Failed to load profile');
+      if (err?.response?.status === 401) navigate('/login');
     } finally {
       setLoading(false);
     }
@@ -174,282 +171,270 @@ const Profile: React.FC = () => {
   const fetchOrders = useCallback(async () => {
     try {
       setOrdersLoading(true);
-      const response = await api.get('/user/orders');
-      setOrders(Array.isArray(response.data.orders) ? response.data.orders : []);
+      const res = await api.get('/user/orders');
+      setOrders(Array.isArray(res.data.orders) ? res.data.orders : []);
       setError(null);
-    } catch (err: any) {
-      console.error('Failed to fetch orders:', err);
+    } catch (err) {
       setOrders([]);
-      if (err.response?.status !== 404) setError('Failed to load orders');
     } finally {
       setOrdersLoading(false);
     }
   }, []);
 
-  const updateUserProfile = async (profileData: Partial<User>) => {
+  const updateUserProfile = async (data: Partial<User>) => {
     try {
       setIsUpdating(true);
-      const response = await api.put('/user/profile', profileData);
-      if (response.data.success) {
-        setUser(response.data.user);
-        alert('Profile updated successfully! ✅');
+      const res = await api.put('/user/profile', data);
+      if (res.data.success) {
+        setUser(res.data.user);
+        alert('Profile updated successfully');
         return true;
       }
       return false;
-    } catch (error: any) {
-      console.error('Profile update failed:', error);
-      alert('Failed to update profile: ' + (error.response?.data?.message || error.message));
+    } catch (err: any) {
+      alert('Failed to update profile: ' + (err?.response?.data?.message || err?.message));
       return false;
     } finally {
       setIsUpdating(false);
     }
   };
 
-  const handleImageUpload = async (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    if (!f) return;
     const formData = new FormData();
-    formData.append('avatar', file);
-
+    formData.append('avatar', f);
     try {
-      const response = await api.post('/user/upload-avatar', formData, {
-        headers: { 'Content-Type': 'multipart/form-data' }
-      });
-      if (response.data.success) {
-        setUser(prev => (prev ? { ...prev, avatar: response.data.avatarUrl } : null));
-        alert('Avatar updated successfully! ✅');
-      }
-    } catch (error: any) {
-      console.error('Avatar upload failed:', error);
-      alert('Failed to upload avatar: ' + (error.response?.data?.message || error.message));
+      const res = await api.post('/user/upload-avatar', formData, { headers: { 'Content-Type': 'multipart/form-data' } });
+      if (res.data.success) setUser(prev => (prev ? { ...prev, avatar: res.data.avatarUrl } : prev));
+    } catch (err: any) {
+      alert('Avatar upload failed: ' + (err?.response?.data?.message || err?.message));
     }
   };
 
-  useEffect(() => {
-    fetchProfileData();
-  }, [fetchProfileData]);
+  useEffect(() => { fetchProfileData(); }, [fetchProfileData]);
 
-  // Poll orders every 30s only when "Orders" tab is active
   useEffect(() => {
-    let intervalId: NodeJS.Timeout | undefined;
-
+    let id: ReturnType<typeof setInterval> | undefined;
     if (activeTab === 'orders') {
       fetchOrders();
-      intervalId = setInterval(fetchOrders, 30000);
+      id = setInterval(fetchOrders, 30000);
     }
-    return () => {
-      if (intervalId) clearInterval(intervalId);
-    };
+    return () => { if (id) clearInterval(id); };
   }, [activeTab, fetchOrders]);
 
-  // WebSocket: single connection, join user room, merge updates
   useEffect(() => {
     if (!user?._id) return;
-
     if (!socketRef.current) {
-      socketRef.current = io(SOCKET_URL, {
-        withCredentials: true,
-        transports: ['websocket']
-      });
+      socketRef.current = io(SOCKET_URL, { withCredentials: true, transports: ['websocket'] });
     }
     const socket = socketRef.current;
-
-    // join personal room
     socket.emit('join', { userId: user._id });
 
-    const handleStatus = (payload: any) => {
-      // payload example from server:
-      // { _id, orderNumber, orderStatus, trackingNumber, updatedAt }
+    const handleStatus = (p: any) => {
       setOrders(prev => {
-        const idx = prev.findIndex(o => o._id === payload._id);
+        const idx = prev.findIndex(o => o._id === p._id);
         if (idx === -1) return prev;
-        const merged = {
-          ...prev[idx],
-          ...payload,
-          status: payload.orderStatus ?? prev[idx].status
-        } as Order;
-        const copy = [...prev];
-        copy[idx] = merged;
-        return copy;
+        const updated = { ...prev[idx], ...p, status: p.orderStatus ?? prev[idx].status } as Order;
+        const copy = [...prev]; copy[idx] = updated; return copy;
       });
     };
-
-    const handleCreated = (payload: any) => {
-      // only add if it belongs to this user
-      if (payload?.userId && String(payload.userId) === String(user._id)) {
-        setOrders(prev => {
-          // avoid duplicates
-          if (prev.some(o => o._id === payload._id)) return prev;
-          // normalize status fields
-          const normalized = {
-            ...payload,
-            status: payload.orderStatus ?? payload.status ?? 'pending'
-          } as Order;
-          return [normalized, ...prev];
-        });
+    const handleCreated = (p: any) => {
+      if (p?.userId && String(p.userId) === String(user._id)) {
+        setOrders(prev => (prev.some(o => o._id === p._id) ? prev : [{ ...p, status: p.orderStatus ?? p.status ?? 'pending' }, ...prev]));
       }
     };
 
     socket.on('orderStatusUpdated', handleStatus);
     socket.on('orderCreated', handleCreated);
-
     return () => {
       socket.off('orderStatusUpdated', handleStatus);
       socket.off('orderCreated', handleCreated);
-      // optional: disconnect if Profile is never kept mounted in your app
-      // socket.disconnect();
-      // socketRef.current = null;
+      socket.disconnect();
+      socketRef.current = null;
     };
   }, [user?._id]);
 
   const filteredOrders = Array.isArray(orders)
-    ? orders.filter(order => {
-        if (orderFilter === 'pending') return ['pending', 'confirmed', 'processing', 'shipped'].includes(order.status);
-        if (orderFilter === 'completed') return ['delivered', 'cancelled'].includes(order.status);
-        return true;
-      })
+    ? orders.filter(o => (orderFilter === 'pending'
+        ? ['pending', 'confirmed', 'processing', 'shipped'].includes(o.status)
+        : orderFilter === 'completed'
+        ? ['delivered', 'cancelled'].includes(o.status)
+        : true))
     : [];
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-green-100 to-blue-100">
-        <motion.div
-          className="w-56 h-56 bg-white/60 rounded-3xl shadow-2xl flex flex-col items-center justify-center"
-          animate={{ scale: [1, 1.2, 1], rotate: [0, 10, 0] }}
-          transition={{ repeat: Infinity, duration: 2 }}
-        >
-          <div className="w-14 h-14 animate-pulse bg-gradient-to-tr from-green-500 to-blue-500 rounded-full mb-6"></div>
-          <div className="h-4 w-40 bg-gradient-to-r from-green-100 to-blue-100 rounded mb-2"></div>
-          <div className="h-4 w-32 bg-gradient-to-r from-green-100 to-blue-100 rounded"></div>
-        </motion.div>
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="w-56 h-56 bg-white rounded-3xl shadow flex flex-col items-center justify-center">
+          <div className="w-10 h-10 border-4 border-gray-900 border-t-transparent rounded-full animate-spin mb-3" />
+          <div className="text-sm text-gray-600">Loading your profile…</div>
+        </div>
       </div>
     );
   }
-
   if (error && !user) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-red-100 to-yellow-100">
-        <motion.div className="w-[360px] bg-white/70 rounded-3xl shadow-2xl flex flex-col items-center p-10" variants={fadeVariants} initial="hidden" animate="visible">
-          <span className="text-6xl mb-4">❌</span>
-          <div className="text-xl text-red-600 mb-4">{error}</div>
-          <button
-            onClick={fetchProfileData}
-            className="px-8 py-2 font-bold text-white bg-gradient-to-r from-green-600 to-blue-700 rounded-full shadow hover:from-green-700 hover:to-blue-800 hover:scale-105 transform transition"
-          >
-            Try Again
-          </button>
-        </motion.div>
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
+        <div className="bg-white rounded-2xl shadow p-8 text-center">
+          <div className="text-3xl mb-2">⚠️</div>
+          <div className="font-medium mb-4">{error}</div>
+          <button onClick={fetchProfileData} className="px-4 py-2 rounded-lg bg-gray-900 text-white">Try again</button>
+        </div>
       </div>
     );
   }
-
   if (!user) return null;
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-green-100 to-blue-200 py-8 px-2 md:px-6">
-      <div className="max-w-6xl mx-auto">
-        <motion.div className="bg-white bg-opacity-60 backdrop-blur rounded-3xl shadow-2xl mb-8" initial="hidden" animate="visible" variants={fadeVariants}>
-          <div className="bg-gradient-to-r from-green-500 to-blue-500 p-8 text-white rounded-t-3xl relative overflow-hidden">
-            <div className="flex flex-col md:flex-row items-center space-y-6 md:space-y-0 md:space-x-8 z-10 relative">
-              <motion.div className="relative" whileHover={{ scale: 1.05 }} whileTap={{ scale: 0.96 }}>
-                <div className="w-28 h-28 rounded-full bg-white/30 overflow-hidden flex items-center justify-center border-4 border-white shadow">
-                  {user.avatar ? (
-                    <motion.img
-                      src={user.avatar}
-                      alt="Profile"
-                      className="w-full h-full object-cover"
-                      key={user.avatar}
-                      initial={{ scale: 0.8, opacity: 0 }}
-                      animate={{ scale: 1, opacity: 1 }}
-                      transition={{ type: 'spring', bounce: 0.35 }}
-                    />
-                  ) : (
-                    <UserIcon className="w-14 h-14 text-blue-300" />
-                  )}
-                </div>
-                <label className="absolute bottom-0 right-1 bg-white p-1.5 rounded-full shadow-lg cursor-pointer hover:bg-blue-100 transition">
-                  <CameraIcon className="w-5 h-5 text-gray-500" />
-                  <input type="file" accept="image/*" onChange={handleImageUpload} className="hidden" />
-                </label>
-              </motion.div>
+    <div className="min-h-screen bg-gray-50">
+      <div className="max-w-6xl mx-auto px-4 py-8">
+        {/* Header Card (white, subtle) */}
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 md:p-8 mb-6">
+          <div className="flex flex-col md:flex-row items-center gap-6">
+            <div className="relative">
+              <div className="w-28 h-28 rounded-full bg-gray-100 ring-1 ring-gray-200 overflow-hidden flex items-center justify-center">
+                {user.avatar ? <img src={user.avatar} alt="avatar" className="w-full h-full object-cover" /> : <UserIcon className="w-12 h-12 text-gray-400" />}
+              </div>
+              <label className="absolute -bottom-1 -right-1 bg-white border border-gray-200 p-2 rounded-full shadow cursor-pointer">
+                <CameraIcon className="w-4 h-4 text-gray-600" />
+                <input type="file" accept="image/*" onChange={handleImageUpload} className="hidden" />
+              </label>
+            </div>
 
-              <div className="flex-1 text-center md:text-left">
-                <div className="flex items-center justify-center md:justify-start gap-2 mb-2">
-                  <span className="text-3xl font-extrabold">{user.name}</span>
-                  {user.isVerified && <CheckCircleIcon className="w-6 h-6 text-green-300" />}
-                </div>
-                <div className="text-lg font-semibold opacity-90">{user.email}</div>
-                <div className="capitalize text-lg font-semibold">{user.role === 'admin' ? '👑 Admin' : '🛍️ Customer'}</div>
+            <div className="flex-1 text-center md:text-left">
+              <div className="flex items-center justify-center md:justify-start gap-2">
+                <h1 className="text-2xl md:text-3xl font-semibold text-gray-900">{user.name}</h1>
+                {user.isVerified && <CheckCircleIcon className="w-6 h-6 text-emerald-500" />}
+              </div>
+              <div className="text-gray-600">{user.email}</div>
+              <div className="mt-2 inline-flex items-center gap-2 text-xs text-gray-500">
+                <span>Member since {formatDate(user.createdAt)}</span>
+                <span className="select-none">•</span>
+                <span className="uppercase tracking-wide">{user.role}</span>
               </div>
             </div>
           </div>
 
           {stats && (
-            <div className="px-8 py-6 bg-gradient-to-l from-white/50 to-white/80 grid grid-cols-2 md:grid-cols-4 gap-6 border-b">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-6">
               {[
-                { num: stats.totalOrders, label: 'Total Orders', color: 'text-green-500', icon: <ShoppingBagIcon className="w-5 h-5" />, i: 0 },
-                { num: stats.totalSpent, label: 'Total Spent', color: 'text-blue-500', icon: <CreditCardIcon className="w-5 h-5" />, i: 1 },
-                { num: stats.pendingOrders || 0, label: 'Pending', color: 'text-yellow-500', icon: <ClockIcon className="w-5 h-5" />, i: 2 },
-                { num: stats.completedOrders || 0, label: 'Completed', color: 'text-green-600', icon: <CheckCircleIcon className="w-5 h-5" />, i: 3 }
-              ].map((stat, idx) => (
-                <motion.div className="text-center" key={stat.label} custom={idx} initial="hidden" animate="visible" variants={statVariants}>
-                  <div className={clsx('flex items-center justify-center gap-2 mb-1', stat.color)}>
-                    {stat.icon}
-                    <div className="text-2xl font-extrabold">{stat.label === 'Total Spent' ? `₹${stats.totalSpent.toFixed(2)}` : stat.num}</div>
-                  </div>
-                  <div className="text-sm font-medium text-gray-500">{stat.label}</div>
-                </motion.div>
+                { label: 'Total Orders', value: stats.totalOrders },
+                { label: 'Total Spent', value: `₹${stats.totalSpent.toFixed(2)}` },
+                { label: 'Pending', value: stats.pendingOrders || 0 },
+                { label: 'Completed', value: stats.completedOrders || 0 },
+              ].map((s) => (
+                <div key={s.label} className="bg-gray-50 rounded-xl border border-gray-100 p-4 text-center">
+                  <div className="text-sm text-gray-500">{s.label}</div>
+                  <div className="text-xl font-semibold text-gray-900">{s.value}</div>
+                </div>
               ))}
             </div>
           )}
-        </motion.div>
-
-        <div className="bg-white/80 backdrop-blur rounded-3xl shadow-xl">
-          <div className="flex border-b">
-            {[
-              { id: 'profile', label: 'Profile', icon: <UserIcon className="w-5 h-5 inline mr-1" /> },
-              { id: 'orders', label: 'Orders', icon: <ShoppingBagIcon className="w-5 h-5 inline mr-1" /> },
-              { id: 'settings', label: 'Settings', icon: <Cog6ToothIcon className="w-5 h-5 inline mr-1" /> },
-              { id: 'security', label: 'Security', icon: <ShieldCheckIcon className="w-5 h-5 inline mr-1" /> }
-            ].map(tab => (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id as typeof activeTab)}
-                className={clsx(
-                  'flex-1 py-4 px-6 text-center font-medium transition-all focus:outline-none text-lg',
-                  activeTab === tab.id ? 'text-green-600 border-b-4 border-green-400 bg-gradient-to-b from-green-100/60 to-white' : 'text-gray-500 hover:text-green-600'
-                )}
-              >
-                {tab.icon}
-                {tab.label}
-              </button>
-            ))}
-          </div>
-
-          <div className="p-8 min-h-[400px]">
-            <AnimatePresence mode="wait">
-              {activeTab === 'profile' && (
-                <motion.div key="profile" variants={fadeVariants} initial="hidden" animate="visible" exit="exit" className="space-y-7">
-                  <ProfileEditForm user={user} onUpdate={updateUserProfile} isUpdating={isUpdating} />
-                </motion.div>
-              )}
-
-              {activeTab === 'orders' && (
-                <OrdersTab
-                  orders={filteredOrders}
-                  ordersLoading={ordersLoading}
-                  orderFilter={orderFilter}
-                  setOrderFilter={setOrderFilter}
-                  onRefresh={fetchOrders}
-                  navigate={navigate}
-                />
-              )}
-
-              {/* Settings & Security tabs can be added here as needed */}
-            </AnimatePresence>
-          </div>
         </div>
+
+        {/* Tabs */}
+       {/* Tabs (vertical, polished) */}
+<div className="bg-white rounded-2xl shadow-sm border border-gray-100">
+  <div className="flex flex-col md:flex-row">
+    {/* Sidebar nav */}
+    <aside className="md:w-64 border-b md:border-b-0 md:border-r border-gray-100">
+      <nav className="p-2 md:p-4 space-y-1">
+        {[
+          { id: 'profile', label: 'Profile', icon: <UserIcon className="w-4 h-4" /> },
+          { id: 'orders', label: 'Orders', icon: <ShoppingBagIcon className="w-4 h-4" /> },
+          { id: 'notifications', label: 'Notifications', icon: <BellIcon className="w-4 h-4" /> },
+          { id: 'settings', label: 'Settings', icon: <Cog6ToothIcon className="w-4 h-4" /> },
+          { id: 'support', label: 'Help & Support', icon: <LifebuoyIcon className="w-4 h-4" /> },
+          { id: 'faqs', label: 'FAQs', icon: <QuestionMarkCircleIcon className="w-4 h-4" /> },
+          { id: 'terms', label: 'Terms', icon: <DocumentTextIcon className="w-4 h-4" /> },
+          { id: 'contact', label: 'Contact', icon: <EnvelopeIcon className="w-4 h-4" /> },
+        ].map(t => (
+          <button
+            key={t.id}
+            onClick={() => setActiveTab(t.id as typeof activeTab)}
+            aria-current={activeTab === t.id ? 'page' : undefined}
+            className={clsx(
+              'w-full inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm md:text-[15px] font-medium transition',
+              activeTab === t.id
+                ? 'bg-gray-900 text-white shadow-sm'
+                : 'text-gray-700 hover:bg-gray-50'
+            )}
+          >
+            <span className="shrink-0">{t.icon}</span>
+            <span className="truncate">{t.label}</span>
+          </button>
+        ))}
+      </nav>
+    </aside>
+
+    {/* Panels (unchanged) */}
+    <section className="flex-1 p-6 md:p-8 min-h-[420px]">
+      <AnimatePresence mode="wait">
+        {activeTab === 'profile' && (
+          <motion.div key="profile" variants={fade} initial="hidden" animate="visible" exit="exit">
+            <ProfileEditForm
+              user={user}
+              onUpdate={updateUserProfile}
+              isUpdating={isUpdating}
+              goSecurity={() => setActiveTab('security')}
+            />
+          </motion.div>
+        )}
+
+        {activeTab === 'orders' && (
+          <motion.div key="orders" variants={fade} initial="hidden" animate="visible" exit="exit">
+            <OrdersTab
+              orders={filteredOrders}
+              ordersLoading={ordersLoading}
+              orderFilter={orderFilter}
+              setOrderFilter={setOrderFilter}
+              onRefresh={fetchOrders}
+              navigate={navigate}
+            />
+          </motion.div>
+        )}
+
+        {activeTab === 'notifications' && (
+          <motion.div key="notifications" variants={fade} initial="hidden" animate="visible" exit="exit">
+            <NotificationCenter />
+          </motion.div>
+        )}
+
+        {activeTab === 'settings' && (
+          <motion.div key="settings" variants={fade} initial="hidden" animate="visible" exit="exit">
+            <SettingsTab user={user} onUpdate={updateUserProfile} />
+          </motion.div>
+        )}
+
+        {activeTab === 'support' && (
+          <motion.div key="support" variants={fade} initial="hidden" animate="visible" exit="exit">
+            <HelpSupport />
+          </motion.div>
+        )}
+
+        {activeTab === 'faqs' && (
+          <motion.div key="faqs" variants={fade} initial="hidden" animate="visible" exit="exit">
+            <FAQs />
+          </motion.div>
+        )}
+
+        {activeTab === 'terms' && (
+          <motion.div key="terms" variants={fade} initial="hidden" animate="visible" exit="exit">
+            <Terms />
+          </motion.div>
+        )}
+
+        {activeTab === 'contact' && (
+          <motion.div key="contact" variants={fade} initial="hidden" animate="visible" exit="exit">
+            <Contact />
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </section>
+  </div>
+</div>
+
       </div>
     </div>
   );
@@ -459,91 +444,62 @@ const ProfileEditForm: React.FC<{
   user: User;
   onUpdate: (data: Partial<User>) => Promise<boolean>;
   isUpdating: boolean;
-}> = ({ user, onUpdate, isUpdating }) => {
-  const [formData, setFormData] = useState({
-    name: user.name || '',
-    email: user.email || '',
-    phone: user.phone || ''
-  });
+  goSecurity: () => void;
+}> = ({ user, onUpdate, isUpdating, goSecurity }) => {
+  const [formData, setFormData] = useState({ name: user.name || '', email: user.email || '', phone: user.phone || '' });
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    await onUpdate(formData);
-  };
+  const submit = async (e: React.FormEvent) => { e.preventDefault(); await onUpdate(formData); };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-6">
-      <div className="grid gap-5">
-        <div className="flex items-center space-x-4 bg-slate-100 rounded-xl p-4 shadow">
-          <div className="w-12 h-12 bg-green-300/20 rounded-full flex items-center justify-center">
-            <span className="text-xl">👤</span>
-          </div>
-          <div className="flex-1">
-            <label className="text-xs font-medium text-gray-500">Full Name</label>
-            <input
-              type="text"
-              value={formData.name}
-              onChange={e => setFormData(prev => ({ ...prev, name: e.target.value }))}
-              className="w-full text-lg bg-transparent border-none outline-none"
-              required
-            />
-          </div>
-        </div>
+    <form onSubmit={submit} className="grid gap-5 max-w-3xl">
+      <div className="bg-gray-50 border border-gray-100 rounded-xl p-4">
+        <label className="block text-xs font-medium text-gray-500 mb-1">Full Name</label>
+        <input
+          type="text"
+          value={formData.name}
+          onChange={e => setFormData(p => ({ ...p, name: e.target.value }))}
+          className="w-full rounded-lg border-gray-200 focus:ring-0 focus:border-gray-900"
+          required
+        />
+      </div>
 
-        <div className="flex items-center space-x-4 bg-slate-100 rounded-xl p-4 shadow">
-          <div className="w-12 h-12 bg-blue-300/20 rounded-full flex items-center justify-center">
-            <span className="text-xl">📧</span>
-          </div>
-          <div className="flex-1">
-            <label className="text-xs font-medium text-gray-500">Email</label>
-            <input
-              type="email"
-              value={formData.email}
-              onChange={e => setFormData(prev => ({ ...prev, email: e.target.value }))}
-              className="w-full text-lg bg-transparent border-none outline-none"
-              required
-            />
-            {user.isVerified && <span className="text-xs text-green-600 ml-1">✅ Verified</span>}
-          </div>
-        </div>
+      <div className="bg-gray-50 border border-gray-100 rounded-xl p-4">
+        <label className="block text-xs font-medium text-gray-500 mb-1">Email</label>
+        <input
+          type="email"
+          value={formData.email}
+          onChange={e => setFormData(p => ({ ...p, email: e.target.value }))}
+          className="w-full rounded-lg border-gray-200 focus:ring-0 focus:border-gray-900"
+          required
+        />
+        {user.isVerified && <div className="text-xs text-emerald-600 mt-1">Verified</div>}
+      </div>
 
-        <div className="flex items-center space-x-4 bg-slate-100 rounded-xl p-4 shadow">
-          <div className="w-12 h-12 bg-purple-300/20 rounded-full flex items-center justify-center">
-            <span className="text-xl">📱</span>
-          </div>
-          <div className="flex-1">
-            <label className="text-xs font-medium text-gray-500">Phone</label>
-            <input
-              type="tel"
-              value={formData.phone}
-              onChange={e => setFormData(prev => ({ ...prev, phone: e.target.value }))}
-              className="w-full text-lg bg-transparent border-none outline-none"
-              placeholder="Enter your phone number"
-            />
-          </div>
-        </div>
-
-        <div className="flex items-center space-x-4 bg-slate-100 rounded-xl p-4 shadow">
-          <div className="w-12 h-12 bg-yellow-300/20 rounded-full flex items-center justify-center">
-            <span className="text-xl">📅</span>
-          </div>
-          <div className="flex-1">
-            <p className="text-xs font-medium text-gray-500">Joined</p>
-            <p className="text-lg">{formatDate(user.createdAt)}</p>
-          </div>
-        </div>
+      <div className="bg-gray-50 border border-gray-100 rounded-xl p-4">
+        <label className="block text-xs font-medium text-gray-500 mb-1">Phone</label>
+        <input
+          type="tel"
+          value={formData.phone}
+          onChange={e => setFormData(p => ({ ...p, phone: e.target.value }))}
+          className="w-full rounded-lg border-gray-200 focus:ring-0 focus:border-gray-900"
+          placeholder="Enter phone number"
+        />
       </div>
 
       <div className="flex flex-col sm:flex-row gap-3">
         <button
           type="submit"
           disabled={isUpdating}
-          className="flex-1 bg-gradient-to-r from-green-600 to-blue-500 text-white py-3 px-6 rounded-xl font-semibold hover:from-green-700 hover:to-blue-600 transition-all active:scale-95 shadow disabled:opacity-50"
+          className="flex-1 bg-gray-900 text-white py-3 px-6 rounded-xl font-semibold hover:bg-black transition disabled:opacity-50"
         >
-          {isUpdating ? '⏳ Updating...' : '✏️ Update Profile'}
+          {isUpdating ? 'Updating…' : 'Save Changes'}
         </button>
-        <button type="button" className="flex-1 bg-white border border-gray-200 text-gray-700 py-3 px-6 rounded-xl font-semibold hover:bg-gray-100 transition active:scale-95 shadow">
-          📱 Change Password
+        <button
+          type="button"
+          onClick={goSecurity}
+          className="flex-1 bg-white border border-gray-200 text-gray-900 py-3 px-6 rounded-xl font-semibold hover:bg-gray-50 transition"
+        >
+          Change Password
         </button>
       </div>
     </form>
@@ -554,68 +510,69 @@ const OrdersTab: React.FC<{
   orders: Order[];
   ordersLoading: boolean;
   orderFilter: 'all' | 'pending' | 'completed';
-  setOrderFilter: (filter: 'all' | 'pending' | 'completed') => void;
+  setOrderFilter: (f: 'all' | 'pending' | 'completed') => void;
   onRefresh: () => void;
-  navigate: (path: string) => void;
+  navigate: (p: string) => void;
 }> = ({ orders, ordersLoading, orderFilter, setOrderFilter, onRefresh, navigate }) => {
   return (
-    <motion.div key="orders" variants={fadeVariants} initial="hidden" animate="visible" exit="exit" className="space-y-6">
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
+    <div className="space-y-6">
+      <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
         <div>
-          <h3 className="text-2xl font-bold text-gray-900">Your Orders</h3>
-          <p className="text-gray-600">Track and manage your orders</p>
+          <h3 className="text-xl font-semibold text-gray-900">Your Orders</h3>
+          <p className="text-sm text-gray-500">Track and manage your orders</p>
         </div>
-
         <div className="flex items-center gap-3">
           <div className="flex bg-gray-100 rounded-lg p-1">
             {[
               { key: 'all', label: 'All' },
               { key: 'pending', label: 'Active' },
-              { key: 'completed', label: 'Completed' }
-            ].map(filter => (
+              { key: 'completed', label: 'Completed' },
+            ].map(f => (
               <button
-                key={filter.key}
-                onClick={() => setOrderFilter(filter.key as typeof orderFilter)}
+                key={f.key}
+                onClick={() => setOrderFilter(f.key as typeof orderFilter)}
                 className={clsx(
-                  'px-4 py-2 rounded-md font-medium text-sm transition',
-                  orderFilter === filter.key ? 'bg-white text-green-600 shadow' : 'text-gray-600 hover:text-green-600'
+                  'px-4 py-2 rounded-md text-sm font-medium transition',
+                  orderFilter === f.key ? 'bg-white shadow text-gray-900' : 'text-gray-600 hover:text-gray-900'
                 )}
               >
-                {filter.label}
+                {f.label}
               </button>
             ))}
           </div>
-
           <motion.button
             onClick={onRefresh}
             disabled={ordersLoading}
-            className="p-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition disabled:opacity-50"
+            className="p-2 rounded-lg border border-gray-200 hover:bg-gray-50 disabled:opacity-50"
             whileTap={{ scale: 0.95 }}
             animate={ordersLoading ? { rotate: 360 } : {}}
             transition={{ duration: 1, repeat: ordersLoading ? Infinity : 0, ease: 'linear' }}
+            aria-label="Refresh orders"
           >
-            <ArrowPathIcon className="w-5 h-5" />
+            <ArrowPathIcon className="w-5 h-5 text-gray-700" />
           </motion.button>
         </div>
       </div>
 
       {ordersLoading && orders.length === 0 && (
         <div className="flex justify-center py-12">
-          <div className="flex flex-col items-center gap-4">
-            <div className="w-8 h-8 border-4 border-green-500 border-t-transparent rounded-full animate-spin"></div>
-            <p className="text-gray-600">Loading your orders...</p>
+          <div className="flex items-center gap-3 text-gray-600">
+            <div className="w-6 h-6 border-2 border-gray-900 border-t-transparent rounded-full animate-spin" />
+            Loading orders…
           </div>
         </div>
       )}
 
       {!ordersLoading && orders.length === 0 && (
         <div className="text-center py-12">
-          <ShoppingBagIcon className="w-16 h-16 text-gray-300 mx-auto mb-4" />
-          <h4 className="text-xl font-semibold text-gray-700 mb-2">No orders found</h4>
-          <p className="text-gray-500 mb-6">{orderFilter === 'all' ? "You haven't placed any orders yet." : `No ${orderFilter} orders found.`}</p>
+          <ShoppingBagIcon className="w-14 h-14 text-gray-300 mx-auto mb-3" />
+          <h4 className="text-lg font-semibold text-gray-800 mb-1">No orders found</h4>
+          <p className="text-gray-500 mb-6">
+            {orderFilter === 'all' ? "You haven't placed any orders yet." : `No ${orderFilter} orders.`}
+          </p>
           <button
             onClick={() => navigate('/')}
-            className="bg-gradient-to-r from-green-500 to-blue-600 text-white px-6 py-3 rounded-lg font-semibold hover:from-green-600 hover:to-blue-700 transition"
+            className="px-5 py-2.5 rounded-lg bg-gray-900 text-white font-medium hover:bg-black"
           >
             Start Shopping
           </button>
@@ -624,92 +581,72 @@ const OrdersTab: React.FC<{
 
       {orders.length > 0 && (
         <div className="space-y-4">
-          {orders.map((order, index) => (
+          {orders.map((o, i) => (
             <motion.div
-              key={order._id}
-              initial={{ opacity: 0, x: -20 }}
+              key={o._id}
+              initial={{ opacity: 0, x: -12 }}
               animate={{ opacity: 1, x: 0 }}
-              transition={{ delay: 0.1 * index }}
-              className="bg-white rounded-xl shadow-md hover:shadow-lg transition-all border border-gray-200 overflow-hidden"
+              transition={{ delay: 0.05 * i }}
+              className="bg-white border border-gray-100 rounded-xl shadow-sm"
             >
-              <div className="p-6 border-b border-gray-100">
-                <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-4">
-                  <div className="flex-1">
-                    <div className="flex items-center gap-3 mb-2">
-                      <h4 className="text-lg font-bold text-gray-900">#{order.orderNumber}</h4>
-                      <div className={clsx('flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium', getStatusColor(order.status))}>
-                        {getStatusIcon(order.status)}
-                        {order.status.charAt(0).toUpperCase() + order.status.slice(1)}
+              <div className="p-5 border-b border-gray-100">
+                <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h5 className="text-base font-semibold text-gray-900">#{o.orderNumber}</h5>
+                      <div className={clsx('px-2.5 py-1 rounded-full text-xs inline-flex items-center gap-1', statusPill(o.status))}>
+                        {statusIcon(o.status)}
+                        <span className="font-medium capitalize">{o.status}</span>
                       </div>
                     </div>
-
-                    <div className="flex flex-wrap items-center gap-4 text-sm text-gray-600">
-                      <div className="flex items-center gap-1">
-                        <ClockIcon className="w-4 h-4" />
-                        {formatDate(order.createdAt)}
-                      </div>
-                      <div className="flex items-center gap-1">
-                        <CreditCardIcon className="w-4 h-4" />
-                        {order.paymentMethod.toUpperCase()}
-                      </div>
-                      <div className={clsx('flex items-center gap-1 px-2 py-1 rounded text-xs', getStatusColor(order.paymentStatus))}>
-                        {order.paymentStatus.replace('_', ' ').charAt(0).toUpperCase() +
-                          order.paymentStatus.replace('_', ' ').slice(1)}
-                      </div>
+                    <div className="flex flex-wrap items-center gap-3 mt-2 text-sm text-gray-500">
+                      <span className="inline-flex items-center gap-1"><ClockIcon className="w-4 h-4" />{formatDate(o.createdAt)}</span>
+                      <span className="inline-flex items-center gap-1"><CreditCardIcon className="w-4 h-4" />{o.paymentMethod.toUpperCase()}</span>
+                      <span className={clsx('px-2 py-0.5 rounded text-xs', statusPill(o.paymentStatus))}>
+                        {o.paymentStatus.replace('_',' ')}
+                      </span>
                     </div>
                   </div>
-
                   <div className="text-right">
-                    <div className="text-2xl font-bold text-gray-900">₹{order.total.toFixed(2)}</div>
-                    <div className="text-sm text-gray-600">
-                      {order.items.length} item{order.items.length > 1 ? 's' : ''}
-                    </div>
+                    <div className="text-xl font-semibold text-gray-900">₹{o.total.toFixed(2)}</div>
+                    <div className="text-xs text-gray-500">{o.items.length} item{o.items.length > 1 ? 's' : ''}</div>
                   </div>
                 </div>
               </div>
 
-              <div className="p-6">
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-4">
-                  {order.items.slice(0, 3).map((item, idx) => (
-                    <div key={idx} className="flex items-center gap-3 bg-gray-50 rounded-lg p-3">
-                      <div className="w-12 h-12 bg-gray-200 rounded-lg flex items-center justify-center">
-                        {item.image ? (
-                          <img src={item.image} alt={item.name} className="w-full h-full object-cover rounded-lg" />
-                        ) : (
-                          <ShoppingBagIcon className="w-6 h-6 text-gray-400" />
-                        )}
+              <div className="p-5">
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3 mb-4">
+                  {o.items.slice(0,3).map((it, idx) => (
+                    <div key={idx} className="flex items-center gap-3 bg-gray-50 border border-gray-100 rounded-lg p-3">
+                      <div className="w-12 h-12 rounded-md bg-white border border-gray-200 flex items-center justify-center overflow-hidden">
+                        {it.image ? <img src={it.image} alt={it.name} className="w-full h-full object-cover" /> : <ShoppingBagIcon className="w-5 h-5 text-gray-400" />}
                       </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="font-medium text-gray-900 truncate">{item.name}</p>
-                        <p className="text-sm text-gray-600">
-                          Qty: {item.quantity} × ₹{item.price}
-                        </p>
+                      <div className="min-w-0">
+                        <div className="text-sm font-medium text-gray-900 truncate">{it.name}</div>
+                        <div className="text-xs text-gray-500">Qty {it.quantity} × ₹{it.price}</div>
                       </div>
                     </div>
                   ))}
-                  {order.items.length > 3 && (
-                    <div className="flex items-center justify-center bg-gray-50 rounded-lg p-3">
-                      <span className="text-gray-600">+{order.items.length - 3} more items</span>
+                  {o.items.length > 3 && (
+                    <div className="flex items-center justify-center bg-gray-50 border border-gray-100 rounded-lg p-3 text-sm text-gray-600">
+                      +{o.items.length - 3} more
                     </div>
                   )}
                 </div>
 
                 <div className="flex flex-wrap gap-3">
                   <button
-                    onClick={() => navigate(`/order-details/${order._id}`)}
-                    className="flex items-center gap-2 px-4 py-2 bg-green-500 text-white rounded-lg hover:bg-green-600 transition font-medium"
+                    onClick={() => navigate(`/order-details/${o._id}`)}
+                    className="px-4 py-2 rounded-lg border border-gray-200 hover:bg-gray-50 text-gray-900 font-medium inline-flex items-center gap-2"
                   >
-                    <EyeIcon className="w-4 h-4" />
-                    View Details
+                    <EyeIcon className="w-4 h-4" /> View Details
                   </button>
-
-                  {order.trackingNumber && (
+                  {o.trackingNumber && (
                     <button
-                      onClick={() => navigate(`/track-order/${order.trackingNumber}`)}
-                      className="flex items-center gap-2 px-4 py-2 bg-blue-500 text-white rounded-lg hover:bg-blue-600 transition font-medium"
+                      onClick={() => navigate(`/track-order/${o.trackingNumber}`)}
+                      className="px-4 py-2 rounded-lg bg-gray-900 text-white font-medium hover:bg-black inline-flex items-center gap-2"
                     >
-                      <TruckIcon className="w-4 h-4" />
-                      Track Order
+                      <TruckIcon className="w-4 h-4" /> Track Order
                     </button>
                   )}
                 </div>
@@ -718,7 +655,7 @@ const OrdersTab: React.FC<{
           ))}
         </div>
       )}
-    </motion.div>
+    </div>
   );
 };
 

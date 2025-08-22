@@ -28,6 +28,9 @@ import passport from './config/passport';
 import newsletterRoutes from './routes/newsletter.routes';
 import contactRoutes from './routes/contact.routes';
 import blogRoutes from './routes/blog.routes';
+import reviewsRouter from './routes//review';
+import helpRoutes from './routes/helpRoutes';
+import supportRoutes from './routes/supportRoutes';
 const app = express();
 const server = http.createServer(app);
 const PORT = process.env.PORT || 5000;
@@ -240,10 +243,22 @@ app.use(cors({
     }
   },
   credentials: true,
-  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  // ✅ FIX: include PATCH (and keep OPTIONS)
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'x-auth-token', 'Authorization', 'x-requested-with'],
   optionsSuccessStatus: 200
 }));
+
+// ✅ Also respond to preflight explicitly
+app.options('*', (req, res) => {
+  const origin = req.get('Origin') || '*';
+  res.header('Access-Control-Allow-Origin', origin);
+  res.header('Vary', 'Origin');
+  res.header('Access-Control-Allow-Credentials', 'true');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
+  res.header('Access-Control-Allow-Headers', 'Content-Type, x-auth-token, Authorization, x-requested-with');
+  return res.sendStatus(204);
+});
 
 // ✅ Basic route for API health check
 app.get('/', (req, res): void => {
@@ -360,8 +375,10 @@ app.use('/api/chat', chatRoutes);
 app.use('/api/newsletter', newsletterRoutes);
 app.use('/api/contact', contactRoutes);
 app.use('/api/blog', blogRoutes);
+app.use('/api/reviews', reviewsRouter);
 // ✅ TEST ENDPOINTS (MOVED TO CORRECT POSITION - BEFORE ERROR HANDLERS)
-
+app.use('/api/help', helpRoutes);
+app.use('/api/support', supportRoutes);
 // Test uploads endpoint
 app.get('/api/test/uploads', (req, res) => {
   try {

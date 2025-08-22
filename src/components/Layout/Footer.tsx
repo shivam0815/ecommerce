@@ -18,14 +18,19 @@ const Footer: React.FC = () => {
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
           {/* Company Info */}
           <div>
-            <div className="flex items-center space-x-2 mb-4">
-              <div className="bg-blue-600 p-2 rounded-lg">
-                <Smartphone className="h-6 w-6" />
-              </div>
-              <span className="text-2xl font-bold">
-                Nakoda<span className="text-blue-400">Mobile</span>
-              </span>
-            </div>
+           <div className="flex items-center space-x-2 mb-4">
+  <div className="bg-blue-600 p-2 rounded-lg">
+    <img
+      src="/logo.png"  // change to your actual image path
+      alt="Nakoda Mobile Logo"
+      className="h-6 w-6"
+    />
+  </div>
+  <span className="text-2xl font-bold">
+    Nakoda<span className="text-blue-400">Mobile</span>
+  </span>
+</div>
+
             <p className="text-gray-300 mb-4">
               Your trusted partner for premium mobile accessories and OEM services. 
               Quality products, competitive prices, and exceptional service.

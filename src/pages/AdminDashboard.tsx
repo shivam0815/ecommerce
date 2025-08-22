@@ -7,6 +7,12 @@ import ReturnProduct from '../components/Layout/ReturnProduct';
 import ProductReview from '../components/Layout/ProductReview';
 import PaymentSection from '../components/Layout/PaymentSection';
 import BlogTab from '../components/Layout/BlogTab';
+// add with the others
+import UsersTab from '../components/Layout/UsersTab';
+import TodaySalesTab from '../components/Layout/TodaySalesTab';
+import LowStockTab from '../components/Layout/LowStockTab';
+import PendingOrdersTab from '../components/Layout/PendingOrdersTab';
+
  // adjust path if in a subfolder
 import { io } from "socket.io-client";
 import { 
@@ -1654,37 +1660,60 @@ setSpecificationsError(null);
 });
 
 // ✅ Overview component (UNCHANGED - All existing functionality preserved)
-const Overview = memo<{ stats: any }>(({ stats }) => (
+// ✅ Overview component (clickable cards)
+const Overview = React.memo<{
+  stats: any;
+  onOpenPending: () => void;
+  onOpenTodaySales: () => void;
+  onOpenLowStock: () => void;
+  onOpenAllOrders: () => void;
+  onOpenUsers: () => void;
+}>(({ stats, onOpenPending, onOpenTodaySales, onOpenLowStock, onOpenAllOrders, onOpenUsers }) => (
   <div className="overview-section">
     <h2>📊 Dashboard Overview</h2>
-    <div className="stats-grid">
+    <div className="stats-grid" style={{display:'grid',gridTemplateColumns:'repeat(3,minmax(0,1fr))',gap:16}}>
+
       <div className="stat-card">
         <h3>Total Products</h3>
         <div className="stat-number">{stats.totalProducts}</div>
       </div>
-      <div className="stat-card">
+      <button className="stat-card gradient" onClick={onOpenPending} style={{cursor:'pointer'}}>
         <h3>Pending Orders</h3>
         <div className="stat-number">{stats.pendingOrders}</div>
-      </div>
-      <div className="stat-card">
-        <h3>Today's Sales</h3>
-        <div className="stat-number">₹{stats.todaySales.toLocaleString()}</div>
-      </div>
-      <div className="stat-card">
+      </button>
+
+      <button className="stat-card gradient" onClick={onOpenTodaySales} style={{cursor:'pointer'}}>
+        <h3>Today’s Sales</h3>
+        <div className="stat-number">₹{Number(stats.todaySales||0).toLocaleString()}</div>
+      </button>
+
+      <button className="stat-card gradient" onClick={onOpenLowStock} style={{cursor:'pointer'}}>
         <h3>Low Stock Items</h3>
         <div className="stat-number">{stats.lowStockItems}</div>
-      </div>
-      <div className="stat-card">
-        <h3>Total Users</h3>
-        <div className="stat-number">{stats.totalUsers}</div>
-      </div>
-      <div className="stat-card">
+      </button>
+
+      <button className="stat-card gradient" onClick={onOpenAllOrders} style={{cursor:'pointer'}}>
         <h3>Total Orders</h3>
         <div className="stat-number">{stats.totalOrders}</div>
-      </div>
+      </button>
+
+      <button className="stat-card gradient" onClick={onOpenUsers} style={{cursor:'pointer'}}>
+        <h3>Total Users</h3>
+        <div className="stat-number">{stats.totalUsers}</div>
+      </button>
     </div>
+
+    <style>{`
+      .overview-section .stat-card{background:#fff;border:0;outline:0;text-align:left;padding:16px;border-radius:14px;
+        background: linear-gradient(135deg,#637bff 0%, #6a45a7 100%); color:#fff;}
+      .overview-section .stat-card h3{margin:0 0 8px 0;font-weight:600}
+      .overview-section .stat-number{font-size:32px;font-weight:800}
+      @media (max-width: 900px){ .overview-section .stats-grid{grid-template-columns:1fr} }
+    `}</style>
   </div>
 ));
+
+
 
 // ✅ Navigation component (UNCHANGED - All existing functionality preserved)
 // Update your Navigation component (around line 550+ in your file)
@@ -1766,7 +1795,12 @@ const Navigation = memo<{
 
 // ✅ Main AdminDashboard component (UNCHANGED - All existing functionality preserved)
 const AdminDashboard: React.FC<AdminDashboardProps> = ({ adminData, onLogout }) => {
-   const [activeTab, setActiveTab] = useState<'overview' | 'products' | 'inventory' | 'orders' | 'returns' | 'reviews' | 'payments' | 'blog'>('overview');
+const [activeTab, setActiveTab] = useState<
+  'overview' | 'products' | 'inventory' | 'orders' | 'returns' | 'reviews' | 'payments' | 'blog' |
+  'users' | 'todaySales' | 'lowStock' | 'pendingOrders' | 'allOrders'
+>('overview');
+
+
 
   const [stats, setStats] = useState({
     totalProducts: 0,
@@ -1833,6 +1867,8 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ adminData, onLogout }) 
     }, 5000);
   }, []);
 
+  
+
   const checkNetworkStatus = useCallback((): boolean => {
     if (!navigator.onLine) {
       showNotification('No internet connection. Please check your network.', 'error');
@@ -1843,16 +1879,20 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ adminData, onLogout }) 
 
   const renderActiveComponent = () => {
     switch(activeTab) {
+  
+
       case 'overview':
-        return <Overview stats={stats} />;
-      case 'products':
-        return (
-          <ProductManagement 
-            onStatsRefresh={fetchStats}
-            showNotification={showNotification}
-            checkNetworkStatus={checkNetworkStatus}
-          />
-        );
+  return (
+    <Overview
+      stats={stats}
+      onOpenPending={() => setActiveTab('pendingOrders')}
+      onOpenTodaySales={() => setActiveTab('todaySales')}
+      onOpenLowStock={() => setActiveTab('lowStock')}
+      onOpenAllOrders={() => setActiveTab('orders')}   // reuse full Orders tab
+      onOpenUsers={() => setActiveTab('users')}
+    />
+  );
+
       case 'inventory':
         return (
           <InventoryManagement 
@@ -1860,6 +1900,21 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ adminData, onLogout }) 
             checkNetworkStatus={checkNetworkStatus}
           />
         );
+case 'users':
+  return (
+    <UsersTab
+      showNotification={showNotification}
+      checkNetworkStatus={checkNetworkStatus}
+    />
+  );
+case 'products':
+  return (
+    <ProductManagement
+      onStatsRefresh={fetchStats}
+      showNotification={showNotification}
+      checkNetworkStatus={checkNetworkStatus}
+    />
+  );
 
 
         case 'orders':
@@ -1879,9 +1934,37 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ adminData, onLogout }) 
     />
   );
 
+
+  case 'todaySales':
+  return (
+    <TodaySalesTab
+      showNotification={showNotification}
+      checkNetworkStatus={checkNetworkStatus}
+    />
+  );
+
+case 'lowStock':
+  return (
+    <LowStockTab
+      showNotification={showNotification}
+      checkNetworkStatus={checkNetworkStatus}
+      threshold={10}
+    />
+  );
+
+case 'pendingOrders':
+  return (
+    <PendingOrdersTab
+      showNotification={showNotification}
+      checkNetworkStatus={checkNetworkStatus}
+    />
+  );
+
+// 'orders' already points to <OrdersTab /> — this is your "Total Orders" view
+
+
       
-      default:
-        return <Overview stats={stats} />;
+   
     }
   };
 
