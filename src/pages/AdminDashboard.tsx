@@ -12,6 +12,7 @@ import UsersTab from '../components/Layout/UsersTab';
 import TodaySalesTab from '../components/Layout/TodaySalesTab';
 import LowStockTab from '../components/Layout/LowStockTab';
 import PendingOrdersTab from '../components/Layout/PendingOrdersTab';
+import AdminNotifications from '../components/Layout/AdminNotifications';
 
  // adjust path if in a subfolder
 import { io } from "socket.io-client";
@@ -314,7 +315,7 @@ const InventoryManagement = memo<{
   // Categories for filtering
   const categories = [
     'TWS', 'Bluetooth Neckbands', 'Data Cables', 
-    'Mobile Chargers', 'Mobile ICs', 'Mobile Repairing Tools', 'Car Chargers','Bluetooth Speakers', 'Power Banks','others'
+    'Mobile Chargers', 'Mobile ICs', 'Mobile Repairing Tools', 'Car Chargers','Bluetooth Speakers', 'Power Banks','Others'
   ];
 
 
@@ -392,6 +393,7 @@ const InventoryManagement = memo<{
     setEditFormData({
       name: product.name,
       price: product.price,
+      compareAtPrice: product.compareAtPrice || product.originalPrice || '',
       stock: product.stock,
       category: product.category,
       description: product.description || '',
@@ -399,30 +401,86 @@ const InventoryManagement = memo<{
     });
   };
 
+
+
+
   // ✅ Handle save edit
   const handleSaveEdit = async () => {
-    if (!editingProduct) return;
-    
-    setIsUpdating(true);
-    try {
-      const response = await updateProduct(editingProduct, editFormData);
-      
-      if (response.success) {
-        setProducts(products.map(p => 
-          p._id === editingProduct ? { ...p, ...editFormData } : p
-        ));
-        setEditingProduct(null);
-        setEditFormData({});
-        showNotification('Product updated successfully', 'success');
-      } else {
-        throw new Error(response.message || 'Update failed');
-      }
-    } catch (error: any) {
-      showNotification(`Update failed: ${error.message}`, 'error');
-    } finally {
-      setIsUpdating(false);
-    }
+  if (!editingProduct) return;
+
+  // Build clean numbers
+  const priceNum = Number(editFormData.price);
+  const stockNum = Number(editFormData.stock);
+  const cmpRaw = editFormData.compareAtPrice;
+
+  // Blank/null clears compare-at, otherwise convert to number
+  const cmpNum =
+    cmpRaw === '' || cmpRaw === null || cmpRaw === undefined
+      ? null
+      : Number(cmpRaw);
+
+  // Basic validation
+  if (!Number.isFinite(priceNum) || priceNum < 0) {
+    showNotification('Price must be a valid non-negative number', 'error');
+    return;
+  }
+  if (!Number.isFinite(stockNum) || stockNum < 0) {
+    showNotification('Stock must be a valid non-negative number', 'error');
+    return;
+  }
+  if (cmpNum !== null && (!Number.isFinite(cmpNum) || !(cmpNum > priceNum))) {
+    showNotification('Compare-at price must be greater than Price', 'error');
+    return;
+  }
+
+  // Prepare payload for API
+  const payload: any = {
+    name: editFormData.name?.trim(),
+    price: priceNum,
+    stock: stockNum,                  // backend maps this to stockQuantity
+    category: editFormData.category,
+    description: editFormData.description || '',
+    status: editFormData.status,      // backend maps to isActive/inStock
   };
+  if (cmpNum === null) {
+    payload.compareAtPrice = null;    // clear on backend
+  } else if (Number.isFinite(cmpNum)) {
+    payload.compareAtPrice = cmpNum;  // set on backend
+  }
+
+  setIsUpdating(true);
+  try {
+    const res = await updateProduct(editingProduct, payload);
+
+    if (!res?.success) {
+      throw new Error(res?.message || 'Update failed');
+    }
+
+    // Prefer server copy if you return it; otherwise merge locally
+    setProducts(prev =>
+      prev.map(p =>
+        p._id === editingProduct
+          ? {
+              ...p,
+              ...payload,
+              // keep local reflect of compareAtPrice for the table
+              compareAtPrice: cmpNum,
+              originalPrice: cmpNum ?? undefined,
+            }
+          : p
+      )
+    );
+
+    setEditingProduct(null);
+    setEditFormData({});
+    showNotification('Product updated successfully', 'success');
+  } catch (err: any) {
+    showNotification(`Update failed: ${err.message || 'Unknown error'}`, 'error');
+  } finally {
+    setIsUpdating(false);
+  }
+};
+
 
   // ✅ Handle cancel edit
   const handleCancelEdit = () => {
@@ -525,12 +583,13 @@ const InventoryManagement = memo<{
 
   // ✅ Export products to CSV
   const handleExportCSV = () => {
-    const headers = ['Name', 'Price', 'Stock', 'Category', 'Status', 'Description', 'Specifications', 'images'];
+    const headers = ['Name', 'Price','CompareAtPrice', 'Stock', 'Category', 'Status', 'Description', 'Specifications', 'images'];
     const csvData = [
       headers.join(','),
       ...products.map(product => [
         `"${product.name}"`,
         product.price,
+         product.compareAtPrice ?? '', 
         product.stock,
         `"${product.category}"`,
         product.status || 'active',
@@ -699,6 +758,8 @@ const InventoryManagement = memo<{
                 >
                   Price {sortBy === 'price' && (sortOrder === 'asc' ? '↑' : '↓')}
                 </th>
+                <th>Compare</th>
+
                 <th 
                   onClick={() => handleSort('stock')}
                   className="sortable"
@@ -706,8 +767,10 @@ const InventoryManagement = memo<{
                   Stock {sortBy === 'stock' && (sortOrder === 'asc' ? '↑' : '↓')}
                 </th>
                 <th>Category</th>
+                <th>Spec</th>
                 <th>Status</th>
                 <th>Actions</th>
+                
               </tr>
             </thead>
             <tbody>
@@ -763,7 +826,26 @@ const InventoryManagement = memo<{
                       <span className="price">₹{product.price}</span>
                     )}
                   </td>
+
                   <td>
+  {editingProduct === product._id ? (
+    <input
+      type="number"
+      value={editFormData.compareAtPrice ?? ''}
+      onChange={(e) => setEditFormData({ ...editFormData, compareAtPrice: e.target.value })}
+      className="edit-input"
+      min="0"
+      step="0.01"
+    />
+  ) : (
+    product.compareAtPrice ? (
+      <span className="price line-through">₹{product.compareAtPrice}</span>
+    ) : (
+      <span style={{ color: '#888' }}>—</span>
+    )
+  )}
+</td>
+  <td>
                     {editingProduct === product._id ? (
                       <input
                         type="number"
@@ -810,12 +892,7 @@ const InventoryManagement = memo<{
     <span style={{ color: '#888' }}>—</span>
   )}
 </td>
-
-
-
-
-
-                  <td>
+     <td>
                     {editingProduct === product._id ? (
                       <select
                         value={editFormData.status}
@@ -958,10 +1035,12 @@ const ProductManagement = memo<{
   const [formData, setFormData] = useState({
     name: '',
     price: '',
+    compareAtPrice: '',
     stock: '',
     category: '',
     description: '',
     
+
   });
   const [uploadedImages, setUploadedImages] = useState<any[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -1121,7 +1200,16 @@ const handleCSVUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
             id: index + 1,
             name: String(pick(row, ["name"])).trim(),
             price: pick(row, ["price", "selling price", "amount"]),
-            stock: pick(row, ["stock", "qty", "quantity", "inventory"]),
+              compareAtPrice: pick(row, [
+   "compare at price",   // with spaces
+  "compare_at_price",   // snake_case
+  "compareatprice",     // camelCase compressed by your normalizer
+  "compare price", "compareprice",
+  "mrp", "msrp",
+  "list price", "original price", "originalprice",
+  "compare", "comapre"
+  ]),
+            stock: pick(row, ["stock", "qty", "quantity", "inventory","stockquantity"]),
             category: String(pick(row, ["category", "cat"])).trim(),
             description: pick(row, ["description", "desc"]),
             specifications: pick(row, ["specifications", "specs"]),
@@ -1137,7 +1225,14 @@ const handleCSVUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
           } else {
             product.price = priceNum;
           }
-
+if (product.compareAtPrice !== undefined && product.compareAtPrice !== '') {
+  const cmp = toNumber(product.compareAtPrice, { allowMillions: true });
+  if (isNaN(cmp) || cmp <= priceNum) {
+    product.errors.push("compareAtPrice must be a number greater than price");
+  } else {
+    product.compareAtPrice = cmp;
+  }
+}
           // stock cleanup
           const stockNum = toNumber(product.stock);
           if (!isNaN(stockNum)) product.stock = Math.floor(stockNum);
@@ -1201,6 +1296,14 @@ showNotification(
   // ✅ Enhanced single product submit with Cloudinary integration
   const handleSingleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    // validation
+const priceNum = Number(formData.price);
+const compareNum = formData.compareAtPrice ? Number(formData.compareAtPrice) : 0;
+if (formData.compareAtPrice && !(compareNum > priceNum)) {
+  showNotification('Compare at price must be greater than Price', 'error');
+  return;
+}
+
     
     if (!formData.name.trim() || !formData.price || !formData.category) {
       showNotification('Please fill all required fields', 'error');
@@ -1215,6 +1318,10 @@ showNotification(
       const uploadData = new FormData();
       uploadData.append('name', formData.name.trim());
       uploadData.append('price', formData.price);
+      if (formData.compareAtPrice) {
+  uploadData.append('compareAtPrice', formData.compareAtPrice);
+  uploadData.append('originalPrice', formData.compareAtPrice);
+}
       uploadData.append('stock', formData.stock || '0');
       uploadData.append('category', formData.category);
       uploadData.append('description', formData.description.trim());
@@ -1232,7 +1339,7 @@ showNotification(
       
       if (response && response.success) {
         // Reset form
-        setFormData({ name: '', price: '', stock: '', category: '', description: '' });
+        setFormData({ name: '', price: '', stock: '', category: '', compareAtPrice: '', description: '' });
         setUploadedImages([]);
         setUploadProgress(0);
         setSpecificationsText('');
@@ -1281,7 +1388,9 @@ setSpecificationsError(null);
   name: product.name,
   description: product.description || "No description provided",
   price: Number(product.price),
-  originalPrice: product.originalPrice ? Number(product.originalPrice) : undefined,
+    compareAtPrice: product.compareAtPrice ? Number(product.compareAtPrice) : undefined,
+  originalPrice: product.compareAtPrice ? Number(product.compareAtPrice) : undefined,
+
   category: product.category,                      // must match enum
   subcategory: product.subcategory || undefined,
   brand: product.brand || "Nakoda",
@@ -1329,10 +1438,10 @@ setSpecificationsError(null);
 
   const downloadSampleCSV = () => {
    const sampleData = [
-  'name,price,stock,category,description,specifications',
-  'Sample TWS Earbuds,1299,50,TWS,"High-quality wireless earbuds","{""input"":""AC 100-240V"",""output"":""5V 2.4A"",""warranty"":""6 months""}"',
-  'Sample Bluetooth Neckband,899,30,Bluetooth Neckbands,"Comfortable neckband","{""battery"":""220mAh"",""bluetooth"":""5.3""}"',
-  'Sample Data Cable,299,100,Data Cables,"Fast charging USB cable","{""length"":""1m"",""type"":""USB-C""}"'
+  'name,price, compare at price, stock,category,description,specifications,images, ',
+  'Sample TWS Earbuds,1299,1500,50,TWS,"High-quality wireless earbuds","{""input"":""AC 100-240V"",""output"":""5V 2.4A"",""warranty"":""6 months""}"',
+  'Sample Bluetooth Neckband,899,1000,30,Bluetooth Neckbands,"Comfortable neckband","{""battery"":""220mAh"",""bluetooth"":""5.3""}"',
+  'Sample Data Cable,299,399,100,Data Cables,"Fast charging USB cable","{""length"":""1m"",""type"":""USB-C""}"'
 ].join('\n');
 
 
@@ -1404,6 +1513,23 @@ setSpecificationsError(null);
                 />
               </div>
             </div>
+
+            <div className="form-group">
+  <label htmlFor="compareAtPrice">Compare at price (MRP)</label>
+  <input
+    type="number"
+    id="compareAtPrice"
+    name="compareAtPrice"
+    value={formData.compareAtPrice}
+    onChange={handleInputChange}
+    disabled={isSubmitting}
+    placeholder="0.00"
+    min="0"
+    step="0.01"
+  />
+  <small style={{color:'#666'}}>Shown as strike-through if greater than Price.</small>
+</div>
+
 
             <div className="form-row">
               <div className="form-group">
@@ -1608,6 +1734,8 @@ setSpecificationsError(null);
                         <th>Category</th>
                         <th>Status</th>
                         <th>Specs</th>
+                        <th>Comapre</th>
+                        <th>Validity</th>
 
                       </tr>
                     </thead>
@@ -1617,10 +1745,13 @@ setSpecificationsError(null);
                           <td>{index + 1}</td>
                           <td>{product.name}</td>
                           <td>₹{product.price}</td>
+                          <td>{product.compareAtPrice ? `₹${product.compareAtPrice}` : '—'}</td>
+
                           <td>{product.stock || '0'}</td>
                           <td>{product.category}</td>
                           <td>
                             {product.isValid ? (
+                              
                               <span className="status-valid">✅ Valid</span>
                             ) : (
                               <span className="status-invalid" title={product.errors.join(', ')}>
@@ -1774,6 +1905,14 @@ const Navigation = memo<{
       >
         💳 Payments
       </button>
+
+      <button
+  className={activeTab === 'notifications' ? 'active' : ''}
+  onClick={() => setActiveTab('notifications')}
+>
+  🔔 Notifications
+</button>
+
 <button 
   className={activeTab === 'blog' ? 'active' : ''}
   onClick={() => setActiveTab('blog')}
@@ -1796,8 +1935,8 @@ const Navigation = memo<{
 // ✅ Main AdminDashboard component (UNCHANGED - All existing functionality preserved)
 const AdminDashboard: React.FC<AdminDashboardProps> = ({ adminData, onLogout }) => {
 const [activeTab, setActiveTab] = useState<
-  'overview' | 'products' | 'inventory' | 'orders' | 'returns' | 'reviews' | 'payments' | 'blog' |
-  'users' | 'todaySales' | 'lowStock' | 'pendingOrders' | 'allOrders'
+  'overview' | 'products' | 'inventory' | 'orders' | 'returns' | 'reviews' | 'payments' | 'blog' | 
+  'users' | 'todaySales' | 'lowStock' | 'pendingOrders' | 'allOrders' | 'notifications'
 >('overview');
 
 
@@ -1955,6 +2094,13 @@ case 'lowStock':
 case 'pendingOrders':
   return (
     <PendingOrdersTab
+      showNotification={showNotification}
+      checkNetworkStatus={checkNetworkStatus}
+    />
+  );
+case 'notifications':
+  return (
+    <AdminNotifications
       showNotification={showNotification}
       checkNetworkStatus={checkNetworkStatus}
     />

@@ -26,6 +26,7 @@ export interface IProduct extends Document {
   updatedAt: Date;
   averageRating?: number;
   ratingsCount?: number;
+    compareAtPrice?: number | null; 
 
   // 🆕 New fields
   sku?: string; // product id
@@ -125,6 +126,7 @@ const productSchema = new Schema<IProduct>(
       of: Schema.Types.Mixed,
       default: {},
     },
+    compareAtPrice: { type: Number, default: null },
 
     tags: {
       type: [String],
@@ -201,5 +203,6 @@ productSchema.pre('save', function (next) {
   this.inStock = (this.stockQuantity || 0) > 0;
   next();
 });
+
 
 export default mongoose.model<IProduct>('Product', productSchema);

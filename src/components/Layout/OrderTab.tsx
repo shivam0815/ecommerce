@@ -15,6 +15,8 @@ import {
   FunnelIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
+  ArrowPathIcon,
+  MagnifyingGlassIcon,
 } from '@heroicons/react/24/solid';
 
 /* =========================
@@ -103,9 +105,17 @@ const dt = (iso?: string) =>
       })
     : '';
 
+const getInitials = (name?: string, email?: string) => {
+  const src = (name || email || 'U').trim();
+  const parts = src.split(/\s+/);
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[1][0]).toUpperCase();
+};
+
 const getAdminToken = () =>
   localStorage.getItem('adminToken') || localStorage.getItem('token') || '';
 
+/** NOTE: keep base the same to avoid breaking existing API wiring */
 const API_BASE = '/api/orders';
 
 function useDebounced<T>(value: T, delay = 300) {
@@ -132,7 +142,7 @@ const nextStatus = (s: OrderStatus): OrderStatus | null => {
 };
 
 const pill = (s: string) =>
-  'inline-flex items-center px-2 py-1 rounded-full text-xs capitalize border ' +
+  'inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs capitalize border ' +
   (s === 'pending'
     ? 'bg-amber-50 text-amber-700 border-amber-200'
     : s === 'confirmed'
@@ -167,23 +177,74 @@ const iconFor = (s: string) => {
 };
 
 /* =========================
+   Small UI helpers
+========================= */
+const Segment: React.FC<{
+  value: string;
+  options: string[];
+  onChange: (v: string) => void;
+}> = ({ value, options, onChange }) => (
+  <div className="inline-flex rounded-xl border bg-white overflow-hidden">
+    {options.map((opt) => {
+      const active = opt === value;
+      return (
+        <button
+          key={opt}
+          onClick={() => onChange(opt)}
+          className={
+            'px-3 py-1.5 text-sm transition whitespace-nowrap ' +
+            (active
+              ? 'bg-gray-900 text-white'
+              : 'text-gray-700 hover:bg-gray-50')
+          }
+        >
+          {opt}
+        </button>
+      );
+    })}
+  </div>
+);
+
+const ChipButton: React.FC<
+  React.ButtonHTMLAttributes<HTMLButtonElement> & { active?: boolean }
+> = ({ active, className = '', children, ...props }) => (
+  <button
+    {...props}
+    className={
+      'px-3 py-1.5 rounded-full text-xs border transition ' +
+      (active
+        ? 'bg-gray-900 text-white border-gray-900'
+        : 'bg-white text-gray-700 border-gray-200 hover:bg-gray-50') +
+      (className ? ' ' + className : '')
+    }
+  >
+    {children}
+  </button>
+);
+
+/* =========================
    Main Component
 ========================= */
 const OrdersTab: React.FC = () => {
   const [orders, setOrders] = useState<IOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  // filters & sorting
   const [filter, setFilter] = useState<'all' | OrderStatus>('all');
   const [query, setQuery] = useState('');
-  const [busyId, setBusyId] = useState<string | null>(null);
   const [sortKey, setSortKey] = useState<'createdAt' | 'total'>('createdAt');
   const [sortDir, setSortDir] = useState<'desc' | 'asc'>('desc');
   const [fromDate, setFromDate] = useState<string>('');
   const [toDate, setToDate] = useState<string>('');
+  const [toolbarLayout, setToolbarLayout] = useState<'compact' | 'expanded'>('expanded');
 
   // pagination
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(10);
+
+  // actions state
+  const [busyId, setBusyId] = useState<string | null>(null);
 
   // drawer state
   const [openDrawer, setOpenDrawer] = useState(false);
@@ -369,6 +430,17 @@ const OrdersTab: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selected]);
 
+  /* quick stats & computed views */
+  const totals = useMemo(() => {
+    const totalRevenue = orders.reduce((s, o) => s + (o.total || 0), 0);
+    const avgOrderValue = orders.length ? Math.round(totalRevenue / orders.length) : 0;
+    const byStatus: Record<string, number> = orders.reduce((acc, o) => {
+      acc[o.status] = (acc[o.status] || 0) + 1;
+      return acc;
+    }, {} as Record<string, number>);
+    return { totalRevenue, avgOrderValue, byStatus };
+  }, [orders]);
+
   /* filters + sorting + date range */
   const filtered = useMemo(() => {
     const q = queryDebounced.trim().toLowerCase();
@@ -410,7 +482,7 @@ const OrdersTab: React.FC = () => {
   }, [filtered, page, pageSize]);
 
   useEffect(() => {
-    // reset page on filter/sort change
+    // reset page on key filter/sort changes
     setPage(1);
   }, [filter, queryDebounced, sortKey, sortDir, fromDate, toDate, pageSize]);
 
@@ -473,128 +545,184 @@ const OrdersTab: React.FC = () => {
     } catch {}
   };
 
+  const setPreset = (preset: 'today' | '7d' | '30d' | 'clear') => {
+    const today = new Date();
+    if (preset === 'clear') {
+      setFromDate('');
+      setToDate('');
+      return;
+    }
+    const toStr = today.toISOString().slice(0, 10);
+    if (preset === 'today') {
+      setFromDate(toStr);
+      setToDate(toStr);
+    } else if (preset === '7d') {
+      const d = new Date(today);
+      d.setDate(d.getDate() - 6);
+      setFromDate(d.toISOString().slice(0, 10));
+      setToDate(toStr);
+    } else {
+      const d = new Date(today);
+      d.setDate(d.getDate() - 29);
+      setFromDate(d.toISOString().slice(0, 10));
+      setToDate(toStr);
+    }
+  };
+
   /* =========================
      Render
   ========================= */
   return (
-    <div className="p-3 sm:p-4 md:p-6">
+    <div className="p-3 sm:p-4 md:p-6 bg-gray-50 min-h-[calc(100vh-60px)]">
       {banner && (
         <div className="mb-3 rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-emerald-800 shadow-sm">
           {banner}
         </div>
       )}
 
-      {/* Header / controls */}
-      <div className="mb-4 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
-        <div className="space-y-1">
-          <h2 className="text-xl sm:text-2xl font-semibold text-gray-900">Orders</h2>
-          <p className="text-sm text-gray-600">
-            Manage orders in real-time. Click a row to view full details.
-          </p>
+      {/* Header */}
+      <div className="mb-5 flex items-start justify-between gap-4">
+        <div>
+          <h2 className="text-2xl font-bold tracking-tight text-gray-900">Orders</h2>
+          <p className="text-sm text-gray-600">Manage orders in real-time. Click a row to view full details.</p>
         </div>
+        <Segment
+          value={toolbarLayout}
+          options={['expanded', 'compact']}
+          onChange={(v) => setToolbarLayout(v as 'expanded' | 'compact')}
+        />
+      </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-2">
-          <div className="lg:col-span-2 relative">
+      {/* KPIs */}
+      <div className="mb-4 grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div className="relative overflow-hidden rounded-2xl border bg-white p-4">
+          <div className="absolute inset-0 bg-gradient-to-r from-indigo-50/70 to-transparent" />
+          <div className="relative text-xs text-gray-500">Total revenue</div>
+          <div className="relative text-2xl font-bold">{currency(totals.totalRevenue)}</div>
+        </div>
+        <div className="relative overflow-hidden rounded-2xl border bg-white p-4">
+          <div className="absolute inset-0 bg-gradient-to-r from-emerald-50/70 to-transparent" />
+          <div className="relative text-xs text-gray-500">Average order value</div>
+          <div className="relative text-2xl font-bold">{currency(totals.avgOrderValue)}</div>
+        </div>
+        <div className="relative overflow-hidden rounded-2xl border bg-white p-4">
+          <div className="absolute inset-0 bg-gradient-to-r from-rose-50/70 to-transparent" />
+          <div className="relative text-xs text-gray-500">Orders</div>
+          <div className="relative text-2xl font-bold">{orders.length}</div>
+        </div>
+      </div>
+
+      {/* Toolbar */}
+      <div className="mb-4 rounded-2xl border bg-white p-3 sm:p-4 shadow-sm">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="relative grow min-w-[220px]">
+            <MagnifyingGlassIcon className="w-4 h-4 text-gray-400 absolute left-3 top-1/2 -translate-y-1/2" />
             <input
               value={query}
               onChange={e => setQuery(e.target.value)}
               placeholder="Search by order ID, number, customer, email"
-              className="w-full border rounded-md px-3 py-2 focus:outline-none focus:ring focus:ring-gray-200"
+              className="w-full border rounded-xl pl-9 pr-3 py-2 focus:outline-none focus:ring-2 focus:ring-gray-200"
               inputMode="search"
             />
-            <AdjustmentsHorizontalIcon className="w-4 h-4 text-gray-400 absolute right-3 top-1/2 -translate-y-1/2" />
           </div>
 
-          <select
-            className="border rounded-md px-3 py-2"
-            value={filter}
-            onChange={e => setFilter(e.target.value as any)}
-          >
-            <option value="all">All</option>
-            <option value="pending">Pending</option>
-            <option value="confirmed">Confirmed</option>
-            <option value="processing">Processing</option>
-            <option value="shipped">Shipped</option>
-            <option value="delivered">Delivered</option>
-            <option value="cancelled">Cancelled</option>
-          </select>
-
-          <div className="flex gap-2">
-            <input
-              type="date"
-              className="border rounded-md px-3 py-2 w-full"
-              value={fromDate}
-              onChange={e => setFromDate(e.target.value)}
-              aria-label="From date"
-            />
-            <input
-              type="date"
-              className="border rounded-md px-3 py-2 w-full"
-              value={toDate}
-              onChange={e => setToDate(e.target.value)}
-              aria-label="To date"
-            />
+          <div className="flex items-center gap-1 overflow-x-auto">
+            {(['all', 'pending', 'confirmed', 'processing', 'shipped', 'delivered'] as const).map(s => (
+              <ChipButton key={s} active={filter === s} onClick={() => setFilter(s as any)}>
+                {s}
+              </ChipButton>
+            ))}
           </div>
 
-          <div className="flex gap-2">
-            <button
-              onClick={() => {
-                setSortKey('createdAt');
-                setSortDir(d => (sortKey === 'createdAt' ? (d === 'desc' ? 'asc' : 'desc') : 'desc'));
-              }}
-              className={
-                'border rounded-md px-3 py-2 inline-flex items-center justify-center gap-2 ' +
-                (sortKey === 'createdAt' ? 'bg-gray-900 text-white' : 'hover:bg-gray-50')
-              }
-              title="Sort by created date"
-            >
-              <ClockIcon className="w-4 h-4" />
-              Date {sortKey === 'createdAt' ? (sortDir === 'desc' ? '↓' : '↑') : ''}
-            </button>
-            <button
-              onClick={() => {
-                setSortKey('total');
-                setSortDir(d => (sortKey === 'total' ? (d === 'desc' ? 'asc' : 'desc') : 'desc'));
-              }}
-              className={
-                'border rounded-md px-3 py-2 inline-flex items-center justify-center gap-2 ' +
-                (sortKey === 'total' ? 'bg-gray-900 text-white' : 'hover:bg-gray-50')
-              }
-              title="Sort by total"
-            >
-              <BanknotesIcon className="w-4 h-4" />
-              Total {sortKey === 'total' ? (sortDir === 'desc' ? '↓' : '↑') : ''}
-            </button>
-          </div>
-
-          <div className="flex gap-2">
+          <div className="hidden md:flex items-center gap-2 ml-auto">
             <button
               onClick={fetchOrders}
-              className="border rounded-md px-3 py-2 hover:bg-gray-50 inline-flex items-center gap-2"
+              className="inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm hover:bg-gray-50"
+              title="Refresh"
             >
-              <FunnelIcon className="w-4 h-4" />
+              <ArrowPathIcon className="w-4 h-4" />
               Refresh
             </button>
             <button
               onClick={exportCSV}
-              className="border rounded-md px-3 py-2 hover:bg-gray-50 inline-flex items-center gap-2"
+              className="inline-flex items-center gap-2 rounded-xl border px-3 py-2 text-sm hover:bg-gray-50"
+              title="Export CSV"
             >
               <ArrowDownTrayIcon className="w-4 h-4" />
               CSV
             </button>
           </div>
+
+          {/* break */}
+          <div className="w-full h-0" />
+
+          <div className="flex flex-wrap items-center gap-2">
+            <input
+              type="date"
+              className="border rounded-xl px-3 py-2 text-sm"
+              value={fromDate}
+              onChange={e => setFromDate(e.target.value)}
+              aria-label="From date"
+            />
+            <span className="text-gray-400 text-sm">to</span>
+            <input
+              type="date"
+              className="border rounded-xl px-3 py-2 text-sm"
+              value={toDate}
+              onChange={e => setToDate(e.target.value)}
+              aria-label="To date"
+            />
+
+            <div className="flex items-center gap-1">
+              <ChipButton onClick={() => setPreset('today')}>Today</ChipButton>
+              <ChipButton onClick={() => setPreset('7d')}>7d</ChipButton>
+              <ChipButton onClick={() => setPreset('30d')}>30d</ChipButton>
+              <ChipButton onClick={() => setPreset('clear')}>Clear</ChipButton>
+            </div>
+
+            <div className="flex items-center gap-2 ml-auto">
+              <button
+                onClick={() => {
+                  setSortKey('createdAt');
+                  setSortDir(d => (sortKey === 'createdAt' ? (d === 'desc' ? 'asc' : 'desc') : 'desc'));
+                }}
+                className={
+                  'rounded-xl border px-3 py-2 text-sm inline-flex items-center gap-2 ' +
+                  (sortKey === 'createdAt' ? 'bg-gray-900 text-white' : 'hover:bg-gray-50')
+                }
+                title="Sort by created date"
+              >
+                <ClockIcon className="w-4 h-4" />
+                Date {sortKey === 'createdAt' ? (sortDir === 'desc' ? '↓' : '↑') : ''}
+              </button>
+              <button
+                onClick={() => {
+                  setSortKey('total');
+                  setSortDir(d => (sortKey === 'total' ? (d === 'desc' ? 'asc' : 'desc') : 'desc'));
+                }}
+                className={
+                  'rounded-xl border px-3 py-2 text-sm inline-flex items-center gap-2 ' +
+                  (sortKey === 'total' ? 'bg-gray-900 text-white' : 'hover:bg-gray-50')
+                }
+                title="Sort by total"
+              >
+                <BanknotesIcon className="w-4 h-4" />
+                Total {sortKey === 'total' ? (sortDir === 'desc' ? '↓' : '↑') : ''}
+              </button>
+            </div>
+          </div>
         </div>
       </div>
 
-      {/* Quick stats (scrollable on small) */}
-      <div className="mb-4 -mx-3 sm:mx-0">
-        <div className="flex gap-2 overflow-x-auto px-3 sm:px-0 sm:grid sm:grid-cols-2 md:grid-cols-4">
+      {/* Status summary quick cards */}
+      <div className="mb-4 -mx-1 sm:mx-0">
+        <div className="flex gap-2 overflow-x-auto px-1 sm:px-0 sm:grid sm:grid-cols-2 md:grid-cols-4">
           {(['pending', 'confirmed', 'processing', 'shipped'] as OrderStatus[]).map(s => {
             const count = orders.filter(o => o.status === s).length;
             return (
-              <div key={s} className="min-w-[11rem] sm:min-w-0 bg-white border rounded-lg p-3 shrink-0">
-                <div className="text-sm text-gray-500 capitalize">{s}</div>
-                <div className="text-xl font-semibold">{count}</div>
+              <div key={s} className="min-w-[12rem] sm:min-w-0 bg-white border rounded-2xl p-4 shrink-0">
+                <div className="text-xs text-gray-500 capitalize">{s}</div>
+                <div className="text-2xl font-bold">{count}</div>
               </div>
             );
           })}
@@ -603,21 +731,52 @@ const OrdersTab: React.FC = () => {
 
       {/* Content */}
       {loading ? (
-        <div className="bg-white border rounded-lg p-6 text-center text-gray-500">
-          Loading orders…
+        // Skeleton table
+        <div className="bg-white border rounded-2xl overflow-hidden shadow-sm">
+          <div className="p-4 border-b">
+            <div className="h-4 w-36 bg-gray-200 animate-pulse rounded" />
+          </div>
+          {[...Array(8)].map((_, i) => (
+            <div key={i} className="flex items-center justify-between p-4 border-b">
+              <div className="h-4 w-24 bg-gray-200 animate-pulse rounded" />
+              <div className="h-4 w-40 bg-gray-200 animate-pulse rounded" />
+              <div className="h-4 w-20 bg-gray-200 animate-pulse rounded" />
+              <div className="h-6 w-24 bg-gray-200 animate-pulse rounded-full" />
+            </div>
+          ))}
         </div>
       ) : error ? (
-        <div className="bg-rose-50 border border-rose-200 rounded-lg p-4 text-rose-700">
+        <div className="bg-rose-50 border border-rose-200 rounded-2xl p-4 text-rose-700">
           {error}
         </div>
       ) : filtered.length === 0 ? (
-        <div className="bg-white border rounded-lg p-6 text-center text-gray-500">
-          No orders found.
+        <div className="bg-white border rounded-2xl p-10 text-center text-gray-600 shadow-sm">
+          <div className="text-3xl mb-2">🗂️</div>
+          <div className="font-semibold mb-1">No orders found</div>
+          <div className="text-sm mb-4">Try adjusting filters or clearing the date range.</div>
+          <div className="flex items-center justify-center gap-2">
+            <button
+              className="px-3 py-2 rounded-xl border hover:bg-gray-50"
+              onClick={() => {
+                setFilter('all');
+                setQuery('');
+                setPreset('clear');
+              }}
+            >
+              Clear filters
+            </button>
+            <button
+              className="px-3 py-2 rounded-xl bg-gray-900 text-white hover:bg-black"
+              onClick={fetchOrders}
+            >
+              Refresh
+            </button>
+          </div>
         </div>
       ) : (
         <>
           {/* TABLE (≥ md) */}
-          <div className="hidden md:block bg-white border rounded-lg overflow-x-auto">
+          <div className="hidden md:block bg-white border rounded-2xl overflow-hidden shadow-sm">
             <table className="min-w-full text-sm">
               <thead className="bg-gray-50 text-gray-700 sticky top-0">
                 <tr>
@@ -630,21 +789,20 @@ const OrdersTab: React.FC = () => {
                   <th className="text-right p-3">Actions</th>
                 </tr>
               </thead>
-              <tbody>
+              <tbody className="[&>tr:nth-child(even)]:bg-gray-50/40">
                 {pageRows.map(o => (
                   <tr
                     key={o._id}
-                    className="border-t hover:bg-gray-50 cursor-pointer"
+                    className="border-t hover:bg-indigo-50/40 cursor-pointer transition"
                     onClick={e => {
-                      // avoid row open when clicking action buttons
                       const target = e.target as HTMLElement;
                       if (target.closest('button')) return;
                       openDetails(o._id);
                     }}
                   >
-                    <td className="p-3">
+                    <td className="p-3 align-top">
                       <div className="flex items-center gap-2">
-                        <div className="font-medium">
+                        <div className="font-semibold text-gray-900">
                           #{(o.orderNumber || o._id.slice(-8)).toUpperCase()}
                         </div>
                         <button
@@ -658,13 +816,20 @@ const OrdersTab: React.FC = () => {
                           <DocumentDuplicateIcon className="w-4 h-4" />
                         </button>
                       </div>
-                      <div className="text-gray-500">
-                        {o.paymentMethod?.toUpperCase()} • {o.paymentStatus || '-'}
+                      <div className="text-[12px] text-gray-500 mt-0.5 uppercase tracking-wide">
+                        {o.paymentMethod} • {o.paymentStatus || '-'}
                       </div>
                     </td>
-                    <td className="p-3">
-                      <div className="font-medium">{o.userId?.name || '—'}</div>
-                      <div className="text-gray-500">{o.userId?.email || '—'}</div>
+                    <td className="p-3 align-top">
+                      <div className="flex items-center gap-3">
+                        <div className="w-8 h-8 rounded-full bg-gray-100 border flex items-center justify-center text-[11px] font-semibold text-gray-700">
+                          {getInitials(o.userId?.name, o.userId?.email)}
+                        </div>
+                        <div>
+                          <div className="font-medium text-gray-900">{o.userId?.name || '—'}</div>
+                          <div className="text-gray-500 text-xs">{o.userId?.email || '—'}</div>
+                        </div>
+                      </div>
                     </td>
                     <td className="p-3">
                       <div className="flex -space-x-2 items-center">
@@ -677,6 +842,7 @@ const OrdersTab: React.FC = () => {
                               key={idx}
                               src={src}
                               alt=""
+                              title={(typeof it.productId === 'object' && it.productId?.name) || it.name || ''}
                               className="w-8 h-8 rounded object-cover border bg-white"
                               loading="lazy"
                               decoding="async"
@@ -685,6 +851,7 @@ const OrdersTab: React.FC = () => {
                             <div
                               key={idx}
                               className="w-8 h-8 rounded bg-gray-100 border flex items-center justify-center text-[10px] text-gray-500"
+                              title={(typeof it.productId === 'object' && it.productId?.name) || it.name || 'Item'}
                             >
                               {(typeof it.productId === 'object' && it.productId?.name) ||
                                 it.name ||
@@ -699,18 +866,18 @@ const OrdersTab: React.FC = () => {
                         )}
                       </div>
                     </td>
-                    <td className="p-3 font-semibold">{currency(o.total)}</td>
-                    <td className="p-3">
+                    <td className="p-3 font-semibold align-top">{currency(o.total)}</td>
+                    <td className="p-3 align-top">
                       <span className={pill(o.status)}>
                         {iconFor(o.status)}
-                        <span className="ml-1">{o.status}</span>
+                        <span>{o.status}</span>
                       </span>
                     </td>
-                    <td className="p-3">{dt(o.createdAt)}</td>
-                    <td className="p-3 text-right">
+                    <td className="p-3 align-top">{dt(o.createdAt)}</td>
+                    <td className="p-3 text-right align-top">
                       <div className="inline-flex gap-2">
                         <button
-                          className="px-3 py-1.5 rounded-md border hover:bg-gray-50 inline-flex items-center gap-1"
+                          className="px-3 py-1.5 rounded-xl border hover:bg-gray-50 inline-flex items-center gap-1"
                           onClick={e => {
                             e.stopPropagation();
                             openDetails(o._id);
@@ -721,7 +888,7 @@ const OrdersTab: React.FC = () => {
                           View
                         </button>
                         <button
-                          className="px-3 py-1.5 rounded-md text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-60"
+                          className="px-3 py-1.5 rounded-xl text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-60"
                           onClick={e => {
                             e.stopPropagation();
                             acceptOrder(o._id);
@@ -733,7 +900,7 @@ const OrdersTab: React.FC = () => {
                         </button>
                         {nextStatus(o.status) && (
                           <button
-                            className="px-3 py-1.5 rounded-md border hover:bg-gray-50"
+                            className="px-3 py-1.5 rounded-xl border hover:bg-gray-50"
                             onClick={e => {
                               e.stopPropagation();
                               advance(o._id, o.status);
@@ -744,7 +911,7 @@ const OrdersTab: React.FC = () => {
                         )}
                         {o.status !== 'cancelled' && (
                           <button
-                            className="px-3 py-1.5 rounded-md border hover:bg-rose-50 text-rose-700 border-rose-200"
+                            className="px-3 py-1.5 rounded-xl border hover:bg-rose-50 text-rose-700 border-rose-200"
                             onClick={e => {
                               e.stopPropagation();
                               cancelOrder(o._id);
@@ -761,14 +928,14 @@ const OrdersTab: React.FC = () => {
             </table>
 
             {/* Pagination */}
-            <div className="flex items-center justify-between p-3 border-t text-sm">
+            <div className="flex flex-wrap items-center justify-between gap-3 p-3 border-t text-sm sticky bottom-0 bg-white">
               <div className="text-gray-600">
                 Showing {(page - 1) * pageSize + 1}–
                 {Math.min(page * pageSize, filtered.length)} of {filtered.length}
               </div>
               <div className="flex items-center gap-2">
                 <select
-                  className="border rounded-md px-2 py-1"
+                  className="border rounded-xl px-2 py-1"
                   value={pageSize}
                   onChange={e => setPageSize(+e.target.value)}
                 >
@@ -779,7 +946,7 @@ const OrdersTab: React.FC = () => {
                   ))}
                 </select>
                 <button
-                  className="border rounded-md p-1.5 hover:bg-gray-50 disabled:opacity-50"
+                  className="border rounded-xl p-1.5 hover:bg-gray-50 disabled:opacity-50"
                   onClick={() => setPage(p => Math.max(1, p - 1))}
                   disabled={page <= 1}
                 >
@@ -787,7 +954,7 @@ const OrdersTab: React.FC = () => {
                 </button>
                 <div className="px-2">{page} / {totalPages}</div>
                 <button
-                  className="border rounded-md p-1.5 hover:bg-gray-50 disabled:opacity-50"
+                  className="border rounded-xl p-1.5 hover:bg-gray-50 disabled:opacity-50"
                   onClick={() => setPage(p => Math.min(totalPages, p + 1))}
                   disabled={page >= totalPages}
                 >
@@ -802,7 +969,7 @@ const OrdersTab: React.FC = () => {
             {pageRows.map(o => (
               <div
                 key={o._id}
-                className="bg-white border rounded-lg p-3"
+                className="bg-white border rounded-2xl p-3 shadow-sm"
                 onClick={() => openDetails(o._id)}
               >
                 <div className="flex items-start justify-between gap-2">
@@ -850,9 +1017,14 @@ const OrdersTab: React.FC = () => {
                 </div>
 
                 <div className="mt-3 grid grid-cols-2 gap-2 text-sm">
-                  <div>
-                    <div className="text-gray-500">Customer</div>
-                    <div className="font-medium truncate">{o.userId?.name || '—'}</div>
+                  <div className="flex items-center gap-2">
+                    <div className="w-8 h-8 rounded-full bg-gray-100 border flex items-center justify-center text-[11px] font-semibold text-gray-700">
+                      {getInitials(o.userId?.name, o.userId?.email)}
+                    </div>
+                    <div>
+                      <div className="text-gray-900 font-medium truncate">{o.userId?.name || '—'}</div>
+                      <div className="text-gray-500 text-xs truncate">{o.userId?.email || '—'}</div>
+                    </div>
                   </div>
                   <div className="text-right">
                     <div className="text-gray-500">Total</div>
@@ -861,31 +1033,15 @@ const OrdersTab: React.FC = () => {
                 </div>
 
                 <div className="mt-3 flex items-center justify-between gap-2 text-xs text-gray-600">
-                  <div className="truncate">{o.userId?.email || '—'}</div>
-                  <div className="uppercase">
-                    {o.paymentMethod} • {o.paymentStatus || '-'}
-                  </div>
-                </div>
-
-                <div className="mt-3 flex gap-2">
+                  <div className="uppercase">{o.paymentMethod} • {o.paymentStatus || '-'}</div>
                   <button
-                    className="flex-1 px-3 py-2 rounded-md border hover:bg-gray-50 inline-flex items-center gap-1 justify-center"
+                    className="inline-flex items-center gap-1 rounded-xl border px-2.5 py-1.5 hover:bg-gray-50"
                     onClick={e => {
                       e.stopPropagation();
                       openDetails(o._id);
                     }}
                   >
                     <EyeIcon className="w-4 h-4" /> View
-                  </button>
-                  <button
-                    className="flex-1 px-3 py-2 rounded-md text-white bg-blue-600 hover:bg-blue-700 disabled:opacity-60"
-                    onClick={e => {
-                      e.stopPropagation();
-                      acceptOrder(o._id);
-                    }}
-                    disabled={busyId === o._id || o.status !== 'pending'}
-                  >
-                    {busyId === o._id ? 'Accepting…' : 'Accept'}
                   </button>
                 </div>
               </div>
@@ -898,14 +1054,14 @@ const OrdersTab: React.FC = () => {
               </div>
               <div className="flex items-center gap-2">
                 <button
-                  className="border rounded-md p-1.5 hover:bg-gray-50 disabled:opacity-50"
+                  className="border rounded-xl p-1.5 hover:bg-gray-50 disabled:opacity-50"
                   onClick={() => setPage(p => Math.max(1, p - 1))}
                   disabled={page <= 1}
                 >
                   <ChevronLeftIcon className="w-4 h-4" />
                 </button>
                 <button
-                  className="border rounded-md p-1.5 hover:bg-gray-50 disabled:opacity-50"
+                  className="border rounded-xl p-1.5 hover:bg-gray-50 disabled:opacity-50"
                   onClick={() => setPage(p => Math.min(totalPages, p + 1))}
                   disabled={page >= totalPages}
                 >
@@ -936,13 +1092,13 @@ const OrdersTab: React.FC = () => {
         {/* Panel */}
         <div
           className={
-            'absolute right-0 top-0 h-full w-full sm:w-[540px] bg-white shadow-xl border-l transform transition-transform ' +
+            'absolute right-0 top-0 h-full w-full sm:w-[560px] bg-white shadow-2xl border-l transform transition-transform ' +
             (openDrawer ? 'translate-x-0' : 'translate-x-full')
           }
           role="dialog"
           aria-modal="true"
         >
-          <div className="flex items-center justify-between p-4 border-b">
+          <div className="flex items-center justify-between p-4 border-b sticky top-0 bg-white z-10">
             <div className="min-w-0">
               <div className="text-sm text-gray-500 truncate">
                 Order {selected?.orderNumber || selectedId}
@@ -953,14 +1109,14 @@ const OrdersTab: React.FC = () => {
             </div>
             <div className="flex items-center gap-2">
               <button
-                className="border rounded-md px-2.5 py-2 hover:bg-gray-50"
+                className="border rounded-xl px-2.5 py-2 hover:bg-gray-50"
                 onClick={() => window.print()}
                 title="Print"
               >
                 <PrinterIcon className="w-4 h-4" />
               </button>
               <button
-                className="border rounded-md px-2.5 py-2 hover:bg-gray-50"
+                className="border rounded-xl px-2.5 py-2 hover:bg-gray-50"
                 onClick={() => setOpenDrawer(false)}
                 title="Close"
               >
@@ -982,15 +1138,15 @@ const OrdersTab: React.FC = () => {
                 <div className="flex flex-wrap items-center gap-2">
                   <span className={pill(selected.status)}>
                     {iconFor(selected.status)}
-                    <span className="ml-1">{selected.status}</span>
+                    <span>{selected.status}</span>
                   </span>
                   {selected.paymentStatus && (
                     <span className={pill(selected.paymentStatus)}>
                       {iconFor(selected.paymentStatus)}
-                      <span className="ml-1">{selected.paymentStatus.replace('_', ' ')}</span>
+                      <span>{selected.paymentStatus.replace('_', ' ')}</span>
                     </span>
                   )}
-                  <span className="inline-flex items-center px-2 py-1 rounded-full text-xs border bg-gray-50 text-gray-700">
+                  <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs border bg-gray-50 text-gray-700">
                     {selected.paymentMethod?.toUpperCase()}
                   </span>
                 </div>
@@ -1022,11 +1178,11 @@ const OrdersTab: React.FC = () => {
 
                 {/* Money + meta */}
                 <div className="grid grid-cols-2 gap-2">
-                  <div className="border rounded-lg p-3">
+                  <div className="border rounded-2xl p-3">
                     <div className="text-xs text-gray-500">Total</div>
                     <div className="text-lg font-semibold">{currency(selected.total)}</div>
                   </div>
-                  <div className="border rounded-lg p-3">
+                  <div className="border rounded-2xl p-3">
                     <div className="text-xs text-gray-500">Placed</div>
                     <div className="text-sm">{dt(selected.createdAt)}</div>
                   </div>
@@ -1044,8 +1200,8 @@ const OrdersTab: React.FC = () => {
                         it.name ||
                         'Item';
                       return (
-                        <div key={idx} className="flex items-center gap-3 border rounded-lg p-2">
-                          <div className="w-12 h-12 rounded bg-gray-100 border overflow-hidden flex items-center justify-center">
+                        <div key={idx} className="flex items-center gap-3 border rounded-2xl p-2">
+                          <div className="w-12 h-12 rounded-xl bg-gray-100 border overflow-hidden flex items-center justify-center">
                             {src ? (
                               <img src={src} alt="" className="w-full h-full object-cover" />
                             ) : (
@@ -1088,7 +1244,7 @@ const OrdersTab: React.FC = () => {
 
                 {/* Addresses */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  <div className="border rounded-lg p-3">
+                  <div className="border rounded-2xl p-3">
                     <div className="font-semibold text-gray-900 mb-1">Shipping address</div>
                     <div className="text-sm text-gray-700 space-y-0.5">
                       <div>{selected.shippingAddress?.fullName}</div>
@@ -1103,7 +1259,7 @@ const OrdersTab: React.FC = () => {
                       </div>
                     </div>
                   </div>
-                  <div className="border rounded-lg p-3">
+                  <div className="border rounded-2xl p-3">
                     <div className="font-semibold text-gray-900 mb-1">Billing address</div>
                     <div className="text-sm text-gray-700 space-y-0.5">
                       <div>{selected.billingAddress?.fullName}</div>
@@ -1119,7 +1275,7 @@ const OrdersTab: React.FC = () => {
 
                 {/* Payment + Tracking */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                  <div className="border rounded-lg p-3">
+                  <div className="border rounded-2xl p-3">
                     <div className="font-semibold text-gray-900 mb-1">Payment</div>
                     <div className="text-sm space-y-1">
                       <div className="flex justify-between">
@@ -1148,7 +1304,7 @@ const OrdersTab: React.FC = () => {
                       )}
                     </div>
                   </div>
-                  <div className="border rounded-lg p-3">
+                  <div className="border rounded-2xl p-3">
                     <div className="font-semibold text-gray-900 mb-1">Shipping</div>
                     <div className="text-sm space-y-1">
                       <div className="flex justify-between">
@@ -1168,7 +1324,7 @@ const OrdersTab: React.FC = () => {
                       {(selected.trackingUrl || selected.trackingNumber) && (
                         <div className="pt-1">
                           <a
-                            className="inline-flex items-center gap-2 px-3 py-1.5 border rounded-md hover:bg-gray-50"
+                            className="inline-flex items-center gap-2 px-3 py-1.5 border rounded-xl hover:bg-gray-50"
                             href={
                               selected.trackingUrl ||
                               `/track-order/${selected.trackingNumber}`
@@ -1188,7 +1344,7 @@ const OrdersTab: React.FC = () => {
                 {/* Actions */}
                 <div className="flex flex-wrap gap-2 pt-1">
                   <button
-                    className="px-3 py-2 rounded-md border hover:bg-gray-50"
+                    className="px-3 py-2 rounded-xl border hover:bg-gray-50"
                     onClick={() => selected && acceptOrder(selected._id)}
                     disabled={selected.status !== 'pending' || busyId === selected._id}
                   >
@@ -1196,7 +1352,7 @@ const OrdersTab: React.FC = () => {
                   </button>
                   {selected.status !== 'cancelled' && nextStatus(selected.status) && (
                     <button
-                      className="px-3 py-2 rounded-md border hover:bg-gray-50"
+                      className="px-3 py-2 rounded-xl border hover:bg-gray-50"
                       onClick={() => selected && advance(selected._id, selected.status)}
                       disabled={busyId === selected._id}
                     >
@@ -1205,7 +1361,7 @@ const OrdersTab: React.FC = () => {
                   )}
                   {selected.status !== 'cancelled' && (
                     <button
-                      className="px-3 py-2 rounded-md border hover:bg-rose-50 text-rose-700 border-rose-200"
+                      className="px-3 py-2 rounded-xl border hover:bg-rose-50 text-rose-700 border-rose-200"
                       onClick={() => selected && cancelOrder(selected._id)}
                       disabled={busyId === selected._id}
                     >

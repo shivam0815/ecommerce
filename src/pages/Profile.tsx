@@ -1,3 +1,4 @@
+// src/pages/Profile.tsx
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -21,18 +22,13 @@ import {
   LifebuoyIcon,
   QuestionMarkCircleIcon,
   DocumentTextIcon,
-  EnvelopeIcon,
 } from '@heroicons/react/24/solid';
 
 import SettingsTab from '../components/Layout/SettingsTab';
-import Contact from './Contact';
 import NotificationCenter from '../components/Layout/NotificationCenter';
 import HelpSupport from '../components/Layout/HelpSupport';
 import FAQs from '../components/Layout/FAQs';
 import Terms from './Terms';
-
-
-
 
 // Prefer Vite env → axios baseURL → window origin (no trailing slash)
 const { VITE_API_URL } = (import.meta as any).env as { VITE_API_URL?: string };
@@ -143,7 +139,7 @@ const Profile: React.FC = () => {
   const [ordersLoading, setOrdersLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<
-    'profile' | 'orders' | 'settings' | 'security' | 'notifications' | 'support' | 'faqs' | 'terms' | 'contact'
+    'profile' | 'orders' | 'settings' | 'security' | 'notifications' | 'support' | 'faqs' | 'terms'
   >('profile');
   const [orderFilter, setOrderFilter] = useState<'all' | 'pending' | 'completed'>('all');
   const [isUpdating, setIsUpdating] = useState(false);
@@ -333,108 +329,99 @@ const Profile: React.FC = () => {
           )}
         </div>
 
-        {/* Tabs */}
-       {/* Tabs (vertical, polished) */}
-<div className="bg-white rounded-2xl shadow-sm border border-gray-100">
-  <div className="flex flex-col md:flex-row">
-    {/* Sidebar nav */}
-    <aside className="md:w-64 border-b md:border-b-0 md:border-r border-gray-100">
-      <nav className="p-2 md:p-4 space-y-1">
-        {[
-          { id: 'profile', label: 'Profile', icon: <UserIcon className="w-4 h-4" /> },
-          { id: 'orders', label: 'Orders', icon: <ShoppingBagIcon className="w-4 h-4" /> },
-          { id: 'notifications', label: 'Notifications', icon: <BellIcon className="w-4 h-4" /> },
-          { id: 'settings', label: 'Settings', icon: <Cog6ToothIcon className="w-4 h-4" /> },
-          { id: 'support', label: 'Help & Support', icon: <LifebuoyIcon className="w-4 h-4" /> },
-          { id: 'faqs', label: 'FAQs', icon: <QuestionMarkCircleIcon className="w-4 h-4" /> },
-          { id: 'terms', label: 'Terms', icon: <DocumentTextIcon className="w-4 h-4" /> },
-          { id: 'contact', label: 'Contact', icon: <EnvelopeIcon className="w-4 h-4" /> },
-        ].map(t => (
-          <button
-            key={t.id}
-            onClick={() => setActiveTab(t.id as typeof activeTab)}
-            aria-current={activeTab === t.id ? 'page' : undefined}
-            className={clsx(
-              'w-full inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm md:text-[15px] font-medium transition',
-              activeTab === t.id
-                ? 'bg-gray-900 text-white shadow-sm'
-                : 'text-gray-700 hover:bg-gray-50'
-            )}
-          >
-            <span className="shrink-0">{t.icon}</span>
-            <span className="truncate">{t.label}</span>
-          </button>
-        ))}
-      </nav>
-    </aside>
+        {/* Tabs (vertical, polished) */}
+        <div className="bg-white rounded-2xl shadow-sm border border-gray-100">
+          <div className="flex flex-col md:flex-row">
+            {/* Sidebar nav */}
+            <aside className="md:w-64 border-b md:border-b-0 md:border-r border-gray-100">
+              <nav className="p-2 md:p-4 space-y-1">
+                {[
+                  { id: 'profile', label: 'Profile', icon: <UserIcon className="w-4 h-4" /> },
+                  { id: 'orders', label: 'Orders', icon: <ShoppingBagIcon className="w-4 h-4" /> },
+                  { id: 'notifications', label: 'Notifications', icon: <BellIcon className="w-4 h-4" /> },
+                  { id: 'settings', label: 'Settings', icon: <Cog6ToothIcon className="w-4 h-4" /> },
+                  { id: 'support', label: 'Help & Support', icon: <LifebuoyIcon className="w-4 h-4" /> },
+                  { id: 'faqs', label: 'FAQs', icon: <QuestionMarkCircleIcon className="w-4 h-4" /> },
+                  { id: 'terms', label: 'Terms', icon: <DocumentTextIcon className="w-4 h-4" /> },
+                ].map(t => (
+                  <button
+                    key={t.id}
+                    onClick={() => setActiveTab(t.id as typeof activeTab)}
+                    aria-current={activeTab === t.id ? 'page' : undefined}
+                    className={clsx(
+                      'w-full inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm md:text-[15px] font-medium transition',
+                      activeTab === t.id
+                        ? 'bg-gray-900 text-white shadow-sm'
+                        : 'text-gray-700 hover:bg-gray-50'
+                    )}
+                  >
+                    <span className="shrink-0">{t.icon}</span>
+                    <span className="truncate">{t.label}</span>
+                  </button>
+                ))}
+              </nav>
+            </aside>
 
-    {/* Panels (unchanged) */}
-    <section className="flex-1 p-6 md:p-8 min-h-[420px]">
-      <AnimatePresence mode="wait">
-        {activeTab === 'profile' && (
-          <motion.div key="profile" variants={fade} initial="hidden" animate="visible" exit="exit">
-            <ProfileEditForm
-              user={user}
-              onUpdate={updateUserProfile}
-              isUpdating={isUpdating}
-              goSecurity={() => setActiveTab('security')}
-            />
-          </motion.div>
-        )}
+            {/* Panels */}
+            <section className="flex-1 p-6 md:p-8 min-h-[420px]">
+              <AnimatePresence mode="wait">
+                {activeTab === 'profile' && (
+                  <motion.div key="profile" variants={fade} initial="hidden" animate="visible" exit="exit">
+                    <ProfileEditForm
+                      user={user}
+                      onUpdate={updateUserProfile}
+                      isUpdating={isUpdating}
+                      goSecurity={() => setActiveTab('security')}
+                    />
+                  </motion.div>
+                )}
 
-        {activeTab === 'orders' && (
-          <motion.div key="orders" variants={fade} initial="hidden" animate="visible" exit="exit">
-            <OrdersTab
-              orders={filteredOrders}
-              ordersLoading={ordersLoading}
-              orderFilter={orderFilter}
-              setOrderFilter={setOrderFilter}
-              onRefresh={fetchOrders}
-              navigate={navigate}
-            />
-          </motion.div>
-        )}
+                {activeTab === 'orders' && (
+                  <motion.div key="orders" variants={fade} initial="hidden" animate="visible" exit="exit">
+                    <OrdersTab
+                      orders={filteredOrders}
+                      ordersLoading={ordersLoading}
+                      orderFilter={orderFilter}
+                      setOrderFilter={setOrderFilter}
+                      onRefresh={fetchOrders}
+                      navigate={navigate}
+                    />
+                  </motion.div>
+                )}
 
-        {activeTab === 'notifications' && (
-          <motion.div key="notifications" variants={fade} initial="hidden" animate="visible" exit="exit">
-            <NotificationCenter />
-          </motion.div>
-        )}
+                {activeTab === 'notifications' && (
+                  <motion.div key="notifications" variants={fade} initial="hidden" animate="visible" exit="exit">
+                    <NotificationCenter />
+                  </motion.div>
+                )}
 
-        {activeTab === 'settings' && (
-          <motion.div key="settings" variants={fade} initial="hidden" animate="visible" exit="exit">
-            <SettingsTab user={user} onUpdate={updateUserProfile} />
-          </motion.div>
-        )}
+                {activeTab === 'settings' && (
+                  <motion.div key="settings" variants={fade} initial="hidden" animate="visible" exit="exit">
+                    <SettingsTab user={user} onUpdate={updateUserProfile} />
+                  </motion.div>
+                )}
 
-        {activeTab === 'support' && (
-          <motion.div key="support" variants={fade} initial="hidden" animate="visible" exit="exit">
-            <HelpSupport />
-          </motion.div>
-        )}
+                {activeTab === 'support' && (
+                  <motion.div key="support" variants={fade} initial="hidden" animate="visible" exit="exit">
+                    <HelpSupport />
+                  </motion.div>
+                )}
 
-        {activeTab === 'faqs' && (
-          <motion.div key="faqs" variants={fade} initial="hidden" animate="visible" exit="exit">
-            <FAQs />
-          </motion.div>
-        )}
+                {activeTab === 'faqs' && (
+                  <motion.div key="faqs" variants={fade} initial="hidden" animate="visible" exit="exit">
+                    <FAQs />
+                  </motion.div>
+                )}
 
-        {activeTab === 'terms' && (
-          <motion.div key="terms" variants={fade} initial="hidden" animate="visible" exit="exit">
-            <Terms />
-          </motion.div>
-        )}
-
-        {activeTab === 'contact' && (
-          <motion.div key="contact" variants={fade} initial="hidden" animate="visible" exit="exit">
-            <Contact />
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </section>
-  </div>
-</div>
-
+                {activeTab === 'terms' && (
+                  <motion.div key="terms" variants={fade} initial="hidden" animate="visible" exit="exit">
+                    <Terms />
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </section>
+          </div>
+        </div>
       </div>
     </div>
   );

@@ -29,6 +29,7 @@ export interface Product {
   isActive?: boolean;
   createdAt?: Date;
   updatedAt?: Date;
+  compareAtPrice?: number | null; 
 }
 
 // ✅ FIXED: Complete CartItem interface

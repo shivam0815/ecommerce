@@ -7,7 +7,7 @@ import Order from '../models/Order';
 import User from '../models/User';
 import nodemailer from 'nodemailer';
 import crypto from 'crypto';
-
+import { Parser as Json2CsvParser } from 'json2csv';
 interface AuthRequest extends Request {
   user?: {
     id: string;
@@ -44,6 +44,40 @@ const asArray = (v: any): string[] => {
   }
   return [];
 };
+
+
+// ---------- Price/stock compatibility helpers ----------
+const toNumber = (v: any) => (v === '' || v == null ? null : Number(v));
+
+const mirrorCompare = <T extends Record<string, any>>(obj: T): T => {
+  if (!obj) return obj;
+  const out: any = { ...obj };
+  const cmp = out.compareAtPrice ?? out.originalPrice;
+  if (cmp !== undefined) {
+    out.compareAtPrice = cmp;
+    out.originalPrice = cmp;
+  }
+  if (out.stock !== undefined && out.stockQuantity === undefined) {
+    out.stockQuantity = out.stock;
+  }
+  return out as T;
+};
+
+const normalizeOut = (p: any) => {
+  const po = (p && typeof p.toObject === 'function') ? p.toObject({ virtuals: true }) : p;
+  const cmp = po?.compareAtPrice ?? po?.originalPrice ?? null;
+  const stockQty = po?.stockQuantity ?? po?.stock ?? 0;
+  return {
+    ...po,
+    compareAtPrice: cmp,
+    originalPrice: cmp,
+    stockQuantity: stockQty,
+    stock: po?.stock ?? stockQty,
+  };
+};
+
+
+
 
 const parseSpecs = (v: any): Record<string, any> => {
   if (!v) return {};
@@ -485,7 +519,9 @@ export const uploadProduct = async (req: AuthRequest, res: Response): Promise<vo
       features,
       tags,
       images,          // optional URLs provided in body
-      specifications   // JSON string or object
+      specifications, 
+       compareAtPrice,       // ✅ NEW
+      originalPrice  // JSON string or object
     } = req.body as any;
 
     // Validation
@@ -503,6 +539,14 @@ export const uploadProduct = async (req: AuthRequest, res: Response): Promise<vo
     }
 
     const parsedPrice = parseFloat(price);
+      const cmpRaw = compareAtPrice ?? originalPrice;
+    const cmp = toNumber(cmpRaw);
+    if (cmp != null) {
+      if (!Number.isFinite(cmp) || !(cmp > parsedPrice)) {
+        res.status(400).json({ success: false, message: 'compareAtPrice must be greater than price' });
+        return;
+      }
+    }
     const parsedStock = parseInt(stock) || 0;
 
     if (isNaN(parsedPrice) || parsedPrice <= 0) {
@@ -573,6 +617,8 @@ export const uploadProduct = async (req: AuthRequest, res: Response): Promise<vo
       name: String(name).trim(),
       description: String(description || '').trim(),
       price: parsedPrice,
+         compareAtPrice: cmp ?? null,          // ✅
+      originalPrice: cmp ?? null,
       stockQuantity: parsedStock,
       category: String(category).trim(),
       images: finalImageUrls,                 // ✅ ALL images
@@ -612,83 +658,81 @@ export const uploadProduct = async (req: AuthRequest, res: Response): Promise<vo
     });
   }
 };
+export const updateProduct = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const id = (req.params as any).productId || (req.params as any).id;
+    if (!id) {
+      res.status(400).json({ success: false, message: 'Product ID is required' });
+      return;
+    }
+
+    const patch = mirrorCompare(req.body); // ensures compareAtPrice ↔ originalPrice; stock ↔ stockQuantity
+
+    const priceNext = toNumber(patch.price);
+    const cmpNext = patch.compareAtPrice != null ? toNumber(patch.compareAtPrice)
+                   : patch.originalPrice != null ? toNumber(patch.originalPrice)
+                   : null;
+
+    if (cmpNext != null) {
+      let priceToCheck = priceNext;
+      if (priceToCheck == null) {
+        const cur = await Product.findById(id).select('price').lean();
+        priceToCheck = cur?.price ?? 0;
+      }
+      if (!(cmpNext > (priceToCheck ?? 0))) {
+        res.status(400).json({ success: false, message: 'compareAtPrice must be greater than price' });
+        return;
+      }
+    }
+
+    // Parse flexible fields
+    if (patch.features) patch.features = asArray(patch.features);
+    if (patch.tags) patch.tags = asArray(patch.tags);
+    if (patch.specifications) patch.specifications = parseSpecs(patch.specifications);
+    if (patch.stock != null && patch.stockQuantity == null) patch.stockQuantity = Number(patch.stock);
+
+    const updated = await Product.findByIdAndUpdate(
+      id,
+      { ...patch, updatedAt: new Date() },
+      { new: true, runValidators: true, context: 'query' }
+    );
+
+    if (!updated) {
+      res.status(404).json({ success: false, message: 'Product not found' });
+      return;
+    }
+
+    res.json({ success: true, product: normalizeOut(updated) });
+  } catch (error: any) {
+    console.error('❌ Update product error:', error);
+    res.status(500).json({ success: false, message: 'Failed to update product' });
+  }
+};
 
 // ======================================
 // 🔄 PRODUCT STATUS
 // ======================================
 export const updateProductStatus = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    console.log('🔄 Product status update started');
-    console.log('📋 Request params:', req.params);
-    console.log('📋 Request body:', req.body);
-
-    const { id } = req.params;
+    const id = (req.params as any).productId || (req.params as any).id;
     const { status } = req.body;
-
-    if (!id) {
-      res.status(400).json({ success: false, message: 'Product ID is required' });
-      return;
+    if (!id) { res.status(400).json({ success:false, message:'Product ID is required' }); return; }
+    if (!['active','inactive','draft','pending'].includes(String(status))) {
+      res.status(400).json({ success:false, message:'Invalid status' }); return;
     }
-
-    if (!status || !['active', 'inactive'].includes(String(status).toLowerCase())) {
-      res.status(400).json({
-        success: false,
-        message: 'Valid status is required (active or inactive)',
-        allowedValues: ['active', 'inactive']
-      });
-      return;
-    }
-
-    const existingProduct = await Product.findById(id);
-    if (!existingProduct) {
-      console.log('❌ Product not found:', id);
-      res.status(404).json({ success: false, message: 'Product not found' });
-      return;
-    }
-
-    const isActive = String(status).toLowerCase() === 'active';
-
-    const updatedProduct = await Product.findByIdAndUpdate(
+    const doc = await Product.findByIdAndUpdate(
       id,
-      {
-        isActive,
-        updatedAt: new Date()
-      },
-      { new: true, runValidators: true }
+      { status, isActive: status === 'active', updatedAt: new Date() },
+      { new: true, runValidators: true, context: 'query' }
     );
-
-    if (!updatedProduct) {
-      res.status(500).json({ success: false, message: 'Failed to update product status' });
-      return;
-    }
-
-    console.log('✅ Product status updated successfully:', {
-      id: updatedProduct._id,
-      name: updatedProduct.name,
-      previousStatus: existingProduct.isActive ? 'active' : 'inactive',
-      newStatus: updatedProduct.isActive ? 'active' : 'inactive'
-    });
-
-    res.json({
-      success: true,
-      message: `Product status updated to ${String(status).toLowerCase()}`,
-      product: {
-        id: updatedProduct._id,
-        name: updatedProduct.name,
-        isActive: updatedProduct.isActive,
-        status: updatedProduct.isActive ? 'active' : 'inactive',
-        updatedAt: updatedProduct.updatedAt
-      }
-    });
-  } catch (error: any) {
-    console.error('❌ Product status update error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to update product status',
-      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
-    });
+    if (!doc) { res.status(404).json({ success:false, message:'Product not found' }); return; }
+    res.json({ success:true, product: normalizeOut(doc) });
+  } catch (e:any) {
+    console.error('❌ Product status update error:', e);
+    res.status(500).json({ success:false, message:'Failed to update product status' });
   }
 };
+
 
 // ======================================
 // 📚 ADMIN PRODUCT LISTING / UTILITIES
@@ -697,70 +741,53 @@ export const updateProductStatus = async (req: AuthRequest, res: Response): Prom
 // Get All Products (Admin)
 export const getAllProducts = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    console.log('📦 Getting all products');
+    const page = Math.max(parseInt(String(req.query.page ?? '1'), 10) || 1, 1);
+    const limit = Math.min(Math.max(parseInt(String(req.query.limit ?? '10'), 10) || 10, 1), 200);
 
-    const page = parseInt(req.query.page as string) || 1;
-    const limit = parseInt(req.query.limit as string) || 10;
-    const status = req.query.status as string;
-    const category = req.query.category as string;
-    const search = req.query.search as string;
+    const status = String(req.query.status ?? '');
+    const category = String(req.query.category ?? '');
+    const search = String(req.query.search ?? '');
+    const stockFilter = String(req.query.stockFilter ?? '');
+    const sortBy = String(req.query.sortBy ?? 'name');
+    const sortOrder = String(req.query.sortOrder ?? 'asc').toLowerCase() === 'desc' ? -1 : 1;
 
     const filter: any = {};
-
-    if (status && ['active', 'inactive'].includes(status.toLowerCase())) {
-      filter.isActive = status.toLowerCase() === 'active';
+    if (status) {
+      if (['active', 'inactive', 'draft'].includes(status.toLowerCase())) {
+        filter.status = status.toLowerCase();
+      }
     }
+    if (category) filter.category = category;
+    if (search) filter.$text = { $search: search };
 
-    if (category) {
-      filter.category = { $regex: category, $options: 'i' };
-    }
+    if (stockFilter === 'in-stock') filter.stockQuantity = { $gt: 0 };
+    if (stockFilter === 'out-of-stock') filter.stockQuantity = { $eq: 0 };
+    if (stockFilter === 'low-stock') filter.stockQuantity = { $gt: 0, $lte: 10 };
 
-    if (search) {
-      filter.$or = [
-        { name: { $regex: search, $options: 'i' } },
-        { description: { $regex: search, $options: 'i' } }
-      ];
-    }
+    const allowedSort = new Set(['name', 'price', 'compareAtPrice', 'stockQuantity', 'createdAt', 'updatedAt', 'rating', 'reviews', 'status']);
+    const sort: any = {};
+    sort[allowedSort.has(sortBy) ? sortBy : 'name'] = sortOrder;
 
     const skip = (page - 1) * limit;
 
-    const [products, totalProducts] = await Promise.all([
-      Product.find(filter)
-        .sort({ createdAt: -1 })
-        .skip(skip)
-        .limit(limit)
-        .lean(),
-      Product.countDocuments(filter)
+    const [docs, totalProducts] = await Promise.all([
+      Product.find(filter).sort(sort).skip(skip).limit(limit),
+      Product.countDocuments(filter),
     ]);
 
-    const totalPages = Math.ceil(totalProducts / limit);
-
-    console.log('✅ Products fetched successfully:', {
-      count: products.length,
-      total: totalProducts,
-      page,
-      totalPages
-    });
+    const products = docs.map(normalizeOut);
+    const totalPages = Math.max(Math.ceil(totalProducts / limit), 1);
 
     res.json({
       success: true,
       products,
-      pagination: {
-        currentPage: page,
-        totalPages,
-        totalProducts,
-        hasNextPage: page < totalPages,
-        hasPrevPage: page > 1,
-        limit
-      }
+      totalProducts,
+      totalPages,
+      currentPage: page,
     });
   } catch (error: any) {
     console.error('❌ Get products error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch products',
-      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
-    });
+    res.status(500).json({ success: false, message: 'Failed to fetch products' });
   }
 };
 
@@ -816,97 +843,49 @@ export const deleteProduct = async (req: AuthRequest, res: Response): Promise<vo
 // Update Product Stock
 export const updateProductStock = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    console.log('📊 Product stock update started');
-    const { id } = req.params;
-    const { stockQuantity } = req.body;
-
-    if (!id) {
-      res.status(400).json({ success: false, message: 'Product ID is required' });
-      return;
+    const id = (req.params as any).productId || (req.params as any).id;
+    const body: any = req.body || {};
+    const stockRaw = body.stockQuantity ?? body.stock; // accept either
+    const n = Number(stockRaw);
+    if (!id) { res.status(400).json({ success:false, message:'Product ID is required' }); return; }
+    if (!Number.isInteger(n) || n < 0) {
+      res.status(400).json({ success:false, message:'Valid stock is required (non-negative integer)' }); return;
     }
-
-    if (stockQuantity === undefined || isNaN(parseInt(stockQuantity)) || parseInt(stockQuantity) < 0) {
-      res.status(400).json({
-        success: false,
-        message: 'Valid stock quantity is required (non-negative number)'
-      });
-      return;
-    }
-
-    const parsedStock = parseInt(stockQuantity);
-
-    const updatedProduct = await Product.findByIdAndUpdate(
+    const doc = await Product.findByIdAndUpdate(
       id,
-      {
-        stockQuantity: parsedStock,
-        inStock: parsedStock > 0,
-        updatedAt: new Date()
-      },
-      { new: true }
+      { stockQuantity: n, inStock: n > 0, updatedAt: new Date() },
+      { new: true, runValidators: true, context: 'query' }
     );
-
-    if (!updatedProduct) {
-      res.status(404).json({ success: false, message: 'Product not found' });
-      return;
-    }
-
-    console.log('✅ Product stock updated successfully:', {
-      id: updatedProduct._id,
-      name: updatedProduct.name,
-      newStock: updatedProduct.stockQuantity
-    });
-
-    res.json({
-      success: true,
-      message: 'Stock updated successfully',
-      product: {
-        id: updatedProduct._id,
-        name: updatedProduct.name,
-        stockQuantity: updatedProduct.stockQuantity,
-        inStock: updatedProduct.inStock
-      }
-    });
-  } catch (error: any) {
-    console.error('❌ Product stock update error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to update stock',
-      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
-    });
+    if (!doc) { res.status(404).json({ success:false, message:'Product not found' }); return; }
+    res.json({ success:true, product: normalizeOut(doc) });
+  } catch (e:any) {
+    console.error('❌ Product stock update error:', e);
+    res.status(500).json({ success:false, message:'Failed to update stock' });
   }
 };
+
 
 // Low Stock Products
 export const getLowStockProducts = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
-    console.log('⚠️ Getting low stock products');
+    const threshold = Number(req.query.threshold ?? 10);
+    const productsDocs = await Product.find({ stockQuantity: { $gt: 0, $lte: threshold }, isActive: true })
+      .sort({ stockQuantity: 1 });
 
-    const threshold = parseInt(req.query.threshold as string) || 10;
-
-    const lowStockProducts = await Product.find({
-      stockQuantity: { $lte: threshold },
-      isActive: true
-    })
-      .sort({ stockQuantity: 1 })
-      .select('name stockQuantity category price')
-      .lean();
-
-    console.log('✅ Low stock products fetched:', lowStockProducts.length);
-
+    const products = productsDocs.map(normalizeOut);
     res.json({
       success: true,
-      message: `Found ${lowStockProducts.length} products with stock <= ${threshold}`,
-      threshold,
-      products: lowStockProducts
+      products,
+      totalProducts: products.length,
+      totalPages: 1,
+      currentPage: 1,
     });
   } catch (error: any) {
     console.error('❌ Low stock products error:', error);
-    res.status(500).json({
-      success: false,
-      message: 'Failed to fetch low stock products'
-    });
+    res.status(500).json({ success: false, message: 'Failed to fetch low stock products' });
   }
 };
+
 
 // Admin Profile
 export const getAdminProfile = async (req: AuthRequest, res: Response): Promise<void> => {
@@ -949,3 +928,39 @@ export const getAdminProfile = async (req: AuthRequest, res: Response): Promise<
     });
   }
 };
+export const exportProductsCsv = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const filters: any = req.query || {};
+    const q: any = {};
+    if (filters.category) q.category = String(filters.category);
+    if (filters.search) q.$text = { $search: String(filters.search) };
+
+    const docs = await Product.find(q).sort({ createdAt: -1 });
+    const rows = docs.map(d => {
+      const n = normalizeOut(d);
+      return {
+        Name: n.name,
+        Price: n.price,
+        CompareAtPrice: n.compareAtPrice ?? '',
+        Stock: n.stockQuantity,
+        Category: n.category,
+        Status: n.status,
+        Description: n.description ?? '',
+        Images: (n.images || []).join('|'),
+        CreatedAt: n.createdAt,
+      };
+    });
+
+    const fields = Object.keys(rows[0] || { Name: '', Price: '' });
+    const parser = new Json2CsvParser({ fields });
+    const csv = parser.parse(rows);
+
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', `attachment; filename="products-${Date.now()}.csv"`);
+    res.send(csv);
+  } catch (e:any) {
+    console.error('❌ Export CSV error:', e);
+    res.status(500).json({ success:false, message:'Failed to export products' });
+  }
+};
+

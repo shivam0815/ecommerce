@@ -13,6 +13,7 @@ import {
   updateProductStatus,
   sendAdminOtp,
   verifyAdminOtp,
+  updateProductStock, // ✅ added (matches controller + adminApi)
 } from '../controllers/adminController';
 import Product from '../models/Product';
 import Return from '../models/Return';
@@ -81,13 +82,20 @@ router.post('/products/upload',
     { name: 'images', maxCount: 10 },
     { name: 'image', maxCount: 10 },
     { name: 'file', maxCount: 10 }
-  ]),
+  ]), 
   handleMulterError,
   uploadProduct as express.RequestHandler
 );
 
 // Update product status
 router.put('/products/:id/status',
+  ...adminOnly,
+  auditLog('product-status-update'),
+  updateProductStatus as express.RequestHandler
+);
+
+// ✅ Also expose PATCH to match adminApi (keeps original PUT intact)
+router.patch('/products/:id/status',
   ...adminOnly,
   auditLog('product-status-update'),
   updateProductStatus as express.RequestHandler
@@ -196,8 +204,8 @@ router.put('/products/:id',
     try {
       console.log(`✏️ Admin: Updating product ${req.params.id}`);
       
-      const { name, price, stock, category, description, status } = req.body;
-      
+      const { name, price, stock, category, description, status } = req.body as any;
+
       const updateData: any = {
         name,
         price: parseFloat(price),
@@ -208,6 +216,24 @@ router.put('/products/:id',
         inStock: parseInt(stock) > 0,
         updatedAt: new Date()
       };
+
+      // ✅ compare@price support (admin can set either key)
+      const compareRaw = (req.body as any).compareAtPrice ?? (req.body as any).originalPrice;
+      if (compareRaw !== undefined) {
+        const cmp = Number(compareRaw);
+        const pnum = Number(updateData.price);
+        if (Number.isFinite(cmp)) {
+          // Validate only if price provided and valid
+          if (Number.isFinite(pnum) && cmp <= pnum) {
+            return res.status(400).json({
+              success: false,
+              message: 'compareAtPrice must be greater than price'
+            });
+          }
+          updateData.compareAtPrice = cmp;
+          updateData.originalPrice = cmp; // keep both in sync for legacy fields
+        }
+      }
 
       const product = await Product.findByIdAndUpdate(
         req.params.id,
@@ -243,6 +269,13 @@ router.put('/products/:id',
       });
     }
   }
+);
+
+// ✅ Stock-only endpoint (matches adminApi.updateProductStock)
+router.patch('/products/:id/stock',
+  ...adminOnly,
+  auditLog('product-stock-update'),
+  updateProductStock as express.RequestHandler
 );
 
 // Delete single product
@@ -609,11 +642,9 @@ router.post('/returns', [
 });
 
 
-
-
-
-
-
+// ===============================
+// 🧑‍🧑‍🧒 ADMIN USERS
+// ===============================
 
 // GET /api/admin/users
 router.get('/users',
@@ -833,7 +864,6 @@ router.patch('/users/:id',
 
 
 
-
 router.delete('/users/:id',
   ...adminOnly,
   auditLog('user-delete'),
@@ -872,143 +902,6 @@ router.post('/users/:id/password-reset',
   }
 );
 
-
-
-
-// ===============================
-// ⭐ ADMIN REVIEWS MANAGEMENT
-// ===============================
-
-// GET /api/admin/reviews - Get all reviews with filtering
-router.get('/reviews', [
-  ...adminOnly,
-  query('productId').optional().isString(),
-  query('verified').optional().isBoolean(),
-  query('rating').optional().isInt({ min: 1, max: 5 }),
-  query('page').optional().isInt({ min: 1 }),
-  query('limit').optional().isInt({ min: 1, max: 100 })
-], async (req: express.Request, res: express.Response): Promise<void> => {
-  try {
-    console.log('⭐ Admin: Fetching reviews...');
-    
-    const { productId, verified, rating, page = 1, limit = 20 } = req.query;
-    
-    let filter: any = {};
-    if (productId) filter.productId = productId;
-    if (verified !== undefined) filter.verified = verified === 'true';
-    if (rating) filter.rating = Number(rating);
-
-    const skip = (Number(page) - 1) * Number(limit);
-    
-    const [reviews, total] = await Promise.all([
-      Review.find(filter)
-        .sort({ createdAt: -1 })
-        .skip(skip)
-        .limit(Number(limit)),
-      Review.countDocuments(filter)
-    ]);
-
-    console.log(`✅ Admin: Found ${reviews.length} reviews`);
-
-    res.status(200).json({
-      success: true,
-      data: reviews,
-      pagination: {
-        currentPage: Number(page),
-        totalPages: Math.ceil(total / Number(limit)),
-        totalItems: total,
-        hasNext: skip + reviews.length < total,
-        hasPrev: Number(page) > 1
-      }
-    });
-  } catch (error: any) {
-    console.error('❌ Admin: Get reviews error:', error);
-    res.status(500).json({ 
-      success: false,
-      error: 'Failed to fetch reviews',
-      message: error.message
-    });
-  }
-});
-
-// PUT /api/admin/reviews/:id/verify - Toggle review verification
-// PUT /api/admin/reviews/:id/status - Approve/Reject reviews
-// Add this route to your admin.ts file in the ADMIN REVIEWS MANAGEMENT section
-// PUT /api/admin/reviews/:id/status - Approve/Reject reviews
-router.put('/reviews/:id/status', [
-  ...adminOnly,
-  auditLog('review-status-update'),
-  body('status').isIn(['pending', 'approved', 'rejected'])
-], handleValidationErrors, async (req: express.Request, res: express.Response): Promise<void> => {
-  try {
-    console.log(`⭐ Admin: Updating review ${req.params.id} status to ${req.body.status}`);
-    const { status } = req.body;
-    
-    const updatedReview = await Review.findByIdAndUpdate(
-      req.params.id,
-      { status },
-      { new: true, runValidators: true }
-    );
-
-    if (!updatedReview) {
-      res.status(404).json({
-        success: false,
-        error: 'Review not found'
-      });
-      return;
-    }
-
-    console.log('✅ Admin: Review status updated successfully');
-    res.status(200).json({
-      success: true,
-      data: updatedReview,
-      message: `Review ${status} successfully`
-    });
-  } catch (error: any) {
-    console.error('❌ Admin: Update review status error:', error);
-    res.status(500).json({
-      success: false,
-      error: 'Failed to update review status',
-      message: error.message
-    });
-  }
-});
-
-
-// DELETE /api/admin/reviews/:id - Delete review
-router.delete('/reviews/:id', 
-  ...secureAdminOnly,
-  auditLog('review-delete'),
-  async (req: express.Request, res: express.Response): Promise<void> => {
-    try {
-      console.log(`⭐ Admin: Deleting review ${req.params.id}`);
-      
-      const deletedReview = await Review.findByIdAndDelete(req.params.id);
-      
-      if (!deletedReview) {
-        res.status(404).json({ 
-          success: false,
-          error: 'Review not found' 
-        });
-        return;
-      }
-      
-      console.log('✅ Admin: Review deleted successfully');
-      
-      res.status(200).json({ 
-        success: true,
-        message: 'Review deleted successfully' 
-      });
-    } catch (error: any) {
-      console.error('❌ Admin: Delete review error:', error);
-      res.status(500).json({ 
-        success: false,
-        error: 'Failed to delete review',
-        message: error.message
-      });
-    }
-  }
-);
 
 // ===============================
 // 💳 ADMIN PAYMENTS MANAGEMENT
@@ -1234,9 +1127,6 @@ router.patch('/users/:id/status', ...secureAdminOnly, (req, res, next) => {
   (router as any).handle({ ...req, method: 'PUT' }, res, next);
 });
 
-
-
-
 router.get(
   '/products/low-stock',
   ...adminOnly,
@@ -1273,9 +1163,4 @@ router.get(
   }
 );
 
-
-
-
-
-
-export default router;  
+export default router;

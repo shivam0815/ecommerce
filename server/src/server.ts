@@ -31,6 +31,7 @@ import blogRoutes from './routes/blog.routes';
 import reviewsRouter from './routes//review';
 import helpRoutes from './routes/helpRoutes';
 import supportRoutes from './routes/supportRoutes';
+import notificationRoutes from './routes/notification.routes';
 const app = express();
 const server = http.createServer(app);
 const PORT = process.env.PORT || 5000;
@@ -379,6 +380,7 @@ app.use('/api/reviews', reviewsRouter);
 // ✅ TEST ENDPOINTS (MOVED TO CORRECT POSITION - BEFORE ERROR HANDLERS)
 app.use('/api/help', helpRoutes);
 app.use('/api/support', supportRoutes);
+app.use('/api', notificationRoutes);
 // Test uploads endpoint
 app.get('/api/test/uploads', (req, res) => {
   try {

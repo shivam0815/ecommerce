@@ -1,6 +1,13 @@
 // src/App.tsx
 import React from 'react';
-import { BrowserRouter as Router, Routes, Route, Navigate, useParams } from 'react-router-dom';
+import {
+  BrowserRouter as Router,
+  Routes,
+  Route,
+  Navigate,
+  useParams,
+  useLocation,
+} from 'react-router-dom';
 import { Toaster } from 'react-hot-toast';
 import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
@@ -30,7 +37,6 @@ import ProfessionalAuthWrapper from './pages/ProfessionalAuthWrapper';
 import OrderSuccess from './pages/OrderSuccess';
 import OrderDetails from './pages/OrderDetails';
 import Search from './pages/SearchResults';
-// Make sure this file actually exists
 import CategoriesPage from './pages/category';
 import NewsletterConfirm from './pages/NewsletterConfirm';
 import NewsletterUnsubscribe from './pages/NewsletterUnsubscribe';
@@ -38,6 +44,10 @@ import Blog from './pages/Blog';
 import BlogPost from './pages/BlogPost';
 import Privacy from './pages/Privacy';
 import Terms from './pages/Terms';
+
+// ✅ Use the auth context directly; no new files are added
+import { useAuth } from './context/AuthContext';
+
 const PublicLayout = ({ children }: { children: React.ReactNode }) => (
   <>
     <Header />
@@ -50,6 +60,19 @@ const PublicLayout = ({ children }: { children: React.ReactNode }) => (
 function LegacyProductRedirect() {
   const { id } = useParams();
   return <Navigate to={id ? `/products/${id}` : '/products'} replace />;
+}
+
+/** 🔒 Inline-guarded Profile route (no separate file). */
+function GuardedProfileRoute() {
+  const { isAuthenticated, isBootstrapped, isLoading } = useAuth();
+  const location = useLocation();
+
+  // Prevent flicker while initial auth check runs
+  if (!isBootstrapped || isLoading) return null; // or a tiny spinner
+
+  return isAuthenticated
+    ? <PublicLayout><Profile /></PublicLayout>
+    : <Navigate to="/login" replace state={{ from: location }} />;
 }
 
 function App() {
@@ -67,7 +90,7 @@ function App() {
           <Route path="/products" element={<PublicLayout><Products /></PublicLayout>} />
           <Route path="/products/:id" element={<PublicLayout><ProductDetail /></PublicLayout>} />
 
-          {/* Legacy route redirect (FIX for :id problem) */}
+          {/* Legacy route redirect */}
           <Route path="/product/:id" element={<LegacyProductRedirect />} />
 
           {/* Categories */}
@@ -76,7 +99,12 @@ function App() {
           {/* Auth & profile */}
           <Route path="/login" element={<PublicLayout><Login /></PublicLayout>} />
           <Route path="/register" element={<PublicLayout><Register /></PublicLayout>} />
-          <Route path="/profile" element={<PublicLayout><Profile /></PublicLayout>} />
+
+          {/* 🔒 Profile guarded inline (fixes “still on profile after logout” without new files) */}
+          <Route path="/profile" element={<GuardedProfileRoute />} />
+
+          {/* ✅ Leading slash so /login-success always matches */}
+          <Route path="/login-success" element={<LoginSuccess />} />
 
           {/* Commerce */}
           <Route path="/cart" element={<PublicLayout><Cart /></PublicLayout>} />
@@ -97,16 +125,20 @@ function App() {
           <Route path="/verify-email-sent" element={<PublicLayout><VerifyEmailSent /></PublicLayout>} />
           <Route path="/forgot-password" element={<PublicLayout><ForgotPassword /></PublicLayout>} />
           <Route path="/reset-password-otp" element={<PublicLayout><ResetPassword /></PublicLayout>} />
-          <Route path="/reset-password" element={<PublicLayout><ResetPassword /></PublicLayout>} />
-<Route path="/newsletter/confirm" element={<PublicLayout><NewsletterConfirm /></PublicLayout>} />
-<Route path="/newsletter/unsubscribe" element={<PublicLayout><NewsletterUnsubscribe /></PublicLayout>} />
-          {/* Search */}
-          <Route path="/search" element={<PublicLayout><Search /></PublicLayout>} />
-          <Route path="/blog" element={<PublicLayout><Blog /></PublicLayout>} />
-<Route path="/blog/:slug" element={<PublicLayout><BlogPost /></PublicLayout>} />
-  <Route path="/privacy" element={<Privacy />} />
-   <Route path="/terms" element={<Terms />} />
+          <Route path="/reset-password" element={<PublicLayout><ResetPassword /></PublicLayout >} />
+          <Route path="/newsletter/confirm" element={<PublicLayout><NewsletterConfirm /></PublicLayout>} />
+          <Route path="/newsletter/unsubscribe" element={<PublicLayout><NewsletterUnsubscribe /></PublicLayout>} />
 
+          {/* Blog */}
+          <Route path="/blog" element={<PublicLayout><Blog /></PublicLayout>} />
+          <Route path="/blog/:slug" element={<PublicLayout><BlogPost /></PublicLayout>} />
+
+          {/* Legal */}
+          <Route path="/privacy" element={<Privacy />} />
+          <Route path="/terms" element={<Terms />} />
+
+          {/* Fallback */}
+          <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>
 
         {/* Global widgets */}

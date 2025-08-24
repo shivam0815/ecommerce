@@ -1,4 +1,3 @@
-
 import axios, { AxiosInstance, AxiosResponse } from 'axios';
 
 // Vite Environment Variables (import.meta.env instead of process.env)
@@ -38,6 +37,7 @@ export interface Product {
   name: string;
   price: number;
   stockQuantity: number;
+  stock?: number; // UI convenience
   status: 'active' | 'inactive' | 'pending';
   category: string;
   description?: string;
@@ -45,6 +45,8 @@ export interface Product {
   images?: string[];
   createdAt?: string;
   updatedAt?: string;
+  compareAtPrice?: number | null; // preferred by UI
+  originalPrice?: number | null;  // mirror for legacy readers
 }
 
 export interface ProductsResponse {
@@ -65,6 +67,30 @@ export interface ProductFilters {
   sortBy?: string;
   sortOrder?: 'asc' | 'desc';
   status?: string;
+}
+
+export type AdminNotificationType =
+  | 'order'
+  | 'promo'
+  | 'system'
+  | 'product'
+  | 'announcement';
+
+export interface AdminNotification {
+  _id: string;
+  userId?: string;
+  title: string;
+  message: string;
+  type: AdminNotificationType;
+  isRead?: boolean;
+  createdAt: string;
+  cta?: { label?: string; href?: string };
+}
+
+export interface AdminNotificationsListResponse {
+  success: boolean;
+  notifications: AdminNotification[];
+  total?: number;
 }
 
 // ============== Logging helpers ==============
@@ -134,6 +160,44 @@ adminApi.interceptors.response.use(
     return Promise.reject(error);
   }
 );
+
+// ============== Compatibility helpers ==============
+
+// Normalize one product so UI can rely on compareAtPrice + stock consistently
+const normalizeProduct = (p: any): Product => {
+  const cmp = p?.compareAtPrice ?? p?.originalPrice ?? null;
+  const stockQty = p?.stockQuantity ?? p?.stock ?? 0;
+  return {
+    ...p,
+    compareAtPrice: cmp,
+    originalPrice: cmp,
+    stockQuantity: stockQty,
+    stock: p?.stock ?? stockQty,
+  };
+};
+
+// Ensure outgoing payload carries both compareAtPrice & originalPrice, and mirrors stockQuantity
+const withCompareCompat = <T extends Record<string, any>>(obj: T): T => {
+  if (!obj) return obj;
+  const out: any = { ...obj };
+
+  // price compatibility
+  const cmp = out.compareAtPrice ?? out.originalPrice;
+  if (cmp !== undefined) {
+    out.compareAtPrice = cmp;
+    out.originalPrice = cmp;
+  }
+
+  // stock compatibility
+  if (out.stock !== undefined && out.stockQuantity === undefined) {
+    out.stockQuantity = out.stock;
+  }
+
+  return out as T;
+};
+
+const withCompareCompatArray = <T extends Record<string, any>>(arr: T[]): T[] =>
+  (Array.isArray(arr) ? arr.map((x) => withCompareCompat(x)) : arr);
 
 // ============== Utils ==============
 const validateEmail = (email: string): boolean =>
@@ -208,7 +272,11 @@ export const bulkUploadProducts = async (products: Partial<Product>[]): Promise<
       throw new Error('Products array is required and cannot be empty');
     }
     log('📦 Bulk uploading products...', products.length, 'products');
-    const { data } = await adminApi.post('/admin/products/bulk-upload', { products }, { timeout: 120000 });
+
+    // ✅ ensure compareAtPrice/originalPrice + stockQuantity are mirrored
+    const payload = { products: withCompareCompatArray(products) };
+
+    const { data } = await adminApi.post('/admin/products/bulk-upload', payload, { timeout: 120000 });
     log('✅ Bulk upload completed');
     return data;
   } catch (error: any) {
@@ -222,7 +290,11 @@ export const getProducts = async (params: ProductFilters = {}): Promise<Products
     log('📦 Fetching products with filters:', params);
     const { data } = await adminApi.get('/admin/products', { params });
     log('✅ Products fetched successfully');
-    return data;
+    const normalized: ProductsResponse = {
+      ...data,
+      products: (data.products || []).map(normalizeProduct),
+    };
+    return normalized;
   } catch (error: any) {
     logError('❌ Get products failed:', error.response?.data || error.message);
     throw error;
@@ -236,7 +308,7 @@ export const getProductById = async (
     log('📦 Fetching product by ID:', productId);
     const { data } = await adminApi.get(`/admin/products/${productId}`);
     log('✅ Product fetched successfully');
-    return data;
+    return { ...data, product: normalizeProduct(data.product) };
   } catch (error: any) {
     logError('❌ Get product by ID failed:', error.response?.data || error.message);
     throw error;
@@ -249,7 +321,11 @@ export const updateProduct = async (
 ): Promise<ApiResponse> => {
   try {
     log('✏️ Updating product:', productId);
-    const { data } = await adminApi.put(`/admin/products/${productId}`, productData);
+
+    // ✅ send compat body so backend (or other readers) get both fields
+    const body = withCompareCompat(productData);
+
+    const { data } = await adminApi.put(`/admin/products/${productId}`, body);
     log('✅ Product updated successfully');
     return data;
   } catch (error: any) {
@@ -279,10 +355,14 @@ export const bulkUpdateProducts = async (
       throw new Error('Product IDs array is required and cannot be empty');
     }
     log('📝 Bulk updating products:', productIds.length, 'products');
-    const { data } = await adminApi.put('/admin/products/bulk-update', {
+
+    // ✅ mirror compareAtPrice/originalPrice + stockQuantity
+    const payload = {
       productIds,
-      updateData,
-    });
+      updateData: withCompareCompat(updateData),
+    };
+
+    const { data } = await adminApi.put('/admin/products/bulk-update', payload);
     log('✅ Bulk update completed');
     return data;
   } catch (error: any) {
@@ -314,7 +394,10 @@ export const updateProductStatus = async (
 ): Promise<ApiResponse> => {
   try {
     log('🔄 Updating product status:', productId, status);
-    const { data } = await adminApi.patch(`/admin/products/${productId}/status`, { status });
+
+    // ⚠️ Your admin router uses PUT /products/:id/status
+    const { data } = await adminApi.put(`/admin/products/${productId}/status`, { status });
+
     log('✅ Product status updated successfully');
     return data;
   } catch (error: any) {
@@ -326,7 +409,13 @@ export const updateProductStatus = async (
 export const updateProductStock = async (productId: string, stock: number): Promise<ApiResponse> => {
   try {
     log('📦 Updating product stock:', productId, stock);
-    const { data } = await adminApi.patch(`/admin/products/${productId}/stock`, { stock });
+
+    // If you wire a route, make sure it exists server-side: PATCH /products/:id/stock
+    const { data } = await adminApi.patch(`/admin/products/${productId}/stock`, {
+      stock,
+      stockQuantity: stock,
+    });
+
     log('✅ Product stock updated successfully');
     return data;
   } catch (error: any) {
@@ -341,7 +430,7 @@ export const getLowStockProducts = async (threshold: number = 10): Promise<Produ
     log('📉 Fetching low stock products...');
     const { data } = await adminApi.get(`/admin/products/low-stock`, { params: { threshold } });
     log('✅ Low stock products fetched');
-    return data;
+    return { ...data, products: (data.products || []).map(normalizeProduct) };
   } catch (error: any) {
     logError('❌ Get low stock products failed:', error.response?.data || error.message);
     throw error;
@@ -376,6 +465,30 @@ export const exportProducts = async (filters?: ProductFilters): Promise<Blob> =>
     logError('❌ Export products failed:', error.response?.data || error.message);
     throw error;
   }
+};
+
+export const adminListNotifications = async (
+  params?: { limit?: number; page?: number }
+): Promise<AdminNotificationsListResponse> => {
+  const { data } = await adminApi.get('/admin/notifications', { params });
+  return data;
+};
+
+export const adminCreateNotification = async (payload: {
+  title: string;
+  message: string;
+  type?: AdminNotificationType;
+  audience: 'all' | 'user';
+  targetUserId?: string;
+  cta?: { label?: string; href?: string };
+}): Promise<ApiResponse> => {
+  const { data } = await adminApi.post('/admin/notifications', payload);
+  return data;
+};
+
+export const adminDeleteNotification = async (id: string): Promise<ApiResponse> => {
+  const { data } = await adminApi.delete(`/admin/notifications/${id}`);
+  return data;
 };
 
 // Legacy alias
@@ -423,9 +536,6 @@ export const getUserAnalytics = async (params: { range: '7d' | '30d' | '90d' }) 
   return data; // { success, analytics: {...} }
 };
 
-
-
-
 // === ORDERS (admin) ===========================================================
 export interface AdminOrder {
   _id: string;
@@ -447,14 +557,6 @@ export const getAdminOrders = (params: {
   sortOrder?: 'asc' | 'desc';
 }) => adminApi.get('/admin/orders', { params }).then(r => r.data);
 
-
-
-
-
-
-
-
-
 // ============== Env export ==============
 export const env = {
   apiUrl: API_BASE_URL,
@@ -465,4 +567,4 @@ export const env = {
   stripePublishableKey: import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY,
 };
 
-export default adminApi; 
+export default adminApi;

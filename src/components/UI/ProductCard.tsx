@@ -1,8 +1,8 @@
 // src/components/ProductCard.tsx
 import React, { useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Star, ShoppingCart, Heart, Tag } from 'lucide-react';
+import { Star, ShoppingCart, Heart, Tag, CreditCard } from 'lucide-react';
 import type { Product } from '../../types';
 import { useCart } from '../../hooks/useCart';
 import { useWishlist } from '../../hooks/useWishlist';
@@ -40,12 +40,20 @@ const getWarranty = (p: any): { months?: number; type?: string } => {
   const months =
     typeof monthsRaw === 'number'
       ? monthsRaw
-      : Number.isFinite(parseInt?.(monthsRaw, 10))
-      ? parseInt(monthsRaw, 10)
-      : undefined;
+      : (() => {
+          const n = parseInt(String(monthsRaw ?? ''), 10);
+          return Number.isFinite(n) ? n : undefined;
+        })();
 
   const type = p?.warrantyType as string | undefined;
   return { months, type };
+};
+
+/** Compare/MRP helper (prefers compareAtPrice, falls back to originalPrice) */
+const getComparePrice = (p: any): number | undefined => {
+  const v = (p as any).compareAtPrice ?? (p as any).originalPrice;
+  const n = typeof v === 'number' ? v : Number(v);
+  return Number.isFinite(n) ? n : undefined;
 };
 
 /** Robust in-stock calculation */
@@ -59,6 +67,7 @@ const computeInStock = (p: any): boolean => {
 const ProductCard: React.FC<ProductCardProps> = ({ product, viewMode = 'grid', className = '' }) => {
   const isList = viewMode === 'list';
 
+  const navigate = useNavigate();
   const { addToCart, isLoading } = useCart();
   const { addToWishlist, removeFromWishlist, isInWishlist, isLoading: wishlistLoading } = useWishlist();
 
@@ -79,6 +88,17 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, viewMode = 'grid', c
   const ports = getPorts(product);
   const { months: warrantyMonths, type: warrantyType } = getWarranty(product);
 
+  // Compare/MRP + discount
+  const comparePrice = getComparePrice(product);
+  const hasDiscount =
+    typeof product.price === 'number' &&
+    typeof comparePrice === 'number' &&
+    comparePrice > product.price;
+
+  const discountPct = hasDiscount
+    ? Math.round(((comparePrice! - product.price) / comparePrice!) * 100)
+    : 0;
+
   const handleAddToCart = async (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -91,6 +111,21 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, viewMode = 'grid', c
       toast.success('Added to cart!');
     } catch (error: any) {
       toast.error(error?.message || 'Failed to add to cart');
+    }
+  };
+
+  const handleBuyNow = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    try {
+      if (!isValidObjectId(productId)) {
+        toast.error('Product ID not found or invalid link');
+        return;
+      }
+      await addToCart(productId, 1);
+      navigate('/cart');
+    } catch (error: any) {
+      toast.error(error?.message || 'Could not proceed to checkout');
     }
   };
 
@@ -172,13 +207,11 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, viewMode = 'grid', c
           )}
 
           {/* Discount badge */}
-          {typeof product.originalPrice === 'number' &&
-            typeof product.price === 'number' &&
-            product.originalPrice > product.price && (
-              <div className="absolute top-2 left-2 bg-red-500 text-white px-2 py-1 rounded-md text-xs font-semibold z-10">
-                {Math.round(((product.originalPrice - product.price) / product.originalPrice) * 100)}% OFF
-              </div>
-            )}
+          {hasDiscount && (
+            <div className="absolute top-2 left-2 bg-red-500 text-white px-2 py-1 rounded-md text-xs font-semibold z-10">
+              {discountPct}% OFF
+            </div>
+          )}
 
           {/* Stock overlay */}
           {inStock === false && (
@@ -195,17 +228,17 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, viewMode = 'grid', c
           </h3>
 
           {/* Optional mini-meta row (SKU + Color) */}
-          {(getSku(product) || getColor(product)) && (
+          {(sku || color) && (
             <div className="flex items-center gap-2 mb-2 text-xs text-gray-600">
-              {getSku(product) && (
+              {sku && (
                 <span className="inline-flex items-center gap-1 bg-gray-100 px-2 py-0.5 rounded">
                   <Tag className="w-3 h-3" />
-                  {getSku(product)}
+                  {sku}
                 </span>
               )}
-              {getColor(product) && (
+              {color && (
                 <span className="inline-flex items-center gap-1 bg-gray-100 px-2 py-0.5 rounded">
-                  Color: <strong className="font-medium">{getColor(product)}</strong>
+                  Color: <strong className="font-medium">{color}</strong>
                 </span>
               )}
             </div>
@@ -228,11 +261,9 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, viewMode = 'grid', c
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-baseline space-x-2">
               <span className="text-xl font-bold text-gray-900">{fmtPrice(product.price, currency)}</span>
-              {typeof product.originalPrice === 'number' &&
-                typeof product.price === 'number' &&
-                product.originalPrice > product.price && (
-                  <span className="text-sm text-gray-500 line-through">{fmtPrice(product.originalPrice, currency)}</span>
-                )}
+              {hasDiscount && (
+                <span className="text-sm text-gray-500 line-through">{fmtPrice(comparePrice, currency)}</span>
+              )}
             </div>
             <span
               className={
@@ -247,9 +278,21 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, viewMode = 'grid', c
           {/* User-visible tech facts (NEVER admin-only) */}
           {(ports !== undefined || warrantyMonths || warrantyType) && (
             <div className="text-xs text-gray-700 mb-3 space-x-2">
-              {ports !== undefined && <span>Ports: <strong>{ports}</strong></span>}
-              {warrantyMonths && <span>Warranty: <strong>{warrantyMonths}m</strong></span>}
-              {warrantyType && <span>Type: <strong>{warrantyType}</strong></span>}
+              {ports !== undefined && (
+                <span>
+                  Ports: <strong>{ports}</strong>
+                </span>
+              )}
+              {warrantyMonths && (
+                <span>
+                  Warranty: <strong>{warrantyMonths}m</strong>
+                </span>
+              )}
+              {warrantyType && (
+                <span>
+                  Type: <strong>{warrantyType}</strong>
+                </span>
+              )}
             </div>
           )}
 
@@ -264,6 +307,17 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, viewMode = 'grid', c
             >
               <ShoppingCart className="h-4 w-4" />
               <span>{isLoading ? 'Adding...' : 'Add to Cart'}</span>
+            </motion.button>
+
+            <motion.button
+              whileHover={{ scale: 1.02 }}
+              whileTap={{ scale: 0.98 }}
+              onClick={handleBuyNow}
+              disabled={inStock === false || isLoading}
+              className="flex-1 bg-gray-900 text-white py-2 px-4 rounded-lg font-medium hover:bg-black disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200 flex items-center justify-center space-x-2"
+            >
+              <CreditCard className="h-4 w-4" />
+              <span>{isLoading ? 'Processing...' : 'Buy Now'}</span>
             </motion.button>
 
             <motion.button
