@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Bar, Pie } from 'react-chartjs-2';
 import {
   Chart as ChartJS,
@@ -10,358 +10,424 @@ import {
   Tooltip,
   Legend,
 } from 'chart.js';
-import toast from 'react-hot-toast'; // ✅ Add missing import
+import toast from 'react-hot-toast';
 import './ProductReview.css';
 
-// ✅ Define proper Review interface
-interface Review {
-  _id: string;
-  productId: string;
-  productName: string;
-  userId: string;
-  userName: string;
-  rating: number;
-  comment: string;
-  verified: boolean;
-  status: 'pending' | 'approved' | 'rejected';
-  helpful: number;
-  reviewDate: string;
-  createdAt?: string;
-  updatedAt?: string;
-}
+import {
+  getAdminReviews,
+  updateReviewStatus,
+  deleteReviewById,
+  type Review,
+  type ReviewStatus,
+} from '../../config/adminApi';
 
-// ✅ Define other required interfaces
-interface ChartData {
-  labels: string[];
-  datasets: any[];
-}
-
-interface QualityAssessment {
-  excellent: number;
-  good: number;
-  average: number;
-  poor: number;
-}
-
-ChartJS.register(
-  CategoryScale,
-  LinearScale,
-  BarElement,
-  ArcElement,
-  Title,
-  Tooltip,
-  Legend
-);
+ChartJS.register(CategoryScale, LinearScale, BarElement, ArcElement, Title, Tooltip, Legend);
 
 const ProductReview: React.FC = () => {
-  // ✅ Properly typed state
+  // data + meta
   const [reviews, setReviews] = useState<Review[]>([]);
+  const [total, setTotal] = useState<number>(0);
+  const [totalPages, setTotalPages] = useState<number>(1);
+
+  // ui state
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const [updating, setUpdating] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<string | null>(null);
+
+  // filters + paging
+  const [page, setPage] = useState<number>(1);
+  const [limit, setLimit] = useState<number>(20);
   const [selectedProduct, setSelectedProduct] = useState<string>('all');
-  const [updating, setUpdating] = useState<string | null>(null); // ✅ Track which review is being updated
+  const [status, setStatus] = useState<'all' | ReviewStatus>('all');
+  const [qInput, setQInput] = useState<string>(''); // typed input
+  const [q, setQ] = useState<string>(''); // debounced query
 
+  // debounce search input
   useEffect(() => {
-    fetchReviews();
-  }, []);
+    const t = setTimeout(() => setQ(qInput.trim()), 350);
+    return () => clearTimeout(t);
+  }, [qInput]);
 
-  const fetchReviews = async (): Promise<void> => {
+  // fetch when filters change
+  useEffect(() => {
+    void fetchReviews(page);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page, limit, selectedProduct, status, q]);
+
+  const fetchReviews = async (p = 1): Promise<void> => {
     try {
+      setLoading(true);
       setError(null);
-      
-      const token = localStorage.getItem('adminToken');
-      
-      const response = await fetch('/api/admin/reviews', {
-        method: 'GET',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token && { 'Authorization': `Bearer ${token}` })
-        }
+      const { items, meta } = await getAdminReviews({
+        page: p,
+        limit,
+        status,
+        productId: selectedProduct !== 'all' ? selectedProduct : undefined,
+        q: q || undefined,
       });
-      
-      if (!response.ok) {
-        if (response.status === 401) {
-          throw new Error('Unauthorized access. Please log in again.');
-        }
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      
-      const data = await response.json();
-      
-      if (data.success && Array.isArray(data.data)) {
-        setReviews(data.data);
-      } else if (Array.isArray(data)) {
-        setReviews(data);
-      } else {
-        console.warn('API response is not an array:', data);
-        setReviews([]);
-      }
-    } catch (error: any) {
-      console.error('Error fetching reviews:', error);
-      setError(error.message || 'Failed to load reviews. Please check your connection.');
+      setReviews(items);
+      setTotal(meta.total);
+      setTotalPages(meta.totalPages);
+    } catch (err: any) {
+      console.error('Error fetching reviews:', err);
+      setError(err?.message || 'Failed to load reviews.');
       setReviews([]);
+      setTotal(0);
+      setTotalPages(1);
     } finally {
       setLoading(false);
     }
   };
 
-  // ✅ Fix the update review status function
-  const updateReviewStatus = async (reviewId: string, status: 'approved' | 'rejected'): Promise<void> => {
+  const handleStatus = async (reviewId: string, nextStatus: ReviewStatus) => {
     try {
       setUpdating(reviewId);
-      const token = localStorage.getItem('adminToken');
-      
-      const response = await fetch(`/api/admin/reviews/${reviewId}/status`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`
-        },
-        body: JSON.stringify({ status })
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to update review status');
-      }
-
-      const result = await response.json();
-      
-      if (result.success) {
-        // ✅ Update local state instead of refetching
-        setReviews(prevReviews => 
-          prevReviews.map(review => 
-            review._id === reviewId 
-              ? { ...review, status } 
-              : review
-          )
-        );
-        toast.success(`Review ${status} successfully!`);
-      } else {
-        throw new Error(result.message || 'Failed to update review');
-      }
-    } catch (error: any) {
-      console.error('Update review status error:', error);
-      toast.error(error.message || 'Failed to update review status');
+      await updateReviewStatus(reviewId, nextStatus);
+      setReviews(prev => prev.map(r => (r._id === reviewId ? { ...r, status: nextStatus } : r)));
+      toast.success(`Review ${nextStatus} successfully!`);
+    } catch (err: any) {
+      console.error('Update review status error:', err);
+      toast.error(err?.message || 'Failed to update review status');
     } finally {
       setUpdating(null);
     }
   };
 
-  // ✅ Safe filtering with proper typing
-  const filteredReviews: Review[] = selectedProduct === 'all' 
-    ? reviews 
-    : reviews.filter((review: Review) => review.productId === selectedProduct);
+  const handleDelete = async (reviewId: string) => {
+    const ok = window.confirm('Delete this review? This cannot be undone.');
+    if (!ok) return;
+    try {
+      setDeleting(reviewId);
+      await deleteReviewById(reviewId);
+      setReviews(prev => prev.filter(r => r._id !== reviewId));
+      setTotal(t => Math.max(0, t - 1));
+      toast.success('Review deleted');
+      // if list is empty after delete and not on first page, go back a page
+      if (reviews.length === 1 && page > 1) {
+        setPage(p => Math.max(1, p - 1));
+      }
+    } catch (err: any) {
+      console.error('Delete review error:', err);
+      toast.error(err?.message || 'Failed to delete review');
+    } finally {
+      setDeleting(null);
+    }
+  };
 
-  // Calculate rating distribution
-  const ratingDistribution: number[] = [1, 2, 3, 4, 5].map((rating: number) => 
-    filteredReviews.filter((review: Review) => review.rating === rating).length
+  // Unique products (from current page data)
+  const uniqueProducts = useMemo(() => {
+    const ids = new Set(reviews.map(r => r.productId).filter(Boolean));
+    return Array.from(ids).map(id => ({
+      id,
+      name: reviews.find(r => r.productId === id)?.productName || 'Unknown',
+    }));
+  }, [reviews]);
+
+  // Charts based on currently visible reviews (server-side filtered by params)
+  const ratingDistribution: number[] = useMemo(
+    () => [1, 2, 3, 4, 5].map(star => reviews.filter(r => r.rating === star).length),
+    [reviews]
   );
 
-  // Calculate average rating
-  const averageRating: number = filteredReviews.length > 0 
-    ? filteredReviews.reduce((sum: number, review: Review) => sum + review.rating, 0) / filteredReviews.length 
-    : 0;
+  const averageRating: number = useMemo(() => {
+    if (!reviews.length) return 0;
+    const sum = reviews.reduce((acc, r) => acc + (Number(r.rating) || 0), 0);
+    return sum / reviews.length;
+  }, [reviews]);
 
-  // Quality assessment based on rating
-  const qualityData: QualityAssessment = {
-    excellent: filteredReviews.filter((r: Review) => r.rating >= 4.5).length,
-    good: filteredReviews.filter((r: Review) => r.rating >= 3.5 && r.rating < 4.5).length,
-    average: filteredReviews.filter((r: Review) => r.rating >= 2.5 && r.rating < 3.5).length,
-    poor: filteredReviews.filter((r: Review) => r.rating < 2.5).length,
-  };
+  const qualityBuckets = useMemo(() => {
+    const excellent = reviews.filter(r => r.rating >= 4.5).length;
+    const good = reviews.filter(r => r.rating >= 3.5 && r.rating < 4.5).length;
+    const average = reviews.filter(r => r.rating >= 2.5 && r.rating < 3.5).length;
+    const poor = reviews.filter(r => r.rating < 2.5).length;
+    return { excellent, good, average, poor };
+  }, [reviews]);
 
-  const barChartData: ChartData = {
-    labels: ['1 Star', '2 Stars', '3 Stars', '4 Stars', '5 Stars'],
-    datasets: [{
-      label: 'Number of Reviews',
-      data: ratingDistribution,
-      backgroundColor: [
-        '#ff6b6b', '#ffa726', '#ffcc02', '#66bb6a', '#4caf50'
+  const barChartData = useMemo(
+    () => ({
+      labels: ['1 Star', '2 Stars', '3 Stars', '4 Stars', '5 Stars'],
+      datasets: [
+        {
+          label: 'Number of Reviews',
+          data: ratingDistribution,
+          backgroundColor: ['#ff6b6b', '#ffa726', '#ffcc02', '#66bb6a', '#4caf50'],
+          borderColor: ['#e53935', '#f57c00', '#ffa000', '#43a047', '#388e3c'],
+          borderWidth: 1,
+        },
       ],
-      borderColor: [
-        '#e53935', '#f57c00', '#ffa000', '#43a047', '#388e3c'
+    }),
+    [ratingDistribution]
+  );
+
+  const pieChartData = useMemo(
+    () => ({
+      labels: ['Excellent', 'Good', 'Average', 'Poor'],
+      datasets: [
+        {
+          data: [qualityBuckets.excellent, qualityBuckets.good, qualityBuckets.average, qualityBuckets.poor],
+          backgroundColor: ['#4caf50', '#66bb6a', '#ffa726', '#ff6b6b'],
+        },
       ],
-      borderWidth: 1
-    }]
-  };
+    }),
+    [qualityBuckets]
+  );
 
-  const pieChartData: ChartData = {
-    labels: ['Excellent', 'Good', 'Average', 'Poor'],
-    datasets: [{
-      data: [qualityData.excellent, qualityData.good, qualityData.average, qualityData.poor],
-      backgroundColor: ['#4caf50', '#66bb6a', '#ffa726', '#ff6b6b'],
-    }]
-  };
+  // Paging helpers
+  const from = Math.min((page - 1) * limit + 1, Math.max(total, 1));
+  const to = Math.min(page * limit, total);
 
-  // Get unique products for filter
-  const uniqueProducts = Array.from(new Set(reviews.map((r: Review) => r.productId)))
-    .map((id: string) => ({
-      id,
-      name: reviews.find((r: Review) => r.productId === id)?.productName || 'Unknown'
-    }));
-
+  // loading view
   if (loading) return <div className="loading">Loading reviews...</div>;
 
   return (
     <div className="product-review-container">
       {error && (
-        <div className="error-banner" style={{ 
-          background: '#fff3cd', 
-          border: '1px solid #ffeaa7', 
-          padding: '10px', 
-          margin: '10px 0', 
-          borderRadius: '4px',
-          color: '#856404'
-        }}>
+        <div
+          className="error-banner"
+          style={{
+            background: '#fff3cd',
+            border: '1px solid #ffeaa7',
+            padding: '10px',
+            margin: '10px 0',
+            borderRadius: '4px',
+            color: '#856404',
+          }}
+        >
           ⚠️ {error}
           {error.includes('Unauthorized') && (
             <div>
-              <button onClick={() => window.location.reload()}>
-                🔄 Refresh Page
-              </button>
+              <button onClick={() => window.location.reload()}>🔄 Refresh Page</button>
             </div>
           )}
         </div>
       )}
-      
+
       <div className="header">
-        <h2>⭐ Product Reviews & Feedback</h2>
-        <select 
-          value={selectedProduct} 
-          onChange={(e) => setSelectedProduct(e.target.value)}
-        >
-          <option value="all">All Products</option>
-          {uniqueProducts.map(product => (
-            <option key={product.id} value={product.id}>
-              {product.name}
-            </option>
-          ))}
-        </select>
+        <h2>⭐ Product Reviews &amp; Feedback</h2>
+
+        <div className="filters" style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          {/* Product filter */}
+          <select
+            value={selectedProduct}
+            onChange={e => {
+              setSelectedProduct(e.target.value);
+              setPage(1);
+            }}
+            title="Filter by product"
+          >
+            <option value="all">All Products</option>
+            {uniqueProducts.map(p => (
+              <option key={p.id} value={p.id}>
+                {p.name}
+              </option>
+            ))}
+          </select>
+
+          {/* Status filter */}
+          <select
+            value={status}
+            onChange={e => {
+              setStatus(e.target.value as any);
+              setPage(1);
+            }}
+            title="Filter by status"
+          >
+            <option value="all">All Status</option>
+            <option value="pending">Pending</option>
+            <option value="approved">Approved</option>
+            <option value="rejected">Rejected</option>
+          </select>
+
+          {/* Search */}
+          <input
+            placeholder="Search comment, user, product…"
+            value={qInput}
+            onChange={e => {
+              setQInput(e.target.value);
+              setPage(1);
+            }}
+            style={{ minWidth: 220 }}
+          />
+
+          {/* Page size */}
+          <select
+            value={limit}
+            onChange={e => {
+              setLimit(Number(e.target.value));
+              setPage(1);
+            }}
+            title="Page size"
+          >
+            {[10, 20, 50, 100].map(n => (
+              <option key={n} value={n}>
+                {n} / page
+              </option>
+            ))}
+          </select>
+
+          <button onClick={() => void fetchReviews(1)}>↻ Refresh</button>
+        </div>
       </div>
 
+      {/* Stats */}
       <div className="stats-overview">
         <div className="stat-card">
           <h3>Average Rating</h3>
           <div className="rating-display">
             <span className="rating-number">{averageRating.toFixed(1)}</span>
             <div className="stars">
-              {[1, 2, 3, 4, 5].map((star: number) => (
-                <span 
-                  key={star} 
-                  className={star <= averageRating ? 'star filled' : 'star'}
-                >
+              {[1, 2, 3, 4, 5].map(star => (
+                <span key={star} className={star <= averageRating ? 'star filled' : 'star'}>
                   ⭐
                 </span>
               ))}
             </div>
           </div>
         </div>
-        
+
         <div className="stat-card">
-          <h3>Total Reviews</h3>
-          <span className="stat-number">{filteredReviews.length}</span>
+          <h3>Total Reviews (filtered)</h3>
+          <span className="stat-number">{total}</span>
         </div>
-        
+
         <div className="stat-card">
-          <h3>Verified Reviews</h3>
-          <span className="stat-number">
-            {filteredReviews.filter((r: Review) => r.verified).length}
-          </span>
+          <h3>Verified (this page)</h3>
+          <span className="stat-number">{reviews.filter(r => r.verified).length}</span>
         </div>
       </div>
 
+      {/* Charts */}
       <div className="charts-container">
         <div className="chart">
           <h3>Rating Distribution</h3>
-          <Bar 
-            data={barChartData} 
+          <Bar
+            data={barChartData}
             options={{
               responsive: true,
               plugins: {
                 legend: { display: false },
-                title: { display: true, text: 'Reviews by Star Rating' }
-              }
+                title: { display: true, text: 'Reviews by Star Rating' },
+              },
             }}
           />
         </div>
-        
+
         <div className="chart">
           <h3>Quality Assessment</h3>
-          <Pie 
+          <Pie
             data={pieChartData}
             options={{
               responsive: true,
               plugins: {
                 legend: { position: 'bottom' as const },
-                title: { display: true, text: 'Review Quality Distribution' }
-              }
+                title: { display: true, text: 'Review Quality Distribution' },
+              },
             }}
           />
         </div>
       </div>
 
+      {/* List */}
       <div className="reviews-list">
-        <h3>Recent Reviews</h3>
-        {filteredReviews.length === 0 ? (
+        <div className="list-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <h3>Recent Reviews</h3>
+          <div className="page-info" style={{ opacity: 0.8 }}>
+            Showing <strong>{from}</strong>–<strong>{to}</strong> of <strong>{total}</strong>
+          </div>
+        </div>
+
+        {reviews.length === 0 ? (
           <div className="no-data">
             <p>📝 No reviews found</p>
           </div>
         ) : (
-          filteredReviews.slice(0, 10).map((review: Review) => (
+          reviews.map(review => (
             <div key={review._id} className="review-item">
               <div className="review-header">
-                <span className="user-name">{review.userName}</span>
+                <span className="user-name">{review.userName || 'Anonymous'}</span>
                 <div className="rating">
-                  {[1, 2, 3, 4, 5].map((star: number) => (
-                    <span 
-                      key={star} 
-                      className={star <= review.rating ? 'star filled' : 'star'}
-                    >
+                  {[1, 2, 3, 4, 5].map(star => (
+                    <span key={star} className={star <= review.rating ? 'star filled' : 'star'}>
                       ⭐
                     </span>
                   ))}
                 </div>
                 <span className="date">
-                  {new Date(review.reviewDate).toLocaleDateString()}
+                  {new Date(review.reviewDate || review.createdAt || Date.now()).toLocaleDateString()}
                 </span>
                 {review.verified && <span className="verified">✅ Verified</span>}
               </div>
-              
+
               <p className="comment">{review.comment}</p>
-              
+
               <div className="review-footer">
-                <span className="product-name">{review.productName}</span>
-                <span className="helpful">👍 {review.helpful} helpful</span>
-                
-                {/* ✅ Add review status and action buttons */}
+                <span className="product-name">{review.productName || 'Unknown Product'}</span>
+                {typeof review.helpful === 'number' && <span className="helpful">👍 {review.helpful} helpful</span>}
+
                 <div className="review-actions">
-                  <span className={`status status-${review.status}`}>
-                    {review.status.toUpperCase()}
-                  </span>
-                  
+                  <span className={`status status-${review.status}`}>{review.status.toUpperCase()}</span>
+
+                  {/* Approve / Reject for pending */}
                   {review.status === 'pending' && (
                     <div className="action-buttons">
-                      <button 
-                        onClick={() => updateReviewStatus(review._id, 'approved')}
+                      <button
+                        onClick={() => void handleStatus(review._id, 'approved')}
                         className="approve-btn"
                         disabled={updating === review._id}
+                        title="Approve"
                       >
                         {updating === review._id ? '⏳' : '✅'} Approve
                       </button>
-                      <button 
-                        onClick={() => updateReviewStatus(review._id, 'rejected')}
+                      <button
+                        onClick={() => void handleStatus(review._id, 'rejected')}
                         className="reject-btn"
                         disabled={updating === review._id}
+                        title="Reject"
                       >
                         {updating === review._id ? '⏳' : '❌'} Reject
                       </button>
                     </div>
                   )}
+
+                  {/* Delete always available */}
+                  <button
+                    onClick={() => void handleDelete(review._id)}
+                    className="delete-btn"
+                    disabled={deleting === review._id}
+                    title="Delete review"
+                    style={{ marginLeft: 8 }}
+                  >
+                    {deleting === review._id ? '⏳ Deleting…' : '🗑️ Delete'}
+                  </button>
                 </div>
               </div>
             </div>
           ))
         )}
+
+        {/* Pagination controls */}
+        <div className="pagination" style={{ display: 'flex', gap: 8, justifyContent: 'center', marginTop: 16 }}>
+          <button
+            onClick={() => setPage(p => Math.max(1, p - 1))}
+            disabled={page <= 1}
+            title="Previous page"
+          >
+            ◀ Prev
+          </button>
+
+          <span style={{ alignSelf: 'center' }}>
+            Page <strong>{page}</strong> of <strong>{totalPages}</strong>
+          </span>
+
+          <button
+            onClick={() => setPage(p => Math.min(totalPages, p + 1))}
+            disabled={page >= totalPages}
+            title="Next page"
+          >
+            Next ▶
+          </button>
+        </div>
       </div>
     </div>
   );

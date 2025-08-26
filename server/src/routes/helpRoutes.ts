@@ -1,16 +1,47 @@
-// routes/helpRoutes.ts
-import { Router } from 'express';
-import { authenticate  } from '../middleware/auth'; // optional
-const router = Router();
+import express from 'express';
 
-router.get('/faqs', async (_req, res) => {
-  // TODO: read from DB
-  return res.json({
-    faqs: [
-      { q: 'How do I track my order?', a: 'Go to Profile → Orders to see status and tracking.' },
-      { q: 'What is your return policy?', a: 'Returns accepted within 7 days of delivery.' },
-    ],
-  });
+const router = express.Router();
+
+/**
+ * GET /api/support/config
+ * Returns support/contact settings for the app.
+ * You can later replace the env-based values with DB values.
+ */
+router.get('/config', async (req, res) => {
+  try {
+    const config = {
+      channels: {
+        email: true,
+        phone: true,
+        whatsapp: true,
+        chat: false,
+      },
+      email: {
+        address: process.env.SUPPORT_EMAIL || 'support@nakodamobile.com',
+        responseTimeHours: Number(process.env.SUPPORT_RESP_HOURS || 24),
+      },
+      phone: {
+        number: process.env.SUPPORT_PHONE || '+91-99999-99999',
+        hours: process.env.SUPPORT_HOURS || 'Mon–Sat 10:00–19:00 IST',
+      },
+      whatsapp: {
+        number: process.env.SUPPORT_WHATSAPP || '+91-99999-99999',
+        link:
+          process.env.SUPPORT_WHATSAPP_LINK ||
+          'https://wa.me/919999999999?text=Hi%20Nakoda%20Mobile%20Support',
+      },
+      faq: {
+        enabled: true,
+        url: process.env.SUPPORT_FAQ_URL || 'https://nakodamobile.com/faq',
+      },
+      lastUpdated: new Date().toISOString(),
+    };
+
+    return res.json({ success: true, config });
+  } catch (err: any) {
+    console.error('❌ support/config error:', err);
+    return res.status(500).json({ success: false, message: 'Failed to load support config' });
+  }
 });
 
 export default router;

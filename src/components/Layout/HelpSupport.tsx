@@ -1,255 +1,337 @@
-// src/components/Layout/HelpSupport.tsx
-import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
-import clsx from 'clsx';
+import React, { useEffect, useMemo, useState } from 'react';
+import toast from 'react-hot-toast';
 import {
-  LifebuoyIcon,
-  ArrowRightIcon,
-  ArrowTopRightOnSquareIcon,
-  PhoneIcon,
-  EnvelopeIcon,
-  ChatBubbleLeftRightIcon,
-  InformationCircleIcon,
-} from '@heroicons/react/24/solid';
+  getSupportConfig,
+  getSupportFaqs,
+  createSupportTicket,
+  type SupportConfig,
+  type SupportFaq,
+  type TicketPriority,
+} from '../../config/adminApi';
 
-const SUPPORT_EMAIL =
-  (import.meta as any)?.env?.VITE_SUPPORT_EMAIL || 'support@example.com';
-const SUPPORT_PHONE =
-  (import.meta as any)?.env?.VITE_SUPPORT_PHONE || '+91 98765 43210';
-const WHATSAPP_NUMBER =
-  (import.meta as any)?.env?.VITE_SUPPORT_WHATSAPP || '919876543210'; // numeric only
+const inputBase =
+  'mt-1 block w-full rounded-lg border border-gray-300 bg-white px-3 py-2 text-sm placeholder-gray-400 shadow-sm focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/40 disabled:opacity-60 dark:bg-zinc-900 dark:border-zinc-700 dark:placeholder-zinc-500';
+const sectionCard =
+  'bg-white dark:bg-zinc-900/70 border border-gray-100 dark:border-zinc-800 rounded-2xl shadow-sm p-4 sm:p-6';
 
 const HelpSupport: React.FC = () => {
-  const navigate = useNavigate();
+  const [cfg, setCfg] = useState<SupportConfig | null>(null);
+  const [faqs, setFaqs] = useState<SupportFaq[]>([]);
+  const [q, setQ] = useState('');
+  const [category, setCategory] = useState('');
+  const [loadingCfg, setLoadingCfg] = useState(true);
+  const [loadingFaqs, setLoadingFaqs] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
 
-  // Tabs (only Overview + Contact)
-  const [active, setActive] = useState<'overview' | 'contact'>('overview');
+  // form state
+  const [subject, setSubject] = useState('');
+  const [message, setMessage] = useState('');
+  const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
+  const [orderId, setOrderId] = useState('');
+  const [ticketCategory, setTicketCategory] = useState('');
+  const [priority, setPriority] = useState<TicketPriority>('normal');
+  const [files, setFiles] = useState<File[]>([]);
 
-  // Quick actions
-  const cards = [
-    {
-      title: 'Order Issues',
-      desc: 'Track, modify, or report an issue with your order.',
-      go: () => navigate('/profile?tab=orders'),
-    },
-    {
-      title: 'Returns & Refunds',
-      desc: 'Window, eligibility & how to start a return.',
-      go: () => navigate('/profile?tab=orders'),
-    },
-    {
-      title: 'Payments',
-      desc: 'Payment failures, double-charges & billing help.',
-      go: () => navigate('/profile?tab=orders'),
-    },
-    {
-      title: 'Product Warranty',
-      desc: 'Warranty coverage and claim process.',
-      go: () => navigate('/profile?tab=orders'),
-    },
-  ];
+  useEffect(() => {
+    (async () => {
+      try {
+        setLoadingCfg(true);
+        const res = await getSupportConfig();
+        if (res?.success) setCfg(res.config);
+        else toast.error('Failed to load support configuration');
+      } catch (e: any) {
+        toast.error(e?.message || 'Failed to load support configuration');
+      } finally {
+        setLoadingCfg(false);
+      }
+    })();
+  }, []);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        setLoadingFaqs(true);
+        const res = await getSupportFaqs({ q: q || undefined, category: category || undefined });
+        if (res?.success) setFaqs(res.faqs);
+        else toast.error('Failed to load FAQs');
+      } catch (e: any) {
+        toast.error(e?.message || 'Failed to load FAQs');
+      } finally {
+        setLoadingFaqs(false);
+      }
+    })();
+  }, [q, category]);
+
+  const categories = useMemo(() => {
+    const set = new Set<string>();
+    faqs.forEach((f) => f.category && set.add(f.category));
+    return Array.from(set).sort();
+  }, [faqs]);
+
+  const onFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (!e.target.files) return;
+    const selected = Array.from(e.target.files).slice(0, 3);
+    setFiles(selected);
+  };
+
+  const onSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!subject.trim() || !message.trim() || !/\S+@\S+\.\S+/.test(email)) {
+      return toast.error('Please fill subject, message and a valid email');
+    }
+    try {
+      setSubmitting(true);
+      const res = await createSupportTicket({
+        subject: subject.trim(),
+        message: message.trim(),
+        email: email.trim(),
+        phone: phone.trim() || undefined,
+        orderId: orderId.trim() || undefined,
+        category: ticketCategory || undefined,
+        priority,
+        attachments: files,
+      });
+      if (res?.success) {
+        toast.success('Ticket created successfully');
+        // reset form
+        setSubject('');
+        setMessage('');
+        setEmail('');
+        setPhone('');
+        setOrderId('');
+        setTicketCategory('');
+        setPriority('normal');
+        setFiles([]);
+      } else {
+        toast.error('Could not create ticket');
+      }
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to create ticket');
+    } finally {
+      setSubmitting(false);
+    }
+  };
 
   return (
-    <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
-      {/* Page head */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
-        <div className="flex items-center gap-2">
-          <div className="h-9 w-9 rounded-lg bg-gray-900 flex items-center justify-center">
-            <LifebuoyIcon className="w-5 h-5 text-white" />
-          </div>
-        </div>
-        {/* Tabs */}
-        <div className="inline-flex rounded-lg bg-gray-100 p-1 w-full sm:w-auto">
-          {[
-            { key: 'overview', label: 'Overview' },
-            { key: 'contact', label: 'Get in touch' },
-          ].map((t) => (
-            <button
-              key={t.key}
-              onClick={() => setActive(t.key as typeof active)}
-              className={clsx(
-                'flex-1 sm:flex-none px-3 sm:px-4 py-2 text-sm font-medium rounded-md transition',
-                active === t.key
-                  ? 'bg-white text-gray-900 shadow'
-                  : 'text-gray-700 hover:text-gray-900'
-              )}
-            >
-              {t.label}
-            </button>
-          ))}
-        </div>
+    <div className="mx-auto max-w-6xl p-4 sm:p-6 lg:p-8 space-y-6">
+      <div className="flex items-center justify-between">
+        <h2 className="text-2xl sm:text-3xl font-semibold tracking-tight text-gray-900 dark:text-zinc-100">
+          Help & Support
+        </h2>
       </div>
 
-      {/* OVERVIEW */}
-      {active === 'overview' && (
-        <div className="space-y-6">
-          {/* Quick actions */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-            {cards.map((c) => (
-              <button
-                key={c.title}
-                onClick={c.go}
-                className="group rounded-xl border border-gray-200 bg-white p-5 text-left hover:shadow-sm transition"
-              >
-                <div className="flex items-center justify-between">
-                  <h3 className="font-semibold text-gray-900">{c.title}</h3>
-                  <ArrowRightIcon className="w-4 h-4 text-gray-400 group-hover:text-gray-900 transition" />
+      {/* Contact channels */}
+      <section className={sectionCard}>
+        <h3 className="text-lg sm:text-xl font-semibold text-gray-900 dark:text-zinc-100">Contact Options</h3>
+        {loadingCfg ? (
+          <div className="mt-4 text-sm text-gray-500 dark:text-zinc-400" aria-busy>
+            Loading…
+          </div>
+        ) : cfg ? (
+          <ul className="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-2">
+            {cfg.channels.email && (
+              <li className="rounded-xl border border-gray-100 dark:border-zinc-800 p-3 sm:p-4">
+                <div className="text-sm sm:text-base text-gray-800 dark:text-zinc-200">
+                  <span className="mr-1">📧</span>
+                  <strong>Email</strong>:{' '}
+                  <a className="text-indigo-600 hover:underline" href={`mailto:${cfg.email.address}`}>
+                    {cfg.email.address}
+                  </a>
                 </div>
-                <p className="text-sm text-gray-600 mt-1">{c.desc}</p>
-              </button>
+                <div className="text-xs text-gray-500 dark:text-zinc-400 mt-1">
+                  Avg. response ≈ {cfg.email.responseTimeHours}h
+                </div>
+              </li>
+            )}
+            {cfg.channels.phone && (
+              <li className="rounded-xl border border-gray-100 dark:border-zinc-800 p-3 sm:p-4">
+                <div className="text-sm sm:text-base text-gray-800 dark:text-zinc-200">
+                  <span className="mr-1">📞</span>
+                  <strong>Phone</strong>: {cfg.phone.number}
+                </div>
+                <div className="text-xs text-gray-500 dark:text-zinc-400 mt-1">{cfg.phone.hours}</div>
+              </li>
+            )}
+            {cfg.channels.whatsapp && (
+              <li className="rounded-xl border border-gray-100 dark:border-zinc-800 p-3 sm:p-4">
+                <div className="text-sm sm:text-base text-gray-800 dark:text-zinc-200">
+                  <span className="mr-1">💬</span>
+                  <strong>WhatsApp</strong>:{' '}
+                  <a className="text-indigo-600 hover:underline" href={cfg.whatsapp.link} target="_blank" rel="noreferrer">
+                    {cfg.whatsapp.number}
+                  </a>
+                </div>
+              </li>
+            )}
+            {cfg.channels.chat && (
+              <li className="rounded-xl border border-gray-100 dark:border-zinc-800 p-3 sm:p-4">
+                <div className="text-sm sm:text-base text-gray-800 dark:text-zinc-200">🟢 <strong>Live Chat</strong>: Available</div>
+              </li>
+            )}
+            {cfg.faq.enabled && cfg.faq.url && (
+              <li className="rounded-xl border border-gray-100 dark:border-zinc-800 p-3 sm:p-4 sm:col-span-2">
+                <div className="text-sm sm:text-base text-gray-800 dark:text-zinc-200">
+                  <span className="mr-1">📚</span>
+                  <strong>FAQ</strong>:{' '}
+                  <a className="text-indigo-600 hover:underline break-all" href={cfg.faq.url} target="_blank" rel="noreferrer">
+                    {cfg.faq.url}
+                  </a>
+                </div>
+              </li>
+            )}
+          </ul>
+        ) : (
+          <div className="mt-4 text-sm text-amber-700 bg-amber-50 border border-amber-100 rounded-lg p-3">
+            Could not load support config.
+          </div>
+        )}
+      </section>
+
+      {/* FAQs */}
+      <section className={sectionCard}>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+          <h3 className="text-lg sm:text-xl font-semibold text-gray-900 dark:text-zinc-100">FAQs</h3>
+          <div className="flex w-full sm:w-auto flex-col sm:flex-row gap-2">
+            <input
+              className={inputBase}
+              placeholder="Search FAQs…"
+              value={q}
+              onChange={(e) => setQ(e.target.value)}
+            />
+            <select
+              className={inputBase}
+              value={category}
+              onChange={(e) => setCategory(e.target.value)}
+            >
+              <option value="">All categories</option>
+              {categories.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        {loadingFaqs ? (
+          <div className="mt-4 text-sm text-gray-500 dark:text-zinc-400" aria-busy>
+            Loading FAQs…
+          </div>
+        ) : faqs.length === 0 ? (
+          <div className="mt-4 text-sm text-gray-500 dark:text-zinc-400">No FAQs found</div>
+        ) : (
+          <div className="mt-4 divide-y divide-gray-100 dark:divide-zinc-800 rounded-xl border border-gray-100 dark:border-zinc-800 overflow-hidden">
+            {faqs.map((f) => (
+              <details key={f._id} className="group">
+                <summary className="list-none cursor-pointer select-none px-4 sm:px-5 py-3 sm:py-4 flex items-center justify-between gap-3 hover:bg-gray-50 dark:hover:bg-zinc-800/50">
+                  <span className="text-sm sm:text-base font-medium text-gray-900 dark:text-zinc-100">{f.question}</span>
+                  <svg
+                    className="h-4 w-4 text-gray-500 transition-transform group-open:rotate-180"
+                    viewBox="0 0 20 20"
+                    fill="currentColor"
+                  >
+                    <path
+                      fillRule="evenodd"
+                      d="M5.23 7.21a.75.75 0 011.06.02L10 10.94l3.71-3.71a.75.75 0 011.08 1.04l-4.25 4.25a.75.75 0 01-1.08 0L5.21 8.27a.75.75 0 01.02-1.06z"
+                      clipRule="evenodd"
+                    />
+                  </svg>
+                </summary>
+                <div className="px-4 sm:px-5 pb-4 text-sm text-gray-700 dark:text-zinc-300">
+                  <div>{f.answer}</div>
+                  {f.category && (
+                    <div className="mt-2 inline-flex items-center rounded-full bg-indigo-50 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300 px-2.5 py-0.5 text-xs font-medium">
+                      {f.category}
+                    </div>
+                  )}
+                </div>
+              </details>
             ))}
           </div>
+        )}
+      </section>
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Quick help bullets */}
-            <div className="rounded-xl border border-gray-200 bg-white p-5">
-              <div className="flex items-center gap-2 mb-3">
-                <InformationCircleIcon className="w-5 h-5 text-gray-900" />
-                <h4 className="font-semibold text-gray-900">Quick help</h4>
-              </div>
-              <ul className="space-y-3 text-sm text-gray-700">
-                <li className="flex items-start gap-2">
-                  <span className="mt-0.5 text-gray-400">•</span>
-                  Track orders in{' '}
-                  <button
-                    onClick={() => navigate('/profile?tab=orders')}
-                    className="underline underline-offset-2"
-                  >
-                    Profile → Orders
-                  </button>
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="mt-0.5 text-gray-400">•</span>
-                  Damaged item received? Start a return from your order details.
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="mt-0.5 text-gray-400">•</span>
-                  Payment deducted but order not created? It usually auto-reverses in 3–5 business days.
-                </li>
+      {/* Ticket form */}
+      <section className={sectionCard}>
+        <h3 className="text-lg sm:text-xl font-semibold text-gray-900 dark:text-zinc-100">Submit a Ticket</h3>
+        <form className="mt-4 space-y-4" onSubmit={onSubmit}>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <label className="block">
+              <span className="text-sm font-medium text-gray-700 dark:text-zinc-300">Subject*</span>
+              <input className={inputBase} value={subject} onChange={(e) => setSubject(e.target.value)} maxLength={120} />
+            </label>
+            <label className="block">
+              <span className="text-sm font-medium text-gray-700 dark:text-zinc-300">Email*</span>
+              <input className={inputBase} type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+            </label>
+            <label className="block">
+              <span className="text-sm font-medium text-gray-700 dark:text-zinc-300">Phone</span>
+              <input className={inputBase} value={phone} onChange={(e) => setPhone(e.target.value)} />
+            </label>
+            <label className="block">
+              <span className="text-sm font-medium text-gray-700 dark:text-zinc-300">Order ID</span>
+              <input className={inputBase} value={orderId} onChange={(e) => setOrderId(e.target.value)} />
+            </label>
+            <label className="block">
+              <span className="text-sm font-medium text-gray-700 dark:text-zinc-300">Category</span>
+              <input
+                className={inputBase}
+                value={ticketCategory}
+                onChange={(e) => setTicketCategory(e.target.value)}
+                placeholder="e.g. Orders, Payments, Returns"
+              />
+            </label>
+            <label className="block">
+              <span className="text-sm font-medium text-gray-700 dark:text-zinc-300">Priority</span>
+              <select className={inputBase} value={priority} onChange={(e) => setPriority(e.target.value as TicketPriority)}>
+                <option value="low">Low</option>
+                <option value="normal">Normal</option>
+                <option value="high">High</option>
+              </select>
+            </label>
+          </div>
+
+          <label className="block">
+            <span className="text-sm font-medium text-gray-700 dark:text-zinc-300">Message*</span>
+            <textarea className={inputBase} rows={5} value={message} onChange={(e) => setMessage(e.target.value)} />
+          </label>
+
+          <div className="grid gap-2">
+            <label className="block">
+              <span className="text-sm font-medium text-gray-700 dark:text-zinc-300">Attachments (up to 3)</span>
+              <input className="mt-1 block w-full text-sm file:mr-3 file:rounded-lg file:border-0 file:bg-indigo-50 file:px-3 file:py-2 file:text-indigo-700 hover:file:bg-indigo-100 dark:file:bg-indigo-950/40 dark:file:text-indigo-300" type="file" multiple onChange={onFileChange} />
+            </label>
+            {files.length > 0 && (
+              <ul className="flex flex-wrap gap-2">
+                {files.map((f, i) => (
+                  <li key={i} className="inline-flex items-center gap-2 rounded-full bg-gray-100 dark:bg-zinc-800 px-3 py-1 text-xs text-gray-700 dark:text-zinc-300">
+                    <span className="truncate max-w-[12rem]" title={f.name}>{f.name}</span>
+                    <button
+                      type="button"
+                      className="rounded-full p-1 hover:bg-gray-200 dark:hover:bg-zinc-700"
+                      onClick={() => setFiles((prev) => prev.filter((_, idx) => idx !== i))}
+                      aria-label={`Remove ${f.name}`}
+                    >
+                      ✕
+                    </button>
+                  </li>
+                ))}
               </ul>
-              <div className="mt-4 rounded-lg bg-gray-50 border border-gray-200 p-3 text-xs text-gray-600">
-                Response time: typically under 24 hours on business days.
-              </div>
-            </div>
-
-            {/* Contact cards (preview) */}
-            <div className="rounded-xl border border-gray-200 bg-white p-5">
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                <a
-                  href={`mailto:${SUPPORT_EMAIL}`}
-                  className="rounded-xl border border-gray-200 bg-gray-50 p-4 hover:bg-white hover:shadow-sm transition"
-                >
-                  <div className="flex items-center gap-2 font-semibold text-gray-900">
-                    <EnvelopeIcon className="w-5 h-5" /> Email
-                  </div>
-                  <div className="text-sm text-gray-600 mt-1 break-all">
-                    {SUPPORT_EMAIL}
-                  </div>
-                </a>
-
-                <a
-                  href={`tel:${SUPPORT_PHONE.replace(/\s/g, '')}`}
-                  className="rounded-xl border border-gray-200 bg-gray-50 p-4 hover:bg-white hover:shadow-sm transition"
-                >
-                  <div className="flex items-center gap-2 font-semibold text-gray-900">
-                    <PhoneIcon className="w-5 h-5" /> Call
-                  </div>
-                  <div className="text-sm text-gray-600 mt-1">{SUPPORT_PHONE}</div>
-                </a>
-
-                <a
-                  href={`https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(
-                    'Hi, I need help with my order'
-                  )}`}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="rounded-xl border border-gray-200 bg-gray-50 p-4 hover:bg-white hover:shadow-sm transition"
-                >
-                  <div className="flex items-center gap-2 font-semibold text-gray-900">
-                    <ChatBubbleLeftRightIcon className="w-5 h-5" /> WhatsApp
-                  </div>
-                  <div className="text-sm text-gray-600 mt-1">
-                    9 AM – 8 PM, Mon–Sat (IST)
-                  </div>
-                </a>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* CONTACT */}
-      {active === 'contact' && (
-        <div className="rounded-xl border border-gray-200 bg-white p-5">
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            <a
-              href={`mailto:${SUPPORT_EMAIL}`}
-              className="rounded-xl border border-gray-200 bg-gray-50 p-5 hover:bg-white hover:shadow-sm transition"
-            >
-              <div className="flex items-center gap-2 font-semibold text-gray-900">
-                <EnvelopeIcon className="w-5 h-5" /> Email
-              </div>
-              <div className="text-sm text-gray-600 mt-1 break-all">{SUPPORT_EMAIL}</div>
-              <div className="mt-3 inline-flex items-center gap-1 text-sm font-medium text-gray-900">
-                Write now <ArrowTopRightOnSquareIcon className="w-4 h-4" />
-              </div>
-            </a>
-
-            <a
-              href={`tel:${SUPPORT_PHONE.replace(/\s/g, '')}`}
-              className="rounded-xl border border-gray-200 bg-gray-50 p-5 hover:bg-white hover:shadow-sm transition"
-            >
-              <div className="flex items-center gap-2 font-semibold text-gray-900">
-                <PhoneIcon className="w-5 h-5" /> Call
-              </div>
-              <div className="text-sm text-gray-600 mt-1">{SUPPORT_PHONE}</div>
-              <div className="mt-3 inline-flex items-center gap-1 text-sm font-medium text-gray-900">
-                Ring us <ArrowTopRightOnSquareIcon className="w-4 h-4" />
-              </div>
-            </a>
-
-            <a
-              href={`https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(
-                'Hi, I need help with my order'
-              )}`}
-              target="_blank"
-              rel="noreferrer"
-              className="rounded-xl border border-gray-200 bg-gray-50 p-5 hover:bg-white hover:shadow-sm transition"
-            >
-              <div className="flex items-center gap-2 font-semibold text-gray-900">
-                <ChatBubbleLeftRightIcon className="w-5 h-5" /> WhatsApp
-              </div>
-              <div className="text-sm text-gray-600 mt-1">9 AM – 8 PM, Mon–Sat (IST)</div>
-              <div className="mt-3 inline-flex items-center gap-1 text-sm font-medium text-gray-900">
-                Start chat <ArrowTopRightOnSquareIcon className="w-4 h-4" />
-              </div>
-            </a>
+            )}
           </div>
 
-          <div className="mt-6 grid grid-cols-1 md:grid-cols-3 gap-4">
-            <div className="rounded-lg border border-gray-200 bg-gray-50 p-4">
-              <div className="text-xs uppercase tracking-wide text-gray-500">Hours</div>
-              <div className="mt-1 text-sm text-gray-800">Mon–Sat, 9 AM – 8 PM (IST)</div>
-            </div>
-            <div className="rounded-lg border border-gray-200 bg-gray-50 p-4">
-              <div className="text-xs uppercase tracking-wide text-gray-500">SLA</div>
-              <div className="mt-1 text-sm text-gray-800">Replies within 24 hours</div>
-            </div>
-            <div className="rounded-lg border border-gray-200 bg-gray-50 p-4">
-              <div className="text-xs uppercase tracking-wide text-gray-500">Order help</div>
-              <div className="mt-1 text-sm text-gray-800">
-                Manage from{' '}
-                <button
-                  onClick={() => navigate('/profile?tab=orders')}
-                  className="underline underline-offset-2"
-                >
-                  Profile → Orders
-                </button>
-              </div>
-            </div>
+          <div className="pt-2">
+            <button
+              type="submit"
+              disabled={submitting}
+              className="inline-flex items-center justify-center rounded-lg bg-indigo-600 px-4 py-2.5 text-sm font-medium text-white shadow-sm hover:bg-indigo-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {submitting ? 'Submitting…' : 'Submit Ticket'}
+            </button>
           </div>
-        </div>
-      )}
+        </form>
+      </section>
     </div>
   );
 };

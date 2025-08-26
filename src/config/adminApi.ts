@@ -6,7 +6,7 @@ const APP_NAME = import.meta.env.VITE_APP_NAME || 'Nakoda Mobile';
 const API_TIMEOUT = 30000;
 const IS_DEVELOPMENT = import.meta.env.DEV;
 const IS_PRODUCTION = import.meta.env.PROD;
-
+const SUPPORT_ADMIN_BASE = '/admin/support';
 // ============== Types ==============
 export interface ApiResponse {
   success: boolean;
@@ -92,6 +92,107 @@ export interface AdminNotificationsListResponse {
   notifications: AdminNotification[];
   total?: number;
 }
+
+
+export type ReviewStatus = 'pending' | 'approved' | 'rejected';
+
+export interface Review {
+  _id: string;
+  productId: string;
+  productName: string;
+  userId?: string;
+  userName?: string;
+  userEmail?: string;
+  rating: number;
+  comment: string;
+  verified: boolean;
+  status: ReviewStatus;
+  helpful?: number;
+  reviewDate?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface AdminReviewsResponse {
+  success?: boolean;
+  // any of these may be used by the backend:
+  reviews?: Review[];
+  data?: Review[];
+  items?: Review[];
+  page?: number;
+  totalPages?: number;
+  total?: number;
+  pagination?: {
+    currentPage: number;
+    totalPages: number;
+    totalItems: number;
+  };
+}
+
+
+
+
+export type TicketStatus = 'open' | 'in_progress' | 'resolved' | 'closed';
+export type TicketPriority = 'low' | 'normal' | 'high';
+
+export interface SupportTicket {
+  _id: string;
+  subject: string;
+  category?: string;
+  message: string;
+  email: string;
+  phone?: string;
+  orderId?: string;
+  status: TicketStatus;
+  priority: TicketPriority;
+  createdAt: string;
+}
+export interface SupportConfig {
+  channels: { email: boolean; phone: boolean; whatsapp: boolean; chat?: boolean };
+  email: { address: string; responseTimeHours: number };
+  phone: { number: string; hours: string };
+  whatsapp: { number: string; link: string };
+  faq: { enabled: boolean; url?: string };
+  updatedAt?: string;
+  createdAt?: string;
+  _id?: string;
+}
+
+export interface SupportFaq {
+  _id: string;
+  question: string;
+  answer: string;
+  category?: string;
+  order?: number;
+  isActive?: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface SupportTicket {
+  _id: string;
+  subject: string;
+  message: string;
+  email: string;
+  phone?: string;
+  orderId?: string;
+  category?: string;
+  priority: TicketPriority;
+  status: TicketStatus;
+  createdAt: string;
+  updatedAt?: string;
+  userId?: any;
+}
+
+
+// Normalize arrays from various payload shapes
+const pickReviewArray = (payload: any): Review[] => {
+  if (Array.isArray(payload)) return payload;
+  if (Array.isArray(payload?.reviews)) return payload.reviews;
+  if (Array.isArray(payload?.data)) return payload.data;
+  if (Array.isArray(payload?.items)) return payload.items;
+  return [];
+};
 
 // ============== Logging helpers ==============
 const log = (message: string, ...args: any[]) => {
@@ -566,5 +667,187 @@ export const env = {
   razorpayKeyId: import.meta.env.VITE_RAZORPAY_KEY_ID,
   stripePublishableKey: import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY,
 };
+
+
+// ============== ADMIN REVIEWS ==============
+export const getAdminReviews = async (params?: {
+  page?: number;
+  limit?: number;
+  status?: ReviewStatus | 'all';
+  productId?: string;
+  q?: string;
+}): Promise<{ items: Review[]; meta: { page: number; totalPages: number; total: number } }> => {
+  try {
+    log('⭐ Fetching admin reviews...', params);
+    const { data } = await adminApi.get<AdminReviewsResponse>('/admin/reviews', { params });
+
+    const items = pickReviewArray(data);
+    const meta = {
+      page: data?.page ?? data?.pagination?.currentPage ?? 1,
+      totalPages: data?.totalPages ?? data?.pagination?.totalPages ?? 1,
+      total: data?.total ?? data?.pagination?.totalItems ?? items.length,
+    };
+
+    if (!Array.isArray(items)) {
+      logError('⚠️ API response is not an array:', data);
+      return { items: [], meta };
+    }
+    log('✅ Reviews fetched:', items.length);
+    return { items, meta };
+  } catch (error: any) {
+    logError('❌ Get admin reviews failed:', error.response?.data || error.message);
+    throw error;
+  }
+};
+
+export const updateReviewStatus = async (id: string, status: ReviewStatus) => {
+  try {
+    log('✏️ Updating review status:', id, status);
+    const res = await adminApi.patch(`/admin/reviews/${id}/status`, { status });
+    // server may return 204 No Content
+    return res.data ?? { success: true };
+  } catch (error: any) {
+    logError('❌ Update review status failed:', error.response?.data || error.message);
+    throw error;
+  }
+};
+
+export const approveReview = (id: string) => updateReviewStatus(id, 'approved');
+export const rejectReview = (id: string) => updateReviewStatus(id, 'rejected');
+
+export const deleteReviewById = async (id: string) => {
+  try {
+    log('🗑️ Deleting review:', id);
+    const res = await adminApi.delete(`/admin/reviews/${id}`);
+    return res.data ?? { success: true };
+  } catch (error: any) {
+    logError('❌ Delete review failed:', error.response?.data || error.message);
+    throw error;
+  }
+};
+
+export const getSupportConfig = async (): Promise<{ success: boolean; config: any }> => {
+  const { data } = await adminApi.get('/support/config');  // -> /api/support/config
+  return data;
+};
+
+
+
+export const getSupportFaqs = async (params?: { q?: string; category?: string }) => {
+  const { data } = await adminApi.get('/support/faqs', { params });
+  return data as { success: boolean; faqs: SupportFaq[] };
+};
+
+export const createSupportTicket = async (payload: {
+  subject: string;
+  message: string;
+  email: string;
+  phone?: string;
+  orderId?: string;
+  category?: string;
+  priority?: TicketPriority;
+  attachments?: File[];
+}) => {
+  const form = new FormData();
+  form.append('subject', payload.subject);
+  form.append('message', payload.message);
+  form.append('email', payload.email);
+  if (payload.phone) form.append('phone', payload.phone);
+  if (payload.orderId) form.append('orderId', payload.orderId);
+  if (payload.category) form.append('category', payload.category);
+  if (payload.priority) form.append('priority', payload.priority);
+  (payload.attachments || []).forEach(f => form.append('attachments', f));
+
+  const { data } = await adminApi.post('/support/tickets', form, { headers: { 'Content-Type': 'multipart/form-data' } });
+  return data as { success: boolean; ticket: { _id: string; status: TicketStatus } };
+};
+
+// (optional, if you have user auth for non-admin area)
+export const getMySupportTickets = async () => {
+  const { data } = await adminApi.get('/support/tickets/my');
+  return data as { success: boolean; tickets: SupportTicket[] };
+};
+
+
+
+
+
+
+
+
+
+
+
+
+
+export const adminSupportGetConfig = async (): Promise<{ success: boolean; config: SupportConfig }> => {
+  const { data } = await adminApi.get(`${SUPPORT_ADMIN_BASE}/config`);
+  return data;
+};
+
+export const adminSupportUpdateConfig = async (payload: Partial<SupportConfig>): Promise<{ success: boolean; config: SupportConfig }> => {
+  const { data } = await adminApi.put(`${SUPPORT_ADMIN_BASE}/config`, payload);
+  return data;
+};
+
+// FAQs (Admin)
+export const adminSupportListFaqs = async (): Promise<{ success: boolean; faqs: SupportFaq[] }> => {
+  const { data } = await adminApi.get(`${SUPPORT_ADMIN_BASE}/faqs`);
+  return data;
+};
+
+export const adminSupportCreateFaq = async (payload: Omit<SupportFaq, '_id' | 'createdAt' | 'updatedAt'>) => {
+  const { data } = await adminApi.post(`${SUPPORT_ADMIN_BASE}/faqs`, payload);
+  return data; // { success, faq }
+};
+
+export const adminSupportUpdateFaq = async (id: string, patch: Partial<SupportFaq>) => {
+  const { data } = await adminApi.put(`${SUPPORT_ADMIN_BASE}/faqs/${id}`, patch);
+  return data; // { success, faq }
+};
+
+export const adminSupportDeleteFaq = async (id: string) => {
+  const { data } = await adminApi.delete(`${SUPPORT_ADMIN_BASE}/faqs/${id}`);
+  return data; // 204 No Content -> axios gives empty data; ok to ignore
+};
+
+// Tickets (Admin)
+export const adminSupportListTickets = async (params?: {
+  status?: TicketStatus | 'all';
+  q?: string;
+  page?: number;
+  limit?: number;
+}) => {
+  const { data } = await adminApi.get(`${SUPPORT_ADMIN_BASE}/tickets`, { params });
+  return data as {
+    success: boolean;
+    tickets: SupportTicket[];
+    page: number;
+    totalPages: number;
+    total: number;
+  };
+};
+
+export const adminSupportUpdateTicketStatus = async (id: string, status: TicketStatus) => {
+  const { data } = await adminApi.patch(`${SUPPORT_ADMIN_BASE}/tickets/${id}/status`, { status });
+  return data as { success: boolean; ticket: SupportTicket };
+};
+
+
+export const adminGetReturns = (params?: { status?: string; page?: number; limit?: number; q?: string }) =>
+  adminApi.get('/admin/returns', { params }).then(r => r.data);
+
+export const adminGetReturnById = (id: string) =>
+  adminApi.get(`/admin/returns/${id}`).then(r => r.data);
+
+export const adminReturnDecision = (id: string, body: { action: 'approve' | 'reject'; adminNote?: string }) =>
+  adminApi.patch(`/admin/returns/${id}/decision`, body).then(r => r.data);
+
+export const adminReturnMarkReceived = (id: string, body?: { note?: string }) =>
+  adminApi.patch(`/admin/returns/${id}/mark-received`, body || {}).then(r => r.data);
+
+export const adminReturnRefund = (id: string, body: { method: 'original' | 'wallet' | 'manual'; reference?: string }) =>
+  adminApi.patch(`/admin/returns/${id}/refund`, body).then(r => r.data);
+
 
 export default adminApi;

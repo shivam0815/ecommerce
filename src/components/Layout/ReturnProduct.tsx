@@ -1,217 +1,218 @@
-import React, { useState, useEffect } from 'react';
-import './ReturnProduct.css';
-import { ReturnedProduct, ReturnStatus } from '../../types';
+import React, { useEffect, useState } from 'react';
+import {
+  adminGetReturns,
+  adminGetReturnById,
+  adminReturnDecision,
+  adminReturnMarkReceived,
+  adminReturnRefund
+} from '../../config/adminApi';
 
-
-
-const ReturnProduct: React.FC = () => {
-  const [returnedProducts, setReturnedProducts] = useState<ReturnedProduct[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [filter, setFilter] = useState<ReturnStatus>('all'); // ✅ Use imported type
-
-  useEffect(() => {
-    fetchReturnedProducts();
-  }, []);
-
-const fetchReturnedProducts = async () => {
-  try {
-    setError(null);
-    
-    // ✅ Add authentication headers
-    const token = localStorage.getItem('adminToken');
-    
-    const response = await fetch('/api/admin/returns', {
-      method: 'GET',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(token && { 'Authorization': `Bearer ${token}` })
-      }
-    });
-    
-    if (!response.ok) {
-      if (response.status === 401) {
-        throw new Error('Unauthorized access. Please log in again.');
-      }
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
-    
-    const data = await response.json();
-    
-    if (data.success && Array.isArray(data.data)) {
-      setReturnedProducts(data.data);
-    } else if (Array.isArray(data)) {
-      setReturnedProducts(data);
-    } else {
-      setReturnedProducts([]);
-    }
-  } catch (error: any) {
-    console.error('Error fetching returned products:', error);
-    setError(error.message || 'Failed to load return data.');
-    setReturnedProducts([]);
-  } finally {
-    setLoading(false);
-  }
+const statusColor: Record<string,string> = {
+  pending: 'bg-amber-50 text-amber-700',
+  approved: 'bg-blue-50 text-blue-700',
+  rejected: 'bg-rose-50 text-rose-700',
+  received: 'bg-indigo-50 text-indigo-700',
+  refund_completed: 'bg-emerald-50 text-emerald-700',
+  cancelled: 'bg-gray-50 text-gray-700'
 };
 
+const ReturnProduct: React.FC = () => {
+  const [rows, setRows] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [status, setStatus] = useState<string>('');
+  const [page, setPage] = useState(1);
+  const [totalPages, setTotalPages] = useState(1);
 
-  // ❌ REMOVED - getMockData function completely removed
+  const [drawer, setDrawer] = useState<{open:boolean; data?:any}>({open:false});
+  const [note, setNote] = useState('');
+  const [refundRef, setRefundRef] = useState('');
 
-  const handleStatusUpdate = async (returnId: string, newStatus: string) => {
+  const load = async () => {
+    setLoading(true);
     try {
-      const response = await fetch(`/api/admin/returns/${returnId}/status`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: newStatus })
-      });
-
-      if (!response.ok) {
-        throw new Error('Failed to update return status');
-      }
-
-      // Update local state
-      setReturnedProducts(prev => 
-        prev.map(product => 
-          product._id === returnId 
-            ? { ...product, status: newStatus as ReturnedProduct['status'] } // ✅ Better typing
-            : product
-        )
-      );
-    } catch (error) {
-      console.error('Error updating return status:', error);
-      setError('Failed to update return status');
+      const res = await adminGetReturns({ status, page, limit: 20 });
+      setRows(res.returns || []);
+      setTotalPages(res.totalPages || 1);
+    } finally {
+      setLoading(false);
     }
   };
 
-  // ✅ Fixed syntax error: === instead of =
-  const filteredReturns = Array.isArray(returnedProducts) 
-    ? returnedProducts.filter(product => filter === 'all' || product.status === filter)
-    : [];
+  useEffect(() => { load(); }, [status, page]);
 
-  if (loading) return <div className="loading">Loading returned products...</div>;
+  const open = async (id: string) => {
+    const res = await adminGetReturnById(id);
+    setDrawer({ open: true, data: res.returnRequest });
+    setNote('');
+    setRefundRef('');
+  };
+
+  const actApprove = async () => {
+    if (!drawer.data) return;
+    await adminReturnDecision(drawer.data._id, { action: 'approve', adminNote: note });
+    await load(); await open(drawer.data._id);
+  };
+  const actReject = async () => {
+    if (!drawer.data) return;
+    if (!confirm('Reject this return?')) return;
+    await adminReturnDecision(drawer.data._id, { action: 'reject', adminNote: note });
+    await load(); setDrawer({open:false});
+  };
+  const actReceived = async () => {
+    if (!drawer.data) return;
+    await adminReturnMarkReceived(drawer.data._id, { note });
+    await load(); await open(drawer.data._id);
+  };
+  const actRefund = async () => {
+    if (!drawer.data) return;
+    await adminReturnRefund(drawer.data._id, { method: 'original', reference: refundRef });
+    await load(); await open(drawer.data._id);
+  };
 
   return (
-    <div className="return-product-container">
-      {error && (
-        <div className="error-banner" style={{ 
-          background: '#fff3cd', 
-          border: '1px solid #ffeaa7', 
-          padding: '10px', 
-          margin: '10px 0', 
-          borderRadius: '4px',
-          color: '#856404'
-        }}>
-          ⚠️ {error}
-        </div>
-      )}
-      
-      <div className="header">
-        <h2>🔄 Product Returns</h2>
-        <div className="filters">
-          <button 
-            className={filter === 'all' ? 'active' : ''}
-            onClick={() => setFilter('all')}
-          >
-            All ({returnedProducts.length})
-          </button>
-          <button 
-            className={filter === 'pending' ? 'active' : ''}
-            onClick={() => setFilter('pending')}
-          >
-            Pending ({returnedProducts.filter(r => r.status === 'pending').length})
-          </button>
-          <button 
-            className={filter === 'approved' ? 'active' : ''}
-            onClick={() => setFilter('approved')}
-          >
-            Approved ({returnedProducts.filter(r => r.status === 'approved').length})
-          </button>
-          <button 
-            className={filter === 'rejected' ? 'active' : ''}
-            onClick={() => setFilter('rejected')}
-          >
-            Rejected ({returnedProducts.filter(r => r.status === 'rejected').length})
-          </button>
+    <div className="space-y-6">
+      <div className="flex items-center justify-between">
+        <h2 className="text-xl font-semibold">Returns</h2>
+        <div className="flex gap-2">
+          <select className="border rounded-lg p-2" value={status} onChange={e=>{setStatus(e.target.value); setPage(1);}}>
+            <option value="">All</option>
+            <option value="pending">Pending</option>
+            <option value="approved">Approved</option>
+            <option value="received">Received</option>
+            <option value="refund_completed">Refunded</option>
+            <option value="rejected">Rejected</option>
+            <option value="cancelled">Cancelled</option>
+          </select>
+          <button onClick={load} className="px-3 py-2 border rounded-lg">Refresh</button>
         </div>
       </div>
 
-      {filteredReturns.length === 0 ? (
-        <div className="no-data">
-          <p>📦 No returned products found</p>
-        </div>
+      {loading ? (
+        <div>Loading…</div>
+      ) : rows.length === 0 ? (
+        <div className="text-gray-600">No returns.</div>
       ) : (
-        <div className="returns-table">
-          <table>
-            <thead>
+        <div className="bg-white border border-gray-100 rounded-xl overflow-hidden">
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50">
               <tr>
-                <th>Product</th>
-                <th>Customer</th>
-                <th>Return Reason</th>
-                <th>Return Date</th>
-                <th>Refund Amount</th>
-                <th>Status</th>
-                <th>Actions</th>
+                <th className="text-left p-3">Return</th>
+                <th className="text-left p-3">Order</th>
+                <th className="text-left p-3">User</th>
+                <th className="text-left p-3">Status</th>
+                <th className="text-right p-3">Refund</th>
+                <th className="text-right p-3">Actions</th>
               </tr>
             </thead>
             <tbody>
-              {filteredReturns.map((returnItem) => (
-                <tr key={returnItem._id}>
-                  <td>
-                    <div className="product-info">
-                      {returnItem.imageUrl ? (
-                        <img src={returnItem.imageUrl} alt={returnItem.productName} />
-                      ) : (
-                        <div className="placeholder">📦</div>
-                      )}
-                      <span>{returnItem.productName}</span>
-                    </div>
-                  </td>
-                  <td>
-                    <div className="customer-info">
-                      <div>{returnItem.userName}</div>
-                      <small>{returnItem.userEmail}</small>
-                    </div>
-                  </td>
-                  <td>{returnItem.returnReason}</td>
-                  <td>{new Date(returnItem.returnDate).toLocaleDateString()}</td>
-                  <td>₹{returnItem.refundAmount}</td>
-                  <td>
-                    <span className={`status ${returnItem.status}`}>
-                      {returnItem.status.toUpperCase()}
-                    </span>
-                  </td>
-                  <td>
-                    <div className="actions">
-                      {returnItem.status === 'pending' && (
-                        <>
-                          <button 
-                            className="approve"
-                            onClick={() => handleStatusUpdate(returnItem._id!, 'approved')}
-                          >
-                            ✅ Approve
-                          </button>
-                          <button 
-                            className="reject"
-                            onClick={() => handleStatusUpdate(returnItem._id!, 'rejected')}
-                          >
-                            ❌ Reject
-                          </button>
-                        </>
-                      )}
-                      {returnItem.status === 'approved' && (
-                        <button 
-                          className="process"
-                          onClick={() => handleStatusUpdate(returnItem._id!, 'processed')}
-                        >
-                          📦 Process Refund
-                        </button>
-                      )}
-                    </div>
+              {rows.map((r:any)=>(
+                <tr key={r._id} className="border-t">
+                  <td className="p-3 font-medium">#{String(r._id).slice(-6)}</td>
+                  <td className="p-3">#{r?.order?.orderNumber || String(r.order).slice(-6)}</td>
+                  <td className="p-3">{r?.user?.name} <span className="text-gray-500 text-xs">{r?.user?.email}</span></td>
+                  <td className="p-3"><span className={`px-2 py-0.5 rounded-full text-xs ${statusColor[r.status] || 'bg-gray-50'}`}>{r.status.replace('_',' ')}</span></td>
+                  <td className="p-3 text-right">₹{Number(r.refundAmount).toFixed(2)}</td>
+                  <td className="p-3 text-right">
+                    <button onClick={()=>open(r._id)} className="text-gray-900 hover:underline">Open</button>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
+          {/* simple pagination */}
+          <div className="flex items-center justify-end p-3 gap-2">
+            <button disabled={page<=1} onClick={()=>setPage(p=>p-1)} className="px-2 py-1 border rounded">Prev</button>
+            <span className="text-sm text-gray-600">Page {page} / {totalPages}</span>
+            <button disabled={page>=totalPages} onClick={()=>setPage(p=>p+1)} className="px-2 py-1 border rounded">Next</button>
+          </div>
+        </div>
+      )}
+
+      {/* Drawer / Side panel */}
+      {drawer.open && drawer.data && (
+        <div className="fixed inset-0 bg-black/30 z-[100]">
+          <div className="absolute right-0 top-0 h-full w-full max-w-xl bg-white shadow-xl p-5 overflow-y-auto">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="text-lg font-semibold">Return #{String(drawer.data._id).slice(-6)}</h3>
+              <button onClick={()=>setDrawer({open:false})}>✕</button>
+            </div>
+
+            <div className="space-y-4">
+              <div className="text-sm">
+                <div><span className="text-gray-500">Order:</span> #{drawer.data?.order?.orderNumber || String(drawer.data.order).slice(-6)}</div>
+                <div><span className="text-gray-500">User:</span> {drawer.data?.user?.name} ({drawer.data?.user?.email})</div>
+                <div><span className="text-gray-500">Status:</span> {drawer.data.status}</div>
+                <div><span className="text-gray-500">Reason:</span> {drawer.data.reasonType} — {drawer.data.reasonNote || '—'}</div>
+                <div><span className="text-gray-500">Refund:</span> ₹{Number(drawer.data.refundAmount).toFixed(2)}</div>
+              </div>
+
+              <div>
+                <h4 className="font-medium mb-2">Items</h4>
+                <div className="border rounded-lg divide-y">
+                  {drawer.data.items.map((it:any, idx:number)=>(
+                    <div key={idx} className="p-3 text-sm flex items-center justify-between">
+                      <div className="font-medium">{it.name || String(it.productId).slice(-6)}</div>
+                      <div>x{it.quantity} @ ₹{it.unitPrice}</div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {drawer.data.images?.length > 0 && (
+                <div>
+                  <h4 className="font-medium mb-2">Photos</h4>
+                  <div className="grid grid-cols-3 gap-2">
+                    {drawer.data.images.map((u:string, i:number)=>(
+                      <a href={u} target="_blank" key={i} className="block">
+                        <img src={u} className="w-full h-24 object-cover rounded-md border" />
+                      </a>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Admin Note</label>
+                <textarea className="w-full border rounded-lg p-2 text-sm" rows={3} value={note} onChange={e=>setNote(e.target.value)} />
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                {drawer.data.status === 'pending' && (
+                  <>
+                    <button onClick={actApprove} className="px-4 py-2 rounded-lg bg-blue-600 text-white">Approve</button>
+                    <button onClick={actReject} className="px-4 py-2 rounded-lg bg-rose-600 text-white">Reject</button>
+                  </>
+                )}
+                {['approved','in_transit','pickup_scheduled'].includes(drawer.data.status) && (
+                  <button onClick={actReceived} className="px-4 py-2 rounded-lg bg-indigo-600 text-white">Mark Received</button>
+                )}
+                {['received','refund_initiated'].includes(drawer.data.status) && (
+                  <div className="flex items-center gap-2">
+                    <input
+                      className="border rounded-lg p-2 text-sm"
+                      placeholder="Transaction ref"
+                      value={refundRef}
+                      onChange={e=>setRefundRef(e.target.value)}
+                    />
+                    <button onClick={actRefund} className="px-4 py-2 rounded-lg bg-emerald-600 text-white">Mark Refunded</button>
+                  </div>
+                )}
+              </div>
+
+              <div>
+                <h4 className="font-medium mb-2">History</h4>
+                <div className="border rounded-lg divide-y text-xs">
+                  {drawer.data.history?.map((h:any, idx:number)=>(
+                    <div key={idx} className="p-2 flex items-center justify-between">
+                      <div>{h.action}{h.note ? ` — ${h.note}` : ''}</div>
+                      <div className="text-gray-500">{new Date(h.at).toLocaleString()}</div>
+                    </div>
+                  )) || <div className="p-2 text-gray-500">—</div>}
+                </div>
+              </div>
+            </div>
+
+          </div>
         </div>
       )}
     </div>

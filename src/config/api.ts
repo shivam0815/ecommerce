@@ -38,4 +38,29 @@ api.interceptors.response.use(
   }
 );
 
+
+
+export const getMyReturns = () => api.get('/returns').then(r => r.data);
+
+export const createReturn = (payload: {
+  orderId: string;
+  items: { productId: string; orderItemId?: string; quantity: number; reason?: string }[];
+  reasonType: 'damaged' | 'wrong_item' | 'not_as_described' | 'defective' | 'no_longer_needed' | 'other';
+  reasonNote?: string;
+  images?: File[];
+  pickupAddress?: any;
+}) => {
+  const fd = new FormData();
+  fd.append('orderId', payload.orderId);
+  fd.append('reasonType', payload.reasonType);
+  if (payload.reasonNote) fd.append('reasonNote', payload.reasonNote);
+  fd.append('items', JSON.stringify(payload.items));
+  if (payload.pickupAddress) fd.append('pickupAddress', JSON.stringify(payload.pickupAddress));
+  (payload.images || []).forEach(f => fd.append('images', f));
+  return api.post('/returns', fd).then(r => r.data);
+};
+
+export const cancelMyReturn = (id: string) =>
+  api.patch(`/returns/${id}/cancel`, {}).then(r => r.data);
+
 export default api;

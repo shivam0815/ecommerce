@@ -30,6 +30,10 @@ import HelpSupport from '../components/Layout/HelpSupport';
 import FAQs from '../components/Layout/FAQs';
 import Terms from './Terms';
 
+// NEW: returns UI
+import ReturnsTab from '../components/Layout/ReturnsTab';
+import ReturnRequestModal from '../components/Layout/ReturnRequestModal';
+
 // Prefer Vite env → axios baseURL → window origin (no trailing slash)
 const { VITE_API_URL } = (import.meta as any).env as { VITE_API_URL?: string };
 const SOCKET_URL =
@@ -74,9 +78,13 @@ interface Order {
     quantity: number;
     price: number;
     image?: string;
+    // order item _id may exist but isn't required by this file
+    _id?: string;
   }>;
   createdAt: string;
   trackingNumber?: string;
+  // deliveredAt could exist on your API, but UI doesn’t require it (backend enforces window)
+  deliveredAt?: string;
 }
 
 const fade = {
@@ -139,10 +147,14 @@ const Profile: React.FC = () => {
   const [ordersLoading, setOrdersLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<
-    'profile' | 'orders' | 'settings' | 'security' | 'notifications' | 'support' | 'faqs' | 'terms'
+    'profile' | 'orders' | 'settings' | 'security' | 'notifications' | 'support' | 'faqs' | 'terms' | 'returns'
   >('profile');
   const [orderFilter, setOrderFilter] = useState<'all' | 'pending' | 'completed'>('all');
   const [isUpdating, setIsUpdating] = useState(false);
+
+  // NEW: open Return modal with the chosen order
+  const [returnOrder, setReturnOrder] = useState<Order | null>(null);
+
   const navigate = useNavigate();
   const socketRef = useRef<ReturnType<typeof io> | null>(null);
 
@@ -338,6 +350,7 @@ const Profile: React.FC = () => {
                 {[
                   { id: 'profile', label: 'Profile', icon: <UserIcon className="w-4 h-4" /> },
                   { id: 'orders', label: 'Orders', icon: <ShoppingBagIcon className="w-4 h-4" /> },
+                  { id: 'returns', label: 'Returns', icon: <ArrowPathIcon className="w-4 h-4" /> }, // NEW
                   { id: 'notifications', label: 'Notifications', icon: <BellIcon className="w-4 h-4" /> },
                   { id: 'settings', label: 'Settings', icon: <Cog6ToothIcon className="w-4 h-4" /> },
                   { id: 'support', label: 'Help & Support', icon: <LifebuoyIcon className="w-4 h-4" /> },
@@ -347,10 +360,10 @@ const Profile: React.FC = () => {
                   <button
                     key={t.id}
                     onClick={() => setActiveTab(t.id as typeof activeTab)}
-                    aria-current={activeTab === t.id ? 'page' : undefined}
+                    aria-current={activeTab === (t.id as any) ? 'page' : undefined}
                     className={clsx(
                       'w-full inline-flex items-center gap-2 rounded-lg px-3 py-2 text-sm md:text-[15px] font-medium transition',
-                      activeTab === t.id
+                      activeTab === (t.id as any)
                         ? 'bg-gray-900 text-white shadow-sm'
                         : 'text-gray-700 hover:bg-gray-50'
                     )}
@@ -385,7 +398,15 @@ const Profile: React.FC = () => {
                       setOrderFilter={setOrderFilter}
                       onRefresh={fetchOrders}
                       navigate={navigate}
+                      // NEW
+                      onOpenReturn={(o) => setReturnOrder(o)}
                     />
+                  </motion.div>
+                )}
+
+                {activeTab === 'returns' && (
+                  <motion.div key="returns" variants={fade} initial="hidden" animate="visible" exit="exit">
+                    <ReturnsTab />
                   </motion.div>
                 )}
 
@@ -423,6 +444,15 @@ const Profile: React.FC = () => {
           </div>
         </div>
       </div>
+
+      {/* NEW: Return request modal (opens from Orders tab) */}
+      {returnOrder && (
+        <ReturnRequestModal
+          order={returnOrder}
+          onClose={() => setReturnOrder(null)}
+          onSuccess={() => setActiveTab('returns')}
+        />
+      )}
     </div>
   );
 };
@@ -500,7 +530,9 @@ const OrdersTab: React.FC<{
   setOrderFilter: (f: 'all' | 'pending' | 'completed') => void;
   onRefresh: () => void;
   navigate: (p: string) => void;
-}> = ({ orders, ordersLoading, orderFilter, setOrderFilter, onRefresh, navigate }) => {
+  // NEW
+  onOpenReturn: (order: Order) => void;
+}> = ({ orders, ordersLoading, orderFilter, setOrderFilter, onRefresh, navigate, onOpenReturn }) => {
   return (
     <div className="space-y-6">
       <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
@@ -628,12 +660,24 @@ const OrdersTab: React.FC<{
                   >
                     <EyeIcon className="w-4 h-4" /> View Details
                   </button>
+
                   {o.trackingNumber && (
                     <button
                       onClick={() => navigate(`/track-order/${o.trackingNumber}`)}
                       className="px-4 py-2 rounded-lg bg-gray-900 text-white font-medium hover:bg-black inline-flex items-center gap-2"
                     >
                       <TruckIcon className="w-4 h-4" /> Track Order
+                    </button>
+                  )}
+
+                  {/* NEW: Request Return (shown for delivered orders – backend still validates window) */}
+                  {String(o.status).toLowerCase() === 'delivered' && (
+                    <button
+                      onClick={() => onOpenReturn(o)}
+                      className="px-4 py-2 rounded-lg border border-gray-200 hover:bg-gray-50 text-gray-900 font-medium inline-flex items-center gap-2"
+                      title="Request a return for this order"
+                    >
+                      <ArrowPathIcon className="w-4 h-4" /> Request Return
                     </button>
                   )}
                 </div>

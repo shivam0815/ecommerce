@@ -13,7 +13,7 @@ import TodaySalesTab from '../components/Layout/TodaySalesTab';
 import LowStockTab from '../components/Layout/LowStockTab';
 import PendingOrdersTab from '../components/Layout/PendingOrdersTab';
 import AdminNotifications from '../components/Layout/AdminNotifications';
-
+import AdminHelpSupport from '../components/Layout/AdminHelpSupport';
  // adjust path if in a subfolder
 import { io } from "socket.io-client";
 import { 
@@ -1905,6 +1905,12 @@ const Navigation = memo<{
       >
         💳 Payments
       </button>
+      <button
+  className={activeTab === 'support' ? 'active' : ''}
+  onClick={() => setActiveTab('support')}
+>
+  🆘 Support
+</button>
 
       <button
   className={activeTab === 'notifications' ? 'active' : ''}
@@ -1936,7 +1942,7 @@ const Navigation = memo<{
 const AdminDashboard: React.FC<AdminDashboardProps> = ({ adminData, onLogout }) => {
 const [activeTab, setActiveTab] = useState<
   'overview' | 'products' | 'inventory' | 'orders' | 'returns' | 'reviews' | 'payments' | 'blog' | 
-  'users' | 'todaySales' | 'lowStock' | 'pendingOrders' | 'allOrders' | 'notifications'
+  'users' | 'todaySales' | 'lowStock' | 'pendingOrders' | 'allOrders' |'support' | 'notifications'
 >('overview');
 
 
@@ -2064,7 +2070,8 @@ case 'products':
       return <ProductReview />;
     case 'payments':
       return <PaymentSection />;
-
+case 'support':
+  return <AdminHelpSupport />;
       case 'blog':
   return (
     <BlogTab

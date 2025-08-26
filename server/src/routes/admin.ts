@@ -16,15 +16,19 @@ import {
   updateProductStock, // ✅ added (matches controller + adminApi)
 } from '../controllers/adminController';
 import Product from '../models/Product';
-import Return from '../models/Return';
+import Return from '../models/ReturnRequest';
 import Review from '../models/Review';
 import Payment from '../models/Payment';
 import User from '../models/User'; 
+import type { Request, Response } from 'express';
 import {
   getAllOrders,
   updateOrderStatus
 } from '../controllers/orderController';
 import { body, validationResult, query } from 'express-validator';
+import SupportTicket from '../models/SupportTicket';
+import SupportConfig from '../models/SupportConfig';
+import SupportFaq from '../models/SupportFaq';
 
 const resolveRange = (range?: string, from?: string, to?: string) => {
   if (from && to) return { since: new Date(from), until: new Date(to) };
@@ -50,6 +54,11 @@ const handleValidationErrors = (req: express.Request, res: express.Response, nex
       details: errors.array() 
     });
   }
+  next();
+};
+const valid = (req: express.Request, res: express.Response, next: express.NextFunction) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) return res.status(400).json({ success: false, error: 'Validation failed', details: errors.array() });
   next();
 };
 
@@ -1162,5 +1171,326 @@ router.get(
     }
   }
 );
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+router.get(
+  '/reviews',
+  ...adminOnly,
+  query('page').optional().isInt({ min: 1 }),
+  query('limit').optional().isInt({ min: 1, max: 100 }),
+  query('status').optional().isIn(['pending', 'approved,', 'rejected', 'all']),
+  async (req: Request, res: Response) => {
+    try {
+      const page  = Math.max(1, Number(req.query.page)  || 1);
+      const limit = Math.min(100, Number(req.query.limit) || 20);
+      const { status, productId, q } = req.query as any;
+
+      const filter: any = {};
+      if (status && status !== 'all') filter.status = status;
+      if (productId) filter.productId = productId;
+      if (q) {
+        const rx = new RegExp(String(q), 'i');
+        filter.$or = [
+          { comment: rx },
+          { userName: rx },
+          { userEmail: rx },
+          { productName: rx },
+        ];
+      }
+
+      const skip = (page - 1) * limit;
+
+      const [items, total] = await Promise.all([
+        Review.find(filter)
+          .sort({ createdAt: -1 })
+          .skip(skip)
+          .limit(limit)
+          .lean(),
+        Review.countDocuments(filter),
+      ]);
+
+      return res.json({
+        success: true,
+        reviews: items,
+        page,
+        totalPages: Math.ceil(total / limit),
+        total,
+      });
+    } catch (err: any) {
+      console.error('❌ Admin: list reviews error:', err);
+      return res.status(500).json({ success: false, message: err.message || 'Failed to fetch reviews' });
+    }
+  }
+);
+
+// PATCH /api/admin/reviews/:id/status  { status: 'approved'|'rejected'|'pending' }
+router.patch(
+  '/reviews/:id/status',
+  ...adminOnly,
+  auditLog('review-status-update'),
+  body('status').isIn(['approved', 'rejected', 'pending']),
+  async (req: Request, res: Response) => {
+    try {
+      const { id } = req.params;
+      const { status } = req.body as { status: 'approved' | 'rejected' | 'pending' };
+
+      const update: any = { status };
+      if (status === 'approved') {
+        update.approvedAt = new Date();
+        update.approvedBy = (req as any).user?._id; // assumes your auth sets req.user
+      }
+
+      const updated = await Review.findByIdAndUpdate(id, update, { new: true });
+      if (!updated) return res.status(404).json({ success: false, message: 'Review not found' });
+
+      return res.json({ success: true, review: updated, message: `Review ${status}` });
+    } catch (err: any) {
+      console.error('❌ Admin: update review status error:', err);
+      return res.status(500).json({ success: false, message: err.message || 'Failed to update review' });
+    }
+  }
+);
+
+// DELETE /api/admin/reviews/:id
+router.delete(
+  '/reviews/:id',
+  ...secureAdminOnly,
+  auditLog('review-delete'),
+  async (req: Request, res: Response) => {
+    try {
+      const deleted = await Review.findByIdAndDelete(req.params.id);
+      if (!deleted) return res.status(404).json({ success: false, message: 'Review not found' });
+      return res.status(204).end();
+    } catch (err: any) {
+      console.error('❌ Admin: delete review error:', err);
+      return res.status(500).json({ success: false, message: err.message || 'Failed to delete review' });
+    }
+  }
+);
+
+
+
+
+
+
+
+
+
+router.get(
+  '/reviews',
+  ...adminOnly,
+  query('page').optional().isInt({ min: 1 }),
+  query('limit').optional().isInt({ min: 1, max: 100 }),
+  // ✅ fixed 'approved,' → 'approved'
+  query('status').optional().isIn(['pending', 'approved', 'rejected', 'all']),
+  async (req: Request, res: Response) => {
+    try {
+      const page  = Math.max(1, Number(req.query.page)  || 1);
+      const limit = Math.min(100, Number(req.query.limit) || 20);
+      const { status, productId, q } = req.query as { status?: string; productId?: string; q?: string };
+
+      const filter: Record<string, any> = {};
+      if (status && status !== 'all') filter.status = status;
+      if (productId) filter.productId = productId;
+      if (q) {
+        const rx = new RegExp(String(q), 'i');
+        filter.$or = [{ comment: rx }, { userName: rx }, { userEmail: rx }, { productName: rx }];
+      }
+
+      const skip = (page - 1) * limit;
+
+      const [items, total] = await Promise.all([
+        Review.find(filter).sort({ createdAt: -1 as const }).skip(skip).limit(limit).lean(),
+        Review.countDocuments(filter),
+      ]);
+
+      return res.json({
+        success: true,
+        // ✅ normalized shape for the new ProductReview.tsx
+        items,
+        meta: { page, totalPages: Math.ceil(total / limit), total, limit },
+      });
+    } catch (err: any) {
+      console.error('❌ Admin: list reviews error:', err);
+      return res.status(500).json({ success: false, message: err.message || 'Failed to fetch reviews' });
+    }
+  }
+);
+// PATCH /api/admin/support/tickets/:id/status
+router.patch(
+  '/tickets/:id/status',
+  ...adminOnly,
+  auditLog('ticket-status-update'),
+  [body('status').isIn(['open', 'in_progress', 'resolved', 'closed'])],
+  valid,
+  async (req: Request, res: Response) => {
+    try {
+      const doc = await SupportTicket.findByIdAndUpdate(
+        req.params.id,
+        { status: req.body.status },
+        { new: true }
+      );
+      if (!doc) return res.status(404).json({ success: false, message: 'Ticket not found' });
+      return res.json({ success: true, ticket: doc });
+    } catch (err: any) {
+      console.error('ticket status error:', err);
+      return res.status(500).json({ success: false, message: 'Failed to update status' });
+    }
+  }
+);
+
+// GET /api/admin/support/config
+
+
+// PUT /api/admin/support/config
+// Tickets list
+router.get(
+  '/support/tickets',
+  ...adminOnly,
+  [
+    query('status').optional().isIn(['open', 'in_progress', 'resolved', 'closed', 'all']),
+    query('q').optional().isString(),
+    query('page').optional().isInt({ min: 1 }),
+    query('limit').optional().isInt({ min: 1, max: 100 }),
+  ],
+  valid,
+  async (req: Request, res: Response) => {
+    try {
+      const { status, q } = req.query as { status?: string; q?: string };
+      const page = Math.max(1, Number(req.query.page) || 1);
+      const limit = Math.min(100, Number(req.query.limit) || 20);
+      const skip = (page - 1) * limit;
+
+      const filter: Record<string, any> = {};
+      if (status && status !== 'all') filter.status = status;
+      if (q) {
+        const rx = new RegExp(String(q), 'i');
+        filter.$or = [{ subject: rx }, { message: rx }, { email: rx }, { orderId: rx }];
+      }
+
+      const [items, total] = await Promise.all([
+        SupportTicket.find(filter).sort({ createdAt: -1 as const }).skip(skip).limit(limit).lean(),
+        SupportTicket.countDocuments(filter),
+      ]);
+
+      return res.json({
+        success: true,
+        items,
+        meta: { page, totalPages: Math.ceil(total / limit), total, limit },
+      });
+    } catch (err: any) {
+      console.error('admin/support/tickets error:', err);
+      return res.status(500).json({ success: false, message: 'Failed to load tickets' });
+    }
+  }
+);
+
+// Update ticket status
+router.patch(
+  '/support/tickets/:id/status',
+  ...adminOnly,
+  auditLog('ticket-status-update'),
+  [body('status').isIn(['open', 'in_progress', 'resolved', 'closed'])],
+  valid,
+  async (req: Request, res: Response) => {
+    try {
+      const doc = await SupportTicket.findByIdAndUpdate(
+        req.params.id,
+        { status: req.body.status },
+        { new: true }
+      );
+      if (!doc) return res.status(404).json({ success: false, message: 'Ticket not found' });
+      return res.json({ success: true, ticket: doc });
+    } catch (err: any) {
+      console.error('ticket status error:', err);
+      return res.status(500).json({ success: false, message: 'Failed to update status' });
+    }
+  }
+);
+
+// Admin support config
+// Admin: GET /api/admin/support/config
+router.get('/support/config', ...adminOnly, async (_req, res) => {
+  try {
+    let doc = await SupportConfig.findOne(); // hydrate
+    if (!doc) {
+      doc = await SupportConfig.create({});
+    }
+    return res.json({ success: true, config: doc.toObject() }); // consistent
+  } catch (err: any) {
+    return res.status(500).json({ success: false, message: 'Failed to load config' });
+  }
+});
+
+
+router.put(
+  '/support/config',
+  ...secureAdminOnly,
+  auditLog('support-config-update'),
+  [
+    body('channels').optional().isObject(),
+    body('email').optional().isObject(),
+    body('phone').optional().isObject(),
+    body('whatsapp').optional().isObject(),
+    body('faq').optional().isObject(),
+  ],
+  valid,
+  async (req: Request, res: Response) => {
+    try {
+      const cfg = await SupportConfig.findOneAndUpdate(
+        {},
+        { ...req.body, updatedAt: new Date() },
+        { new: true, upsert: true }
+      );
+      return res.json({ success: true, config: cfg });
+    } catch (err: any) {
+      return res.status(500).json({ success: false, message: 'Failed to update config' });
+    }
+  }
+);
+
+// Admin FAQ CRUD
+router.get('/support/faqs', ...adminOnly, async (_req: Request, res: Response) => {
+  const faqs = await SupportFaq.find().sort({ order: 1 as const, createdAt: -1 as const }).lean();
+  return res.json({ success: true, faqs });
+});
+router.post(
+  '/support/faqs',
+  ...secureAdminOnly,
+  [body('question').isString(), body('answer').isString()],
+  valid,
+  async (req: Request, res: Response) => {
+    const doc = await SupportFaq.create(req.body);
+    return res.status(201).json({ success: true, faq: doc });
+  }
+);
+router.put(
+  '/support/faqs/:id',
+  ...secureAdminOnly,
+  valid,
+  async (req: Request, res: Response) => {
+    const doc = await SupportFaq.findByIdAndUpdate(req.params.id, req.body, { new: true });
+    if (!doc) return res.status(404).json({ success: false, message: 'FAQ not found' });
+    return res.json({ success: true, faq: doc });
+  }
+);
+router.delete('/support/faqs/:id', ...secureAdminOnly, async (req: Request, res: Response) => {
+  const doc = await SupportFaq.findByIdAndDelete(req.params.id);
+  if (!doc) return res.status(404).json({ success: false, message: 'FAQ not found' });
+  return res.status(204).end();
+});
+
 
 export default router;
