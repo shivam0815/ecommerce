@@ -1,25 +1,27 @@
-import { Router, Request, Response, NextFunction } from 'express';
+// routes/support.routes.ts
+import { Router, Request, Response, NextFunction, RequestHandler } from 'express';
 import { body, query, validationResult } from 'express-validator';
-import { Types, SortOrder } from 'mongoose';
+import { SortOrder } from 'mongoose';
 import SupportConfig from '../models/SupportConfig';
 import SupportFaq from '../models/SupportFaq';
 import SupportTicket from '../models/SupportTicket';
-import { rateLimitSensitive } from '../middleware/auth';
+import { rateLimitSensitive, authenticate, optionalAuthenticate } from '../middleware/auth';
 import { upload, handleMulterError } from '../middleware/upload';
 
 const router = Router();
 
-type AuthedRequest = Request & { user?: { _id?: Types.ObjectId } };
+/* -------------------------------------------------------------------------- */
+/*                            Shared Validation Hook                           */
+/* -------------------------------------------------------------------------- */
 
-// shared validation handler
-const handleValidation = (req: Request, res: Response, _next: NextFunction) => {
+const handleValidation = (req: Request, res: Response, next: NextFunction) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
-    // Helpful debug while you’re integrating:
-    console.warn('VALIDATION_FAILED /support route', {
+    // Helpful during integration; keep or remove later
+    console.warn('VALIDATION_FAILED /support', {
       body: req.body,
       files: (req as any).files?.length,
-      errors: errors.array()
+      errors: errors.array(),
     });
     return res.status(400).json({
       success: false,
@@ -27,14 +29,16 @@ const handleValidation = (req: Request, res: Response, _next: NextFunction) => {
       details: errors.array(),
     });
   }
-  _next();
+  next();
 };
 
-// ---------------------------------------------------------------------------
-// GET /api/support/config
+/* -------------------------------------------------------------------------- */
+/*                           GET /api/support/config                           */
+/* -------------------------------------------------------------------------- */
+
 router.get('/config', async (_req: Request, res: Response) => {
   try {
-    let doc = await SupportConfig.findOne();     // no .lean() to avoid FlattenMaps TS warnings
+    let doc = await SupportConfig.findOne();
     if (!doc) doc = await SupportConfig.create({});
     return res.json({ success: true, config: doc.toObject() });
   } catch (err: any) {
@@ -43,8 +47,10 @@ router.get('/config', async (_req: Request, res: Response) => {
   }
 });
 
-// ---------------------------------------------------------------------------
-// GET /api/support/faqs?q=&category=
+/* -------------------------------------------------------------------------- */
+/*                       GET /api/support/faqs?q=&category=                    */
+/* -------------------------------------------------------------------------- */
+
 router.get(
   '/faqs',
   [query('q').optional().isString(), query('category').optional().isString()],
@@ -58,10 +64,9 @@ router.get(
 
       const sort: Record<string, SortOrder> = { order: 1, createdAt: -1 };
 
-      const base = SupportFaq.find(filter).sort(sort).lean();
       const docs = q
         ? await SupportFaq.find(filter).find({ $text: { $search: String(q) } }).sort(sort).lean()
-        : await base;
+        : await SupportFaq.find(filter).sort(sort).lean();
 
       return res.json({ success: true, faqs: docs });
     } catch (err: any) {
@@ -71,9 +76,11 @@ router.get(
   }
 );
 
-// ---------------------------------------------------------------------------
-// POST /api/support/tickets  (multipart/form-data with field "attachments")
-import type { RequestHandler } from 'express';
+/* -------------------------------------------------------------------------- */
+/*          POST /api/support/tickets  (multipart, field: "attachments")       */
+/*     Uses optionalAuthenticate so logged-in users get userId attached.       */
+/* -------------------------------------------------------------------------- */
+
 const postTicket: RequestHandler = async (req, res) => {
   try {
     const files = (req as any).files as Express.Multer.File[] | undefined;
@@ -85,18 +92,29 @@ const postTicket: RequestHandler = async (req, res) => {
       mime: f.mimetype,
     }));
 
-    const userId = (req as AuthedRequest).user?._id;
+    // If user is logged in, optionalAuthenticate will have set req.user
+    const authedUser = (req as any).user as { id?: string; email?: string } | undefined;
+
+    // Email can come from either body or logged-in user
+    const finalEmail = (req.body.email || authedUser?.email || '').trim();
+    if (!finalEmail) {
+      return res.status(400).json({
+        success: false,
+        error: 'Validation failed',
+        details: [{ msg: 'Email is required', param: 'email', location: 'body' }],
+      });
+    }
 
     const doc = await SupportTicket.create({
       subject: req.body.subject,
       category: req.body.category,
       message: req.body.message,
-      email: req.body.email,
+      email: finalEmail,
       phone: req.body.phone,
       orderId: req.body.orderId,
       priority: (req.body.priority as any) || 'normal',
       channel: 'web',
-      userId,
+      userId: authedUser?.id, // ← this links ticket to the user
       attachments,
     });
 
@@ -112,13 +130,14 @@ const postTicket: RequestHandler = async (req, res) => {
 
 router.post(
   '/tickets',
+  optionalAuthenticate,                // 👈 allow linking to user when logged in
   rateLimitSensitive,
-  upload.array('attachments', 3),
+  upload.array('attachments', 6),      // field name MUST be "attachments"
   handleMulterError,
   [
-    body('subject').isString().trim().isLength({ min: 5 }),
-    body('message').isString().trim().isLength({ min: 10 }),
-    body('email').isEmail().normalizeEmail(),
+    body('subject').isString().trim().isLength({ min: 3 }).withMessage('Subject is required'),
+    body('message').isString().trim().isLength({ min: 5 }).withMessage('Message is required'),
+    body('email').optional().isEmail().withMessage('Invalid email'),
     body('category').optional().isString(),
     body('phone').optional().isString(),
     body('orderId').optional().isString(),
@@ -128,20 +147,29 @@ router.post(
   postTicket
 );
 
-// ---------------------------------------------------------------------------
-// GET /api/support/tickets/my  (requires req.user from your auth)
-router.get('/tickets/my', async (req: AuthedRequest, res: Response) => {
+/* -------------------------------------------------------------------------- */
+/*                 GET /api/support/tickets/my  (Requires auth)                */
+/* -------------------------------------------------------------------------- */
+
+router.get('/tickets/my', authenticate, async (req: Request, res: Response) => {
   try {
-    if (!req.user?._id) {
+    const userId = (req as any).user?.id; // authenticate() sets { id, ... }
+    if (!userId) {
       return res.status(401).json({ success: false, message: 'Login required' });
     }
 
-    const list = await SupportTicket.find({ userId: req.user._id })
-      .sort({ createdAt: -1 })
+    // Sort by updatedAt so admin status updates appear immediately on top
+    const tickets = await SupportTicket.find({ userId })
+      .sort({ updatedAt: -1 })
       .limit(50)
       .lean();
 
-    return res.json({ success: true, tickets: list });
+    // Avoid client/proxy caching
+    res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    res.set('Pragma', 'no-cache');
+    res.set('Expires', '0');
+
+    return res.json({ success: true, tickets });
   } catch (err: any) {
     console.error('support/tickets/my error:', err);
     return res.status(500).json({ success: false, message: 'Failed to load tickets' });

@@ -327,5 +327,12 @@ userSchema.methods.addLoginHistory = function(ip: string, userAgent: string, suc
     this.loginHistory = this.loginHistory.slice(-10);
   }
 };
-
+const UserSchema = new Schema({
+  // ...
+  preferences: {
+    notifications: { type: Boolean, default: true },
+    theme: { type: String, enum: ['light', 'dark'], default: 'light' },
+    language: { type: String, enum: ['en','hi','bn','ta','te','mr','gu'], default: 'en' }
+  }
+});
 export default mongoose.model<IUserDocument>('User', userSchema);

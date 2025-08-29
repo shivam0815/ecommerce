@@ -1,39 +1,44 @@
-// backend/src/models/Review.ts
+// src/models/Review.ts
 import mongoose, { Schema, Document } from 'mongoose';
 
 export interface IReview extends Document {
-  productId: mongoose.Types.ObjectId;
-  userId?: mongoose.Types.ObjectId;
+  productId: mongoose.Types.ObjectId | string;   // tolerate legacy string ids
+  productName?: string;
+  userId?: mongoose.Types.ObjectId;              // optional (omit if anonymous)
   userName?: string;
   userEmail?: string;
-  rating: number;          // 1..5
+  rating: number;                                // 1..5
   title?: string;
   comment: string;
-  verified: boolean;       // you can set true for verified purchases
+  verified: boolean;
   status: 'pending' | 'approved' | 'rejected';
-  helpfuls: number;
+  helpful: number;
+  reviewDate: Date;
   createdAt: Date;
   updatedAt: Date;
 }
 
 const ReviewSchema = new Schema<IReview>(
   {
-    productId: { type: Schema.Types.ObjectId, ref: 'Product', required: true, index: true },
-    userId:    { type: Schema.Types.ObjectId, ref: 'User' },
-    userName:  { type: String },
-    userEmail: { type: String },
-    rating:    { type: Number, required: true, min: 1, max: 5 },
-    title:     { type: String },
-    comment:   { type: String, required: true, trim: true },
-    verified:  { type: Boolean, default: false },
-    status:    { type: String, enum: ['pending', 'approved', 'rejected'], default: 'pending', index: true },
-    helpfuls:  { type: Number, default: 0 },
+    productId: { type: Schema.Types.ObjectId, ref: 'Product', required: true },
+    productName: { type: String, trim: true },
+    userId: { type: Schema.Types.ObjectId, ref: 'User', required: false }, // ⚠️ not required
+    userName: { type: String, trim: true },
+    userEmail: { type: String, trim: true },
+    rating: { type: Number, min: 1, max: 5, required: true },
+    title: { type: String, trim: true },
+    comment: { type: String, required: true, trim: true },
+    verified: { type: Boolean, default: false },
+    status: { type: String, enum: ['pending', 'approved', 'rejected'], default: 'pending' },
+    helpful: { type: Number, default: 0 },
+    reviewDate: { type: Date, default: Date.now },
   },
   { timestamps: true }
 );
 
-// models/Review.ts
-export default (mongoose.models.Review as mongoose.Model<IReview>) ||
-  mongoose.model<IReview>('Review', ReviewSchema);
+/** 🚫 NO UNIQUE INDEXES HERE.  */
+ReviewSchema.index({ productId: 1, createdAt: -1 });
+ReviewSchema.index({ productId: 1, status: 1, createdAt: -1 });
+ReviewSchema.index({ userId: 1, createdAt: -1 }, { sparse: true }); // non-unique, just for lookup
 
-
+export default mongoose.model<IReview>('Review', ReviewSchema);

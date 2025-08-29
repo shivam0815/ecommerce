@@ -1,15 +1,11 @@
-// src/controllers/productController.ts - COMPLETE FIXED VERSION
+// src/controllers/productController.ts - COMPLETE VERSION
 import { Request, Response } from 'express';
 import Product from '../models/Product';
-import { AuthRequest } from '../types';
-
-
-
+import type { AuthRequest } from '../types';
 
 const normArray = (v: any) => {
   if (Array.isArray(v)) return v;
   if (typeof v === 'string') {
-    // Try JSON first, fallback to CSV
     try {
       const parsed = JSON.parse(v);
       if (Array.isArray(parsed)) return parsed;
@@ -39,14 +35,9 @@ const normSpecs = (value: any) => {
   return {};
 };
 
-
-
-
-// ✅ FIXED: Create Product (Admin)
+// ✅ Create Product (Admin)
 export const createProduct = async (req: AuthRequest, res: Response) => {
   try {
-    console.log('📦 Creating product with data:', req.body);
-    
     const {
       name,
       description,
@@ -62,7 +53,6 @@ export const createProduct = async (req: AuthRequest, res: Response) => {
       images = []
     } = req.body;
 
-    // ✅ CRITICAL: Ensure product is visible by default
     const productData = {
       name: name?.trim(),
       description: description?.trim(),
@@ -76,27 +66,23 @@ export const createProduct = async (req: AuthRequest, res: Response) => {
       specifications: specifications || {},
       tags: Array.isArray(tags) ? tags : [],
       images: Array.isArray(images) ? images : [],
+
+      // legacy counters (keep if you use them elsewhere)
       rating: 0,
       reviews: 0,
-      // ✅ CRITICAL: Set visibility flags
+
+      // visibility
       isActive: true,
       inStock: Number(stockQuantity) > 0,
-      status: 'active'
-    };
+      status: 'active',
 
-    console.log('💾 Saving product:', productData);
+      // aggregates used by cards
+      averageRating: 0,
+      ratingsCount: 0,
+    };
 
     const product = new Product(productData);
     const savedProduct = await product.save();
-
-    console.log('✅ Product created successfully:', {
-      id: savedProduct._id,
-      name: savedProduct.name,
-      isActive: savedProduct.isActive,
-      inStock: savedProduct.inStock,
-      status: savedProduct.status,
-      stockQuantity: savedProduct.stockQuantity
-    });
 
     res.status(201).json({
       success: true,
@@ -113,7 +99,7 @@ export const createProduct = async (req: AuthRequest, res: Response) => {
   }
 };
 
-// ✅ FIXED: Get Products (Public - User Facing)
+// ✅ Get Products (Public - User Facing)
 export const getProducts = async (req: Request, res: Response) => {
   try {
     const {
@@ -125,66 +111,43 @@ export const getProducts = async (req: Request, res: Response) => {
       sortOrder = 'desc',
       minPrice,
       maxPrice
-    } = req.query;
+    } = req.query as any;
 
-    console.log('🔍 Fetching products with params:', req.query);
+    const query: any = { isActive: true, status: 'active' };
 
-    // ✅ CRITICAL: Only show ACTIVE and VISIBLE products to users
-    const query: any = {
-      isActive: true,
-      status: 'active'
-      // Note: Don't filter by inStock here - let users see out-of-stock items
-    };
-
-    // Add category filter
     if (category && category !== 'all' && category !== '') {
-      query.category = { $regex: new RegExp(category as string, 'i') };
+      query.category = { $regex: new RegExp(category, 'i') };
     }
 
-    // Add search filter
     if (search && search !== '') {
       query.$or = [
-        { name: { $regex: new RegExp(search as string, 'i') } },
-        { description: { $regex: new RegExp(search as string, 'i') } },
-        { tags: { $in: [new RegExp(search as string, 'i')] } },
-        { brand: { $regex: new RegExp(search as string, 'i') } }
+        { name: { $regex: new RegExp(search, 'i') } },
+        { description: { $regex: new RegExp(search, 'i') } },
+        { tags: { $in: [new RegExp(search, 'i')] } },
+        { brand: { $regex: new RegExp(search, 'i') } }
       ];
     }
 
-    // Add price range filter
     if (minPrice || maxPrice) {
       query.price = {};
       if (minPrice) query.price.$gte = Number(minPrice);
       if (maxPrice) query.price.$lte = Number(maxPrice);
     }
 
-    // Build sort options
     const sortOptions: any = {};
-    sortOptions[sortBy as string] = sortOrder === 'asc' ? 1 : -1;
+    sortOptions[sortBy] = sortOrder === 'asc' ? 1 : -1;
 
-    console.log('🔍 Final query:', query);
-    console.log('📊 Sort options:', sortOptions);
-
-    // Execute query
     const products = await Product.find(query)
       .sort(sortOptions)
       .limit(Number(limit))
       .skip((Number(page) - 1) * Number(limit))
+      // we only exclude __v; averageRating & ratingsCount will be included
       .select('-__v')
       .lean();
 
     const totalProducts = await Product.countDocuments(query);
     const totalPages = Math.ceil(totalProducts / Number(limit));
 
-    console.log('📦 Products found:', {
-      count: products.length,
-      total: totalProducts,
-      page: Number(page),
-      totalPages,
-      query
-    });
-
-    // ✅ FIXED: Always return success with products array
     res.json({
       success: true,
       products: products || [],
@@ -207,7 +170,7 @@ export const getProducts = async (req: Request, res: Response) => {
   }
 };
 
-// ✅ FIXED: Get All Products (Admin)
+// ✅ Get All Products (Admin)
 export const getAllProducts = async (req: AuthRequest, res: Response) => {
   try {
     const {
@@ -218,18 +181,15 @@ export const getAllProducts = async (req: AuthRequest, res: Response) => {
       status,
       sortBy = 'createdAt',
       sortOrder = 'desc'
-    } = req.query;
+    } = req.query as any;
 
-    console.log('🔍 Admin fetching all products:', req.query);
-
-    // ✅ Admin can see ALL products (including inactive)
     const query: any = {};
 
     if (search) {
       query.$or = [
-        { name: { $regex: new RegExp(search as string, 'i') } },
-        { description: { $regex: new RegExp(search as string, 'i') } },
-        { brand: { $regex: new RegExp(search as string, 'i') } }
+        { name: { $regex: new RegExp(search, 'i') } },
+        { description: { $regex: new RegExp(search, 'i') } },
+        { brand: { $regex: new RegExp(search, 'i') } }
       ];
     }
 
@@ -242,17 +202,16 @@ export const getAllProducts = async (req: AuthRequest, res: Response) => {
     }
 
     const sortOptions: any = {};
-    sortOptions[sortBy as string] = sortOrder === 'asc' ? 1 : -1;
+    sortOptions[sortBy] = sortOrder === 'asc' ? 1 : -1;
 
     const products = await Product.find(query)
       .sort(sortOptions)
       .limit(Number(limit))
       .skip((Number(page) - 1) * Number(limit))
+      .select('-__v')
       .lean();
 
     const totalProducts = await Product.countDocuments(query);
-
-    console.log('📦 Admin products found:', products.length);
 
     res.json({
       success: true,
@@ -274,7 +233,7 @@ export const getAllProducts = async (req: AuthRequest, res: Response) => {
   }
 };
 
-// ✅ NEW: Debug endpoint to check product visibility
+// ✅ Debug endpoint (unchanged)
 export const debugProducts = async (req: Request, res: Response) => {
   try {
     const allProducts = await Product.find({})
@@ -282,16 +241,9 @@ export const debugProducts = async (req: Request, res: Response) => {
       .sort({ createdAt: -1 })
       .limit(20);
 
-    const activeProducts = await Product.find({ 
-      isActive: true, 
-      status: 'active' 
-    }).countDocuments();
-
-    const inactiveProducts = await Product.find({ 
-      $or: [
-        { isActive: false },
-        { status: { $ne: 'active' } }
-      ]
+    const activeProducts = await Product.find({ isActive: true, status: 'active' }).countDocuments();
+    const inactiveProducts = await Product.find({
+      $or: [{ isActive: false }, { status: { $ne: 'active' } }]
     }).countDocuments();
 
     res.json({
@@ -323,13 +275,15 @@ export const debugProducts = async (req: Request, res: Response) => {
   }
 };
 
-// ✅ Get single product
+// ✅ Get single product (explicit select for consistency)
 export const getProductById = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
-    
-    const product = await Product.findById(id);
-    
+
+    const product = await Product.findById(id)
+      .select('-__v') // includes averageRating & ratingsCount
+      .lean();
+
     if (!product) {
       return res.status(404).json({
         success: false,
@@ -357,7 +311,6 @@ export const updateProduct = async (req: AuthRequest, res: Response) => {
     const { id } = req.params;
     const updateData = { ...req.body };
 
-    // ✅ Auto-calculate inStock based on stockQuantity
     if (updateData.stockQuantity !== undefined) {
       updateData.inStock = Number(updateData.stockQuantity) > 0;
     }
@@ -374,13 +327,6 @@ export const updateProduct = async (req: AuthRequest, res: Response) => {
         message: 'Product not found'
       });
     }
-
-    console.log('✅ Product updated:', {
-      id: product._id,
-      name: product.name,
-      isActive: product.isActive,
-      status: product.status
-    });
 
     res.json({
       success: true,
@@ -401,17 +347,15 @@ export const updateProduct = async (req: AuthRequest, res: Response) => {
 export const deleteProduct = async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
-    
+
     const product = await Product.findByIdAndDelete(id);
-    
+
     if (!product) {
       return res.status(404).json({
         success: false,
         message: 'Product not found'
       });
     }
-
-    console.log('🗑️ Product deleted:', product.name);
 
     res.json({
       success: true,

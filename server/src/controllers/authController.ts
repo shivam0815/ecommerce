@@ -821,3 +821,32 @@ export const searchUsers = async (req: Request, res: Response): Promise<void> =>
     });
   }
 };
+export const updatePreferences = async (
+  req: Request & { user?: AuthenticatedUser }, 
+  res: Response
+) => {
+  try {
+    const { preferences } = req.body as {
+      preferences: {
+        notifications?: boolean;
+        theme?: 'light' | 'dark';
+        language?: 'en' | 'hi' | 'bn' | 'ta' | 'te' | 'mr' | 'gu';
+      };
+    };
+
+    if (!req.user?.id) {
+      return res.status(401).json({ success: false, message: 'Unauthorized' });
+    }
+
+    await User.findByIdAndUpdate(
+      req.user.id,
+      { $set: { preferences } },
+      { new: true }
+    );
+
+    res.json({ success: true });
+  } catch (err: any) {
+    console.error('❌ updatePreferences error:', err);
+    res.status(500).json({ success: false, message: err.message || 'Failed to update preferences' });
+  }
+};

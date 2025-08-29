@@ -16,7 +16,7 @@ const transporter = nodemailer.createTransport({
   secure: SECURE,
   auth: USER && PASS ? { user: USER, pass: PASS } : undefined,
 });
-
+type ContactStatus = 'new' | 'open' | 'resolved' | 'closed';
 export const createContactMessage = async (req: Request, res: Response) => {
   try {
     // Honeypot: if present, silently accept but do nothing

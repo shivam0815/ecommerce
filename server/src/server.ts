@@ -28,15 +28,18 @@ import passport from './config/passport';
 import newsletterRoutes from './routes/newsletter.routes';
 import contactRoutes from './routes/contact.routes';
 import blogRoutes from './routes/blog.routes';
-import reviewsRouter from './routes//review';
+// import reviewsRouter from './routes//review';
 import helpRoutes from './routes/helpRoutes';
 import supportRouter from './routes/support.routes';
 import notificationRoutes from './routes/notification.routes';
 import returnRoutes from './routes/return.routes';
+import shiprocketRoutes from "./routes/shiprocketRoutes";
+import { authenticate, adminOnly } from './middleware/auth';
 const app = express();
 const server = http.createServer(app);
 const PORT = process.env.PORT || 5000;
 const userRoutes = require('./routes/user');
+
 
 // ✅ Environment variable validation (ADDED CLOUDINARY VARS)
 const requiredEnvVars = [
@@ -364,6 +367,7 @@ app.use('/uploads', express.static(uploadsDir, {
 app.use('/api/auth', authRoutes);
 app.use('/api/products', productRoutes);
 app.use('/api/cart', cartRoutes);
+app.use("/api", shiprocketRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/oem', oemRoutes);
 app.use('/api/payment', paymentRoutes);
@@ -377,12 +381,18 @@ app.use('/api/chat', chatRoutes);
 app.use('/api/newsletter', newsletterRoutes);
 app.use('/api/contact', contactRoutes);
 app.use('/api/blog', blogRoutes);
-app.use('/api/reviews', reviewsRouter);
+// app.use('/api/reviews', reviewsRouter);
 // ✅ TEST ENDPOINTS (MOVED TO CORRECT POSITION - BEFORE ERROR HANDLERS)
 app.use('/api/help', helpRoutes);
 app.use('/api/support', supportRouter);
 app.use('/api', notificationRoutes);
 app.use('/api', returnRoutes);
+app.set('etag', false); 
+app.use('/api', reviewsPublic);
+
+app.use('/api/admin', authenticate, adminRoutes);
+// protect every endpoint defined inside shiprocketRoutes
+app.use('/api', authenticate, adminOnly, shiprocketRoutes);
 // Test uploads endpoint
 app.get('/api/test/uploads', (req, res) => {
   try {

@@ -1,6 +1,7 @@
-// routes/return.routes.ts
+// backend/src/routes/return.routes.ts
 import { Router } from 'express';
 import multer from 'multer';
+import { authenticate, authorize } from '../middleware/auth';
 import {
   createReturnRequest,
   listMyReturns,
@@ -12,22 +13,41 @@ import {
   adminMarkReceived,
   adminRefund,
 } from '../controllers/return.controller';
-import { authenticate, authorize } from '../middleware/auth';
 
-const upload = multer({ dest: 'tmp/' });
+// Multer config (temp dir, 6 files max, 5MB each, images only)
+const upload = multer({
+  dest: 'tmp/',
+  limits: { files: 6, fileSize: 5 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    if (/^image\/(png|jpe?g|webp|gif)$/.test(file.mimetype)) cb(null, true);
+    else cb(new Error('Only image files are allowed'));
+  },
+});
+
 const router = Router();
 
-// USER
+/** ================= USER ================= */
 router.get('/returns', authenticate, listMyReturns);
 router.get('/returns/:id', authenticate, getMyReturn);
 router.post('/returns', authenticate, upload.array('images', 6), createReturnRequest);
 router.patch('/returns/:id/cancel', authenticate, cancelMyReturn);
 
-// ADMIN
+/** ================ ADMIN =================
+ * Prevent 304s/empty bodies from caches for these endpoints
+ */
+router.use('/admin/returns', (_req, res, next) => {
+  res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.set('Pragma', 'no-cache');
+  res.set('Expires', '0');
+  next();
+});
+
+// NOTE: use whichever signature your `authorize` supports.
+// If it expects an array, keep ['admin']; if it expects a string, use 'admin'.
 router.get('/admin/returns', authenticate, authorize(['admin']), adminListReturns);
 router.get('/admin/returns/:id', authenticate, authorize(['admin']), adminGetReturn);
 router.patch('/admin/returns/:id/decision', authenticate, authorize(['admin']), adminDecision);
-router.patch('/admin/returns/:id/mark-received', authenticate, authorize(['admin']), adminMarkReceived);
+router.patch('/admin/returns/:id/received', authenticate, authorize(['admin']), adminMarkReceived);
 router.patch('/admin/returns/:id/refund', authenticate, authorize(['admin']), adminRefund);
 
 export default router;

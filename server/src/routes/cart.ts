@@ -1,26 +1,38 @@
 import express from 'express';
+import rateLimit from 'express-rate-limit';
 import { authenticate } from '../middleware/auth';
 import { 
   getCart, 
   addToCart, 
   updateCartItem, 
   removeFromCart, 
-  clearCart,
-   // ← Import your debug function
+  clearCart
 } from '../controllers/cartController';
 
 const router = express.Router();
 
-// ✅ PUBLIC DEBUG ROUTE (before authentication)
-// router.get('/debug/products', debugProducts);
+/* -------------------------------------------------------------------------- */
+/* RATE LIMIT                                                                 */
+/* -------------------------------------------------------------------------- */
+const cartLimiter = rateLimit({
+  windowMs: 10 * 1000,      // 10 seconds
+  max: 20,                  // max 20 requests per 10s per IP
+  message: { success: false, message: "Too many cart requests, slow down." },
+  standardHeaders: true,    // Return rate limit info in the headers
+  legacyHeaders: false,     // Disable the `X-RateLimit-*` headers
+});
 
-// ✅ PROTECTED ROUTES (after authentication)
-router.use(authenticate); // Authentication middleware applied here
+/* -------------------------------------------------------------------------- */
+/* ROUTES                                                                     */
+/* -------------------------------------------------------------------------- */
+// ✅ Protect routes
+router.use(authenticate);
 
-router.get('/', getCart);
-router.post('/', addToCart);
-router.put('/item', updateCartItem);
-router.delete('/item/:productId', removeFromCart);
-router.delete('/clear', clearCart);
+// ✅ Apply limiter only to cart routes
+router.get('/', cartLimiter, getCart);
+router.post('/', cartLimiter, addToCart);
+router.put('/item', cartLimiter, updateCartItem);
+router.delete('/item/:productId', cartLimiter, removeFromCart);
+router.delete('/clear', cartLimiter, clearCart);
 
 export default router;

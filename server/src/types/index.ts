@@ -90,6 +90,7 @@ export interface IOrder extends Document {
     quantity: number;
     price: number;
     image?: string;
+    
   }>;
   shippingAddress: {
     fullName: string;
@@ -162,18 +163,7 @@ export interface JwtPayload {
   role: string;
 } // ✅ Fixed closing brace
 
-export interface AuthRequest extends Request {
-  user?: {
-    id: string;
-    email: string;
-    role: string;
-    name?: string;
-    phone?: string;
-    _id?: string;
-    isVerified?: boolean;
-    status?: string;
-  };
-} // ✅ Fixed closing brace
+ // ✅ Fixed closing brace
 
 export interface CartItem {
   id: string;
@@ -262,4 +252,7 @@ export interface IPaymentModel extends Document {
   orderId: string;
   createdAt: Date;
   updatedAt: Date;
+}
+export interface AuthRequest extends Request {
+  user: Express.AuthenticatedUser; // ✅ use the global augmentation type
 }

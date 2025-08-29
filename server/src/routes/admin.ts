@@ -20,15 +20,17 @@ import Return from '../models/ReturnRequest';
 import Review from '../models/Review';
 import Payment from '../models/Payment';
 import User from '../models/User'; 
+import type { SortOrder } from 'mongoose';
 import type { Request, Response } from 'express';
 import {
   getAllOrders,
   updateOrderStatus
 } from '../controllers/orderController';
-import { body, validationResult, query } from 'express-validator';
+import { body, validationResult, query,param } from 'express-validator';
 import SupportTicket from '../models/SupportTicket';
 import SupportConfig from '../models/SupportConfig';
 import SupportFaq from '../models/SupportFaq';
+import ReturnRequest from '../models/ReturnRequest';
 
 const resolveRange = (range?: string, from?: string, to?: string) => {
   if (from && to) return { since: new Date(from), until: new Date(to) };
@@ -60,6 +62,13 @@ const valid = (req: express.Request, res: express.Response, next: express.NextFu
   const errors = validationResult(req);
   if (!errors.isEmpty()) return res.status(400).json({ success: false, error: 'Validation failed', details: errors.array() });
   next();
+};
+const handleValidation = (req: Request, res: Response, _next: Function) => {
+  const errors = validationResult(req);
+  if (!errors.isEmpty()) {
+    return res.status(400).json({ success: false, error: 'Validation failed', details: errors.array() });
+  }
+  _next();
 };
 
 // ===============================
@@ -494,84 +503,89 @@ router.patch('/orders/:id/cancel',
 // ===============================
 
 // GET /api/admin/returns - Get all returns with filtering
-router.get('/returns', [
-  ...adminOnly,
-  query('status').optional().isIn(['pending', 'approved', 'rejected', 'processed']),
-  query('page').optional().isInt({ min: 1 }),
-  query('limit').optional().isInt({ min: 1, max: 100 })
-], async (req: express.Request, res: express.Response): Promise<void> => {
-  try {
-    console.log('🔄 Admin: Fetching returns...');
-    
-    const { status, page = 1, limit = 20 } = req.query;
-    
-    let filter: any = {};
-    if (status && status !== 'all') {
-      filter.status = status;
-    }
+// admin router
+type AdminReturnsQuery = {
+  status?: 'all'
+    | 'pending' | 'approved' | 'rejected'
+    | 'pickup_scheduled' | 'in_transit' | 'received'
+    | 'refund_initiated' | 'refund_completed' | 'cancelled' | 'closed';
+  page?: string;   // comes in as string
+  limit?: string;  // comes in as string
+  q?: string;
+};
 
-    const skip = (Number(page) - 1) * Number(limit);
-    
-    const [returns, total] = await Promise.all([
-      Return.find(filter)
-        .sort({ createdAt: -1 })
-        .skip(skip)
-        .limit(Number(limit)),
-      Return.countDocuments(filter)
-    ]);
-
-    console.log(`✅ Admin: Found ${returns.length} returns`);
-
-    res.status(200).json({
-      success: true,
-      data: returns,
-      pagination: {
-        currentPage: Number(page),
-        totalPages: Math.ceil(total / Number(limit)),
-        totalItems: total,
-        hasNext: skip + returns.length < total,
-        hasPrev: Number(page) > 1
-      }
-    });
-  } catch (error: any) {
-    console.error('❌ Admin: Get returns error:', error);
-    res.status(500).json({ 
-      success: false,
-      error: 'Failed to fetch returns',
-      message: error.message
-    });
-  }
-});
-
-// GET /api/admin/returns/:id - Get specific return
-router.get('/returns/:id', 
-  ...adminOnly,
-  async (req: express.Request, res: express.Response): Promise<void> => {
+router.get(
+  '/returns',
+  [
+    ...adminOnly,
+    query('status').optional().isIn([
+      'all',
+      'pending','approved','rejected',
+      'pickup_scheduled','in_transit','received',
+      'refund_initiated','refund_completed','cancelled','closed'
+    ]),
+    query('page').optional().isInt({ min: 1 }),
+    query('limit').optional().isInt({ min: 1, max: 100 }),
+  ],
+  async (
+    req: Request<{}, any, any, AdminReturnsQuery>,
+    res: Response
+  ): Promise<void> => {
     try {
-      const returnItem = await Return.findById(req.params.id);
-      
-      if (!returnItem) {
-        res.status(404).json({ 
-          success: false,
-          error: 'Return not found' 
-        });
-        return;
-      }
-      
-      res.status(200).json({
+      console.log('🔄 Admin: Fetching returns...');
+
+      const status = req.query.status;
+      const q = req.query.q;
+      const page = Math.max(1, parseInt(req.query.page ?? '1', 10));
+      const limit = Math.min(100, parseInt(req.query.limit ?? '20', 10));
+      const skip = (page - 1) * limit;
+
+      const filter: Record<string, any> = {};
+      if (status && status !== 'all') filter.status = status;
+      if (q) filter.$text = { $search: q };
+
+      const [rows, total] = await Promise.all([
+        ReturnRequest.find(filter)
+          .sort({ createdAt: -1 })
+          .skip(skip)
+          .limit(limit)
+          .populate('user', 'name email')
+          .populate('order', 'orderNumber')
+          .lean(),
+        ReturnRequest.countDocuments(filter),
+      ]);
+
+      console.log(`✅ Admin: Found ${rows.length} returns`);
+
+      res.set('Cache-Control','no-store, no-cache, must-revalidate, proxy-revalidate');
+      res.set('Pragma','no-cache');
+      res.set('Expires','0');
+
+      res.json({
         success: true,
-        data: returnItem
+        returns: rows,
+        total,
+        page,
+        totalPages: Math.ceil(total / limit),
       });
-    } catch (error: any) {
-      console.error('❌ Admin: Get return error:', error);
-      res.status(500).json({ 
-        success: false,
-        error: 'Failed to fetch return',
-        message: error.message
-      });
+    } catch (err: any) {
+      console.error('❌ Admin: Get returns error:', err);
+      res.status(500).json({ success: false, message: err.message || 'Failed to fetch returns' });
     }
   }
 );
+
+
+// GET /api/admin/returns/:id - Get specific return
+router.get('/returns/:id', ...adminOnly, async (req, res) => {
+  const r = await ReturnRequest.findById(req.params.id)
+    .populate('user', 'name email phone')
+    .populate('order', 'orderNumber')
+    .lean();
+  if (!r) return res.status(404).json({ success: false, message: 'Not found' });
+  res.json({ success: true, returnRequest: r });
+});
+
 
 // PUT /api/admin/returns/:id/status - Update return status
 router.put('/returns/:id/status', [
@@ -1462,35 +1476,87 @@ router.put(
 );
 
 // Admin FAQ CRUD
-router.get('/support/faqs', ...adminOnly, async (_req: Request, res: Response) => {
-  const faqs = await SupportFaq.find().sort({ order: 1 as const, createdAt: -1 as const }).lean();
-  return res.json({ success: true, faqs });
-});
+/* --------------------------------- FAQs ----------------------------------- */
+// GET /api/admin/support/faqs?q=
+router.get(
+  '/support/faqs',
+  ...adminOnly,
+  [query('q').optional().isString()],
+  handleValidation,
+  async (req: Request<{}, any, any, { q?: string }>, res: Response): Promise<void> => {
+    const { q } = req.query;
+    const filter: Record<string, any> = {};
+    const sort: Record<string, SortOrder> = { order: 1, createdAt: -1 };
+
+    const docs = q
+      ? await SupportFaq.find({ $text: { $search: String(q) } }).sort(sort).lean()
+      : await SupportFaq.find(filter).sort(sort).lean();
+
+    res.json({ success: true, faqs: docs });
+  }
+);
+
+// POST /api/admin/support/faqs
 router.post(
   '/support/faqs',
   ...secureAdminOnly,
-  [body('question').isString(), body('answer').isString()],
-  valid,
-  async (req: Request, res: Response) => {
-    const doc = await SupportFaq.create(req.body);
-    return res.status(201).json({ success: true, faq: doc });
+  [
+    body('question').isString().trim().isLength({ min: 5 }),
+    body('answer').isString().trim().isLength({ min: 5 }),
+    body('category').optional().isString(),
+    body('order').optional().isInt({ min: 0 }),
+    body('isActive').optional().isBoolean(),
+  ],
+  handleValidation,
+  async (req: Request, res: Response): Promise<void> => {
+    const faq = await SupportFaq.create({
+      question: req.body.question,
+      answer: req.body.answer,
+      category: req.body.category,
+      order: req.body.order ?? 0,
+      isActive: req.body.isActive ?? true,
+    });
+    res.status(201).json({ success: true, faq });
   }
 );
+
+// PUT /api/admin/support/faqs/:id
 router.put(
   '/support/faqs/:id',
   ...secureAdminOnly,
-  valid,
-  async (req: Request, res: Response) => {
-    const doc = await SupportFaq.findByIdAndUpdate(req.params.id, req.body, { new: true });
-    if (!doc) return res.status(404).json({ success: false, message: 'FAQ not found' });
-    return res.json({ success: true, faq: doc });
+  [
+    param('id').isMongoId(),
+    body('question').optional().isString().trim().isLength({ min: 5 }),
+    body('answer').optional().isString().trim().isLength({ min: 5 }),
+    body('category').optional().isString(),
+    body('order').optional().isInt({ min: 0 }),
+    body('isActive').optional().isBoolean(),
+  ],
+  handleValidation,
+  async (req: Request<{ id: string }>, res: Response): Promise<void> => {
+    const { id } = req.params;
+    const faq = await SupportFaq.findByIdAndUpdate(id, req.body, { new: true, runValidators: true });
+    if (!faq) {
+      res.status(404).json({ success: false, message: 'FAQ not found' });
+      return;
+    }
+    res.json({ success: true, faq });
   }
 );
-router.delete('/support/faqs/:id', ...secureAdminOnly, async (req: Request, res: Response) => {
-  const doc = await SupportFaq.findByIdAndDelete(req.params.id);
-  if (!doc) return res.status(404).json({ success: false, message: 'FAQ not found' });
-  return res.status(204).end();
-});
+
+// DELETE /api/admin/support/faqs/:id
+router.delete(
+  '/support/faqs/:id',
+  ...secureAdminOnly,
+  [param('id').isMongoId()],
+  handleValidation,
+  async (req: Request<{ id: string }>, res: Response): Promise<void> => {
+    const { id } = req.params;
+    await SupportFaq.findByIdAndDelete(id);
+    res.status(204).end();
+  }
+);
+
 
 
 export default router;

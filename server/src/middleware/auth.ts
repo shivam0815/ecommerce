@@ -268,6 +268,55 @@ export const validateSession = async (
   }
 };
 
+
+
+export const optionalAuthenticate = async (req: Request, _res: Response, next: NextFunction) => {
+  try {
+    const auth = req.headers.authorization;
+    if (!auth) return next();
+
+    const token = auth.startsWith('Bearer ') ? auth.slice(7) : auth;
+    if (!token) return next();
+
+    const decoded: any = jwt.verify(token, JWT_SECRET);
+    const id = decoded?.id || decoded?._id || decoded?.userId;
+    if (!id) return next();
+
+    const user = await User.findById(id).select('-password');
+    if (!user) return next();
+
+    (req as any).user = {
+      id: user.id,
+      role: user.role,
+      email: user.email,
+      name: user.name,
+      isVerified: user.isVerified || false,
+      twoFactorEnabled: user.twoFactorEnabled || false,
+    };
+  } catch {
+    // swallow errors for optional auth
+  }
+  next();
+};
+
+
+export const adminAuth = (req: Request, res: Response, next: NextFunction) => {
+  // First run your normal authentication
+  authenticate(req, res, (err?: any) => {
+    if (err) {
+      return res.status(401).json({ success: false, message: 'Unauthorized' });
+    }
+
+    // Now check role
+    const user = req.user as any;
+    if (!user || user.role !== 'admin') {
+      return res.status(403).json({ success: false, message: 'Forbidden: Admins only' });
+    }
+
+    next();
+  });
+};
+
 // Grouped exports
 export const adminOnly = [authenticate, authorize(['admin'])];
 export const userOrAdmin = [authenticate, authorize(['user', 'admin'])];
@@ -276,4 +325,4 @@ export const secureAdminOnly = [authenticate, authorize(['admin']), rateLimitSen
 export const verifiedAdminOnly = [authenticate, authorize(['admin']), requireEmailVerification];
 export const twoFactorAdminOnly = [authenticate, authorize(['admin']), requireTwoFactor];
 
-export { isAuthorizedAdminEmail, getAuthorizedEmails };
+export { isAuthorizedAdminEmail, getAuthorizedEmails }; 

@@ -5,6 +5,9 @@ import crypto from 'crypto';
 import { PaymentOrderData } from '../types';
 import Order from '../models/Order';
 import Cart from '../models/Cart';
+import Payment from '../models/Payment';
+
+import { startOfDay, endOfDay } from 'date-fns';
 
 // ✅ Define the authenticated user type
 interface AuthenticatedUser {
@@ -242,19 +245,13 @@ export const verifyPayment = async (
     });
 
     if (!user) {
-      res.status(401).json({
-        success: false,
-        message: 'User not authenticated'
-      });
+      res.status(401).json({ success: false, message: 'User not authenticated' });
       return;
     }
 
     // ✅ Validate required fields
     if (!paymentId || !orderId || !paymentMethod) {
-      res.status(400).json({
-        success: false,
-        message: 'Missing required payment verification data'
-      });
+      res.status(400).json({ success: false, message: 'Missing required payment verification data' });
       return;
     }
 
@@ -263,27 +260,17 @@ export const verifyPayment = async (
     switch (paymentMethod) {
       case 'razorpay':
         if (!signature) {
-          res.status(400).json({
-            success: false,
-            message: 'Payment signature is required for Razorpay'
-          });
+          res.status(400).json({ success: false, message: 'Payment signature is required for Razorpay' });
           return;
         }
-
-        // ✅ Verify Razorpay signature
         const body = orderId + '|' + paymentId;
         const expectedSignature = crypto
           .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET!)
           .update(body.toString())
           .digest('hex');
-        
+
         paymentVerified = expectedSignature === signature;
-        
-        console.log('🔐 Razorpay signature verification:', {
-          verified: paymentVerified,
-          paymentId: paymentId.substring(0, 10) + '...',
-          orderId: orderId.substring(0, 10) + '...'
-        });
+        console.log('🔐 Razorpay signature verification:', { verified: paymentVerified });
         break;
 
       case 'cod':
@@ -292,46 +279,25 @@ export const verifyPayment = async (
         break;
 
       default:
-        res.status(400).json({
-          success: false,
-          message: 'Invalid payment method for verification'
-        });
+        res.status(400).json({ success: false, message: 'Invalid payment method for verification' });
         return;
     }
 
     if (paymentVerified) {
-      // ✅ CRITICAL FIX: Find order by paymentOrderId, not _id
+      // ✅ Find order by paymentOrderId
       const order = await Order.findOne({ paymentOrderId: orderId });
-      
       if (!order) {
-        console.error('❌ Order not found with paymentOrderId:', orderId);
-        res.status(404).json({
-          success: false,
-          message: 'Order not found'
-        });
+        res.status(404).json({ success: false, message: 'Order not found' });
         return;
       }
 
-      console.log('✅ Order found:', {
-        mongoId: order._id,
-        paymentOrderId: order.paymentOrderId,
-        orderNumber: order.orderNumber
-      });
-
-      // ✅ Verify order ownership
+      // ✅ Check ownership
       if (!order.userId.equals(user.id)) {
-        console.error('❌ Unauthorized order access:', {
-          orderUserId: order.userId.toString(),
-          currentUserId: user.id
-        });
-        res.status(403).json({
-          success: false,
-          message: 'Unauthorized access to order'
-        });
+        res.status(403).json({ success: false, message: 'Unauthorized access to order' });
         return;
       }
 
-      // ✅ Update order status
+      // ✅ Update order
       order.paymentStatus = paymentMethod === 'cod' ? 'cod_pending' : 'paid';
       order.orderStatus = 'confirmed';
       order.status = 'confirmed';
@@ -339,16 +305,29 @@ export const verifyPayment = async (
       order.paymentSignature = signature;
       order.paidAt = new Date();
       order.updatedAt = new Date();
-      
       await order.save();
-      console.log('✅ Order payment verified and updated:', {
-        mongoId: order._id,
-        orderNumber: order.orderNumber,
-        paymentStatus: order.paymentStatus,
-        orderStatus: order.orderStatus
-      });
 
-      // ✅ Clear user's cart
+      console.log('✅ Order updated:', { orderNumber: order.orderNumber });
+
+      // ✅ Create / update Payment record
+      await Payment.findOneAndUpdate(
+        { transactionId: paymentId },
+        {
+          userId: user.id,
+          userName: user.name || '',
+          userEmail: user.email || '',
+          amount: order.total,
+          paymentMethod,
+          status: 'completed',
+          transactionId: paymentId,
+          orderId: order.id.toString(),
+          paymentDate: new Date()
+        },
+        { upsert: true, new: true }
+      );
+      console.log('💾 Payment record logged into Payment collection');
+
+      // ✅ Clear cart
       try {
         await Cart.findOneAndDelete({ userId: user.id });
         console.log('🛒 Cart cleared successfully');
@@ -356,9 +335,8 @@ export const verifyPayment = async (
         console.error('⚠️ Cart clearing failed:', cartError);
       }
 
-      // ✅ Get populated order for response
+      // ✅ Response
       const populatedOrder = await Order.findById(order._id).populate('items.productId');
-
       res.json({
         success: true,
         message: 'Payment verified and order confirmed! 🎉',
@@ -372,19 +350,12 @@ export const verifyPayment = async (
       });
 
     } else {
-      console.error('❌ Payment verification failed');
-      res.status(400).json({
-        success: false,
-        message: 'Payment verification failed. Please try again or contact support.'
-      });
+      res.status(400).json({ success: false, message: 'Payment verification failed. Please try again or contact support.' });
     }
 
   } catch (error: any) {
     console.error('❌ Payment verification error:', error);
-    res.status(500).json({
-      success: false,
-      message: error.message || 'Payment verification failed'
-    });
+    res.status(500).json({ success: false, message: error.message || 'Payment verification failed' });
   }
 };
 
@@ -472,4 +443,50 @@ export const generateShortReceipt = (prefix: string, userId: string): string => 
   }
   
   return receipt;
+};
+export const getTodayPaymentsSummary = async (req: Request, res: Response) => {
+  try {
+    const start = startOfDay(new Date());
+    const end = endOfDay(new Date());
+
+    const payments = await Payment.aggregate([
+      {
+        $match: {
+          status: 'completed',
+          paymentDate: { $gte: start, $lte: end }
+        }
+      },
+      {
+        $group: {
+          _id: null,
+          totalAmount: { $sum: '$amount' },
+          count: { $sum: 1 }
+        }
+      }
+    ]);
+
+    const todayList = await Payment.find({
+      status: 'completed',
+      paymentDate: { $gte: start, $lte: end }
+    }).sort({ paymentDate: -1 });
+
+    res.json({
+      success: true,
+      totalAmount: payments[0]?.totalAmount || 0,
+      count: payments[0]?.count || 0,
+      transactions: todayList
+    });
+  } catch (err: any) {
+    console.error('❌ Error in getTodayPaymentsSummary:', err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+};
+
+export const getAllPayments = async (req: Request, res: Response) => {
+  try {
+    const payments = await Payment.find().sort({ paymentDate: -1 });
+    res.json({ success: true, data: payments });
+  } catch (err: any) {
+    res.status(500).json({ success: false, message: err.message });
+  }
 };
