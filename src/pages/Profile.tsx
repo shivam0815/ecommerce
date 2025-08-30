@@ -207,18 +207,7 @@ const Profile: React.FC = () => {
     }
   };
 
-  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const f = e.target.files?.[0];
-    if (!f) return;
-    const formData = new FormData();
-    formData.append('avatar', f);
-    try {
-      const res = await api.post('/user/upload-avatar', formData, { headers: { 'Content-Type': 'multipart/form-data' } });
-      if (res.data.success) setUser(prev => (prev ? { ...prev, avatar: res.data.avatarUrl } : prev));
-    } catch (err: any) {
-      alert('Avatar upload failed: ' + (err?.response?.data?.message || err?.message));
-    }
-  };
+  
 
   useEffect(() => { fetchProfileData(); }, [fetchProfileData]);
 
@@ -304,10 +293,7 @@ const Profile: React.FC = () => {
               <div className="w-28 h-28 rounded-full bg-gray-100 ring-1 ring-gray-200 overflow-hidden flex items-center justify-center">
                 {user.avatar ? <img src={user.avatar} alt="avatar" className="w-full h-full object-cover" /> : <UserIcon className="w-12 h-12 text-gray-400" />}
               </div>
-              <label className="absolute -bottom-1 -right-1 bg-white border border-gray-200 p-2 rounded-full shadow cursor-pointer">
-                <CameraIcon className="w-4 h-4 text-gray-600" />
-                <input type="file" accept="image/*" onChange={handleImageUpload} className="hidden" />
-              </label>
+             
             </div>
 
             <div className="flex-1 text-center md:text-left">

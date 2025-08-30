@@ -200,7 +200,7 @@ const CheckoutPage: React.FC = () => {
   const shippingFee = useMemo(() => {
     // Free shipping via threshold or coupon
     const free = effectiveSubtotal >= SHIPPING_FREE_THRESHOLD || appliedCoupon?.freeShipping;
-    return free ? 0 : 150;
+    return free ? 0 : 0;
   }, [effectiveSubtotal, appliedCoupon]);
 
   const giftWrapFee = giftWrap ? GIFT_WRAP_FEE : 0;

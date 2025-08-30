@@ -1,8 +1,8 @@
 // src/components/ProductCard.tsx
-import React, { useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Star, ShoppingCart, Heart, Tag, CreditCard } from 'lucide-react';
+import { Star, ShoppingCart, Tag, CreditCard, Heart } from 'lucide-react';
 import type { Product } from '../../types';
 import { useCart } from '../../hooks/useCart';
 import { useWishlist } from '../../hooks/useWishlist';
@@ -13,6 +13,8 @@ export interface ProductCardProps {
   product: Product;
   viewMode?: 'grid' | 'list';
   className?: string;
+  /** If true, shows a small heart overlay on the image (hidden by default) */
+  showWishlist?: boolean;
 }
 
 const isValidObjectId = (s?: string) => !!s && /^[a-f\d]{24}$/i.test(s);
@@ -64,7 +66,48 @@ const computeInStock = (p: any): boolean => {
   return true; // default optimistic
 };
 
-const ProductCard: React.FC<ProductCardProps> = ({ product, viewMode = 'grid', className = '' }) => {
+/** —— Rating + Reviews helpers —— */
+const coerceNumber = (x: any): number | undefined => {
+  const n = typeof x === 'number' ? x : Number(x);
+  return Number.isFinite(n) ? n : undefined;
+};
+
+const getInitialAverageRating = (p: any): number => {
+  // Prefer explicit average fields; last resort is `rating`
+  return (
+    coerceNumber(p?.averageRating) ??
+    coerceNumber(p?.avgRating) ??
+    coerceNumber(p?.ratingAverage) ??
+    coerceNumber(p?.rating) ??
+    0
+  );
+};
+
+const getInitialReviewCount = (p: any): number => {
+  return (
+    coerceNumber(p?.ratingsCount) ??
+    coerceNumber(p?.reviewCount) ??
+    coerceNumber(p?.reviewsCount) ??
+    coerceNumber(p?.numReviews) ??
+    (Array.isArray(p?.reviews) ? p.reviews.length : undefined) ??
+    0
+  );
+};
+
+// ——— UI tokens for compact professional actions ———
+const btnBase =
+  'inline-flex items-center justify-center rounded-lg font-medium transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed shrink-0 h-9 px-3 text-sm sm:h-10 sm:px-3';
+const btnPrimary = 'bg-blue-600 text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500/50';
+const btnDark = 'bg-gray-900 text-white hover:bg-black focus:outline-none focus:ring-2 focus:ring-gray-900/40';
+const btnMinW = 'w-[112px] sm:w-[132px]';
+const btnGhost = 'border border-gray-300 text-gray-700 hover:text-red-600 hover:border-red-300 focus:outline-none focus:ring-2 focus:ring-red-300/40';
+
+const ProductCard: React.FC<ProductCardProps> = ({
+  product,
+  viewMode = 'grid',
+  className = '',
+  showWishlist = false,
+}) => {
   const isList = viewMode === 'list';
 
   const navigate = useNavigate();
@@ -76,7 +119,7 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, viewMode = 'grid', c
 
   // Accept either _id or id from backend (sanitize to string)
   const rawId = (product as any)._id ?? (product as any).id;
-  const productId = typeof rawId === 'string' ? rawId.trim() : (rawId ? String(rawId) : '');
+  const productId = typeof rawId === 'string' ? rawId.trim() : rawId ? String(rawId) : '';
   const inStock = computeInStock(product);
   const inWishlist = productId ? isInWishlist(productId) : false;
 
@@ -98,6 +141,72 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, viewMode = 'grid', c
   const discountPct = hasDiscount
     ? Math.round(((comparePrice! - product.price) / comparePrice!) * 100)
     : 0;
+
+  // —— Ratings/Reviews state —— (start with whatever came in, then always refresh)
+  const [avgRating, setAvgRating] = useState<number>(getInitialAverageRating(product));
+  const [revCount, setRevCount] = useState<number>(getInitialReviewCount(product));
+  const [revLoading, setRevLoading] = useState<boolean>(false);
+  const [refreshTick, setRefreshTick] = useState<number>(0); // bumps when reviews change
+
+  // Always fetch summary on mount + whenever refreshTick changes
+  useEffect(() => {
+    if (!isValidObjectId(productId)) return;
+
+    let ignore = false;
+    const ac = new AbortController();
+
+    const load = async () => {
+      try {
+        setRevLoading(true);
+        // cache-bust with _ts so we never get a stale 200 from any proxy
+        const res = await fetch(`/api/reviews/summary?productId=${productId}&_ts=${Date.now()}`, { signal: ac.signal });
+        if (!res.ok) throw new Error('No review summary');
+        const payload = await res.json();
+        if (ignore) return;
+
+        const data = payload?.data || payload; // support both shapes
+        const a = coerceNumber(data?.averageRating) ?? 0;
+        const c = coerceNumber(data?.reviewCount) ?? 0;
+
+        setAvgRating(a);
+        setRevCount(c);
+      } catch {
+        // ignore; keep current
+      } finally {
+        if (!ignore) setRevLoading(false);
+      }
+    };
+
+    load();
+    return () => {
+      ignore = true;
+      ac.abort();
+    };
+  }, [productId, refreshTick]);
+
+  // Listen for global "reviews:changed" signals and localStorage pings
+  useEffect(() => {
+    if (!isValidObjectId(productId)) return;
+
+    const onEvt = (e: Event) => {
+      const detail = (e as CustomEvent)?.detail as any;
+      if (!detail || !detail.productId) return;
+      if (String(detail.productId) === productId) setRefreshTick((t) => t + 1);
+    };
+
+    const onStorage = (e: StorageEvent) => {
+      if (!e.key) return;
+      const prefix = `reviews:changed:${productId}`;
+      if (e.key === prefix) setRefreshTick((t) => t + 1);
+    };
+
+    window.addEventListener('reviews:changed', onEvt as EventListener);
+    window.addEventListener('storage', onStorage);
+    return () => {
+      window.removeEventListener('reviews:changed', onEvt as EventListener);
+      window.removeEventListener('storage', onStorage);
+    };
+  }, [productId]);
 
   const handleAddToCart = async (e: React.MouseEvent) => {
     e.preventDefault();
@@ -140,7 +249,7 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, viewMode = 'grid', c
       if (isInWishlist(productId)) {
         await removeFromWishlist(productId);
       } else {
-        await addToWishlist(product);
+        await addToWishlist(productId);
       }
     } catch (error: any) {
       toast.error(error?.message || 'Wishlist operation failed');
@@ -156,9 +265,10 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, viewMode = 'grid', c
     }
   };
 
-  // Be tolerant of both `reviewCount` and `reviewsCount`
-  const reviewCount = (product as any).reviewCount ?? (product as any).reviewsCount ?? 0;
   const currency = (product as any).currency || 'INR';
+
+  const roundedAvg = useMemo(() => Math.max(0, Math.min(5, Math.round((avgRating ?? 0) * 10) / 10)), [avgRating]);
+  const fullStars = Math.floor(roundedAvg);
 
   return (
     <Link to={detailPath} onClick={handleGuardedNav} className="block group" data-product-id={productId || ''}>
@@ -176,7 +286,7 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, viewMode = 'grid', c
           {imageUrl && !imageError ? (
             <>
               {imageLoading && (
-                <div className="absolute inset-0 bg-gray-200 animate-pulse flex items-center justify-center">
+                <div className="absolute inset-0 bg-gray-200 animate-pulse flex items-center justify-center" aria-label="Loading image">
                   <div className="text-gray-400">Loading...</div>
                 </div>
               )}
@@ -213,9 +323,25 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, viewMode = 'grid', c
             </div>
           )}
 
+          {/* Wishlist overlay (optional, hidden by default) */}
+          {showWishlist && (
+            <motion.button
+              whileHover={{ scale: 1.05 }}
+              whileTap={{ scale: 0.95 }}
+              onClick={handleWishlistToggle}
+              disabled={wishlistLoading}
+              className={`absolute top-2 right-2 inline-flex ${btnGhost} h-9 w-9 p-0 min-w-[2.25rem] sm:h-10 sm:w-10 bg-white/90 backdrop-blur z-20`}
+              title={inWishlist ? 'Remove from wishlist' : 'Add to wishlist'}
+              aria-pressed={inWishlist}
+              aria-label={inWishlist ? 'Remove from wishlist' : 'Add to wishlist'}
+            >
+              <Heart className={'h-4 w-4 ' + (inWishlist ? 'fill-current text-red-600' : '')} />
+            </motion.button>
+          )}
+
           {/* Stock overlay */}
           {inStock === false && (
-            <div className="absolute inset-0 bg-black/50 flex items-center justify-center z-10">
+            <div className="absolute inset-0 bg-black/50 flex items-center justify-center z-10" aria-label="Out of stock">
               <span className="text-white font-semibold text-sm">Out of Stock</span>
             </div>
           )}
@@ -245,16 +371,18 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, viewMode = 'grid', c
           )}
 
           {/* Rating */}
-          <div className={'flex items-center mb-2 ' + (isList ? '' : '')}>
+          <div className="flex items-center mb-2" aria-label={`Rating ${roundedAvg} out of 5`}>
             <div className="flex items-center">
               {[...Array(5)].map((_, i) => (
                 <Star
                   key={i}
-                  className={'h-4 w-4 ' + (i < Math.floor(product.rating || 0) ? 'text-yellow-400 fill-current' : 'text-gray-300')}
+                  className={'h-4 w-4 ' + (i < Math.floor(roundedAvg) ? 'text-yellow-400 fill-current' : 'text-gray-300')}
                 />
               ))}
             </div>
-            <span className="text-sm text-gray-600 ml-2">({reviewCount} reviews)</span>
+            <span className="text-sm text-gray-600 ml-2">
+              {revLoading ? '(loading…)' : `(${revCount} reviews)`}
+            </span>
           </div>
 
           {/* Price + stock pill */}
@@ -262,7 +390,9 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, viewMode = 'grid', c
             <div className="flex items-baseline space-x-2">
               <span className="text-xl font-bold text-gray-900">{fmtPrice(product.price, currency)}</span>
               {hasDiscount && (
-                <span className="text-sm text-gray-500 line-through">{fmtPrice(comparePrice, currency)}</span>
+                <span className="text-sm text-gray-500 line-through" aria-label="MRP">
+                  {fmtPrice(comparePrice, currency)}
+                </span>
               )}
             </div>
             <span
@@ -296,17 +426,20 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, viewMode = 'grid', c
             </div>
           )}
 
-          {/* Actions */}
-          <div className={'flex ' + (isList ? 'gap-2' : 'space-x-2')}>
+          {/* Actions — strictly two buttons, horizontal */}
+          <div className="mt-3 flex items-center gap-2">
             <motion.button
               whileHover={{ scale: 1.02 }}
               whileTap={{ scale: 0.98 }}
               onClick={handleAddToCart}
               disabled={inStock === false || isLoading}
-              className="flex-1 bg-blue-600 text-white py-2 px-4 rounded-lg font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200 flex items-center justify-center space-x-2"
+              className={`${btnBase} ${btnPrimary} ${btnMinW}`}
+              title="Add to Cart"
+              aria-busy={isLoading}
             >
-              <ShoppingCart className="h-4 w-4" />
-              <span>{isLoading ? 'Adding...' : 'Add to Cart'}</span>
+              <ShoppingCart className="h-4 w-4 mr-2" />
+              <span className="hidden sm:inline">{isLoading ? 'Adding…' : 'Add to Cart'}</span>
+              <span className="sm:hidden">{isLoading ? '…' : 'Add'}</span>
             </motion.button>
 
             <motion.button
@@ -314,26 +447,12 @@ const ProductCard: React.FC<ProductCardProps> = ({ product, viewMode = 'grid', c
               whileTap={{ scale: 0.98 }}
               onClick={handleBuyNow}
               disabled={inStock === false || isLoading}
-              className="flex-1 bg-gray-900 text-white py-2 px-4 rounded-lg font-medium hover:bg-black disabled:opacity-50 disabled:cursor-not-allowed transition-colors duration-200 flex items-center justify-center space-x-2"
+              className={`${btnBase} ${btnDark} ${btnMinW}`}
+              title="Buy Now"
             >
-              <CreditCard className="h-4 w-4" />
-              <span>{isLoading ? 'Processing...' : 'Buy Now'}</span>
-            </motion.button>
-
-            <motion.button
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              onClick={handleWishlistToggle}
-              disabled={wishlistLoading}
-              className={
-                'p-2 border rounded-lg transition-all duration-200 ' +
-                (inWishlist
-                  ? 'text-red-600 border-red-300 bg-red-50 hover:bg-red-100'
-                  : 'text-gray-600 hover:text-red-600 border-gray-300 hover:border-red-300')
-              }
-              title={inWishlist ? 'Remove from wishlist' : 'Add to wishlist'}
-            >
-              <Heart className={'h-4 w-4 ' + (inWishlist ? 'fill-current' : '')} />
+              <CreditCard className="h-4 w-4 mr-2" />
+              <span className="hidden sm:inline">{isLoading ? 'Processing…' : 'Buy Now'}</span>
+              <span className="sm:hidden">{isLoading ? '…' : 'Buy'}</span>
             </motion.button>
           </div>
         </div>

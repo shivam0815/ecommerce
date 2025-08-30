@@ -1,0 +1,249 @@
+/* ---------- Theme Vars ---------- */
+:root {
+  --bg: #f7f8fb;
+  --card: #ffffff;
+  --text: #1f2937;
+  --muted: #6b7280;
+  --border: #e5e7eb;
+  --accent: #4f46e5;          /* indigo-600 */
+  --accent-contrast: #ffffff;
+  --accent-weak: #eef2ff;      /* indigo-50 */
+  --positive: #16a34a;         /* green-600 */
+  --warn: #f59e0b;             /* amber-500 */
+  --danger: #dc2626;           /* red-600 */
+  --shadow: 0 6px 20px rgba(31, 41, 55, 0.08);
+}
+
+@media (prefers-color-scheme: dark) {
+:root {
+  --bg: #ffffff;        /* white background */
+  --card: #ffffff;      /* white cards */
+  --text: #000000;      /* black text */
+  --muted: #6b7280;     /* gray for secondary */
+  --border: #d1d5db;    /* light gray border */
+  --accent: #6366f1;    /* indigo */
+  --accent-contrast: #ffffff;
+  --accent-weak: #eef2ff;
+  --shadow: 0 6px 20px rgba(0, 0, 0, 0.08);
+}
+
+}
+
+/* ---------- Container & Basics ---------- */
+.payment-section-container {
+  background: var(--bg);
+  color: var(--text);
+  padding: 16px;
+  border-radius: 16px;
+  box-shadow: var(--shadow);
+}
+
+.loading {
+  padding: 24px;
+  text-align: center;
+  color: var(--muted);
+  font-weight: 500;
+}
+
+.error-banner {
+  border-radius: 10px;
+  line-height: 1.5;
+}
+
+/* ---------- Toolbar ---------- */
+.toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+  flex-wrap: wrap;
+}
+
+.toolbar-left,
+.toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.toolbar label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  color: var(--muted);
+}
+
+.toolbar select {
+  appearance: none;
+  border: 1px solid var(--border);
+  background: var(--card);
+  color: var(--text);
+  padding: 8px 12px;
+  border-radius: 10px;
+  font-size: 14px;
+  outline: none;
+  transition: box-shadow .2s, border-color .2s;
+}
+.toolbar select:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.15);
+}
+
+.toolbar button {
+  border: none;
+  background: var(--accent);
+  color: var(--accent-contrast);
+  padding: 10px 14px;
+  border-radius: 10px;
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+  transition: transform .06s ease, box-shadow .2s ease, background .2s ease;
+  box-shadow: 0 6px 14px rgba(79, 70, 229, 0.25);
+}
+.toolbar button:hover {
+  background: #4338ca; /* indigo-700 */
+}
+.toolbar button:active {
+  transform: translateY(1px);
+  box-shadow: 0 4px 10px rgba(79, 70, 229, 0.25);
+}
+
+/* ---------- Summary ---------- */
+.summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(120px, 1fr));
+  gap: 10px;
+  margin: 6px 0 14px;
+}
+.summary > div {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 10px 12px;
+  display: flex;
+  justify-content: space-between;
+  font-size: 14px;
+}
+.summary strong {
+  color: var(--muted);
+}
+
+/* ---------- Table ---------- */
+.table-wrap {
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  overflow: hidden;
+  box-shadow: var(--shadow);
+  overflow-x: auto;
+}
+
+.payment-table {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 0;
+  min-width: 760px;
+}
+
+.payment-table thead th {
+  position: sticky;
+  top: 0;
+  background: linear-gradient(0deg, var(--card), var(--card)),
+              linear-gradient(90deg, var(--accent-weak), transparent);
+  color: var(--muted);
+  text-align: left;
+  font-weight: 700;
+  font-size: 12.5px;
+  letter-spacing: 0.02em;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+  z-index: 1;
+}
+
+.payment-table tbody td {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+  font-size: 14px;
+}
+
+.payment-table tbody tr:nth-child(even) {
+  background: color-mix(in oklab, var(--card), var(--bg) 12%);
+}
+
+.payment-table tbody tr:hover {
+  background: color-mix(in oklab, var(--accent-weak), var(--card) 65%);
+}
+
+/* Right-aligned numeric column */
+.payment-table th:last-child,
+.payment-table td:last-child {
+  text-align: right;
+  white-space: nowrap;
+}
+
+/* Subtle muting for secondary text */
+.muted {
+  color: var(--muted);
+  font-size: 12.5px;
+}
+
+/* ---------- No Data ---------- */
+.no-data {
+  text-align: center;
+  padding: 28px 14px;
+  color: var(--muted);
+  background: var(--card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+/* ---------- Responsive ---------- */
+@media (max-width: 920px) {
+  .summary {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 680px) {
+  .toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .toolbar-left,
+  .toolbar-right {
+    width: 100%;
+    justify-content: space-between;
+  }
+}
+
+/* Hide some columns on small screens to avoid horizontal scroll */
+@media (max-width: 560px) {
+  /* Hide Txn and Method columns */
+  .payment-table thead th:nth-child(3),
+  .payment-table tbody td:nth-child(3),
+  .payment-table thead th:nth-child(5),
+  .payment-table tbody td:nth-child(5) {
+    display: none;
+  }
+  .muted {
+    display: block;
+    margin-top: 2px;
+  }
+}
+
+/* ---------- Utility States ---------- */
+.badge {
+  display: inline-block;
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 700;
+}
+.badge--completed { background: rgba(22, 163, 74, .12); color: var(--positive); }
+.badge--pending   { background: rgba(245, 158, 11, .12); color: var(--warn); }
+.badge--failed    { background: rgba(220, 38, 38, .12); color: var(--danger); }
+.badge--refunded  { background: rgba(79, 70, 229, .12); color: var(--accent); }

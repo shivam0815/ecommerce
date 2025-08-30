@@ -79,7 +79,7 @@ const Login: React.FC = () => {
     <div className="relative min-h-screen overflow-hidden">
       {/* FULL-PAGE IMAGE BACKGROUND */}
       <img
-        src="/3d.png" // place your provided image here
+        src="/home.webp" // place your provided image here
         alt="E-commerce hero"
         className="pointer-events-none select-none absolute inset-0 -z-10 h-full w-full object-cover"
       />

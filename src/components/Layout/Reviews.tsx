@@ -1,3 +1,4 @@
+// src/components/Reviews.tsx
 import React, { useEffect, useMemo, useState } from 'react';
 import { reviewsService } from '../../services/reviewsService';
 import { Star } from 'lucide-react';
@@ -5,12 +6,25 @@ import toast from 'react-hot-toast';
 
 type Props = { productId: string; productName: string };
 
+function computeDistribution(list: any[]) {
+  const dist: Record<string, number> = { '1':0,'2':0,'3':0,'4':0,'5':0 };
+  for (const r of list) {
+    const n = String(Math.max(1, Math.min(5, Number(r.rating) || 0)));
+    dist[n] = (dist[n] || 0) + 1;
+  }
+  return dist;
+}
+
 const Reviews: React.FC<Props> = ({ productId, productName }) => {
   const [items, setItems] = useState<any[]>([]);
   const [page, setPage] = useState(1);
   const [pages, setPages] = useState(1);
   const [loading, setLoading] = useState(true);
   const [dist, setDist] = useState<Record<string, number>>({ '1':0,'2':0,'3':0,'4':0,'5':0 });
+
+  // summary from backend (approved reviews)
+  const [avgApproved, setAvgApproved] = useState<number>(0);
+  const [totalApproved, setTotalApproved] = useState<number>(0);
 
   // form
   const [rating, setRating] = useState<number>(5);
@@ -20,32 +34,64 @@ const Reviews: React.FC<Props> = ({ productId, productName }) => {
   const [email, setEmail] = useState('');
   const [submitting, setSubmitting] = useState(false);
 
-  const totalReviews = useMemo(
-    () => Object.values(dist).reduce((a, b) => a + b, 0),
-    [dist]
-  );
-
+  // fetch list (paged) + distribution
   useEffect(() => {
+    let ignore = false;
     const run = async () => {
       try {
         setLoading(true);
-        const res = await reviewsService.list(productId, page, 10);
-        setItems(res.reviews || []);
+        const res = await reviewsService.list(productId, page, 10, 'new');
+        if (ignore) return;
+        const list = res.reviews || [];
+        setItems(list);
         setPages(res?.pagination?.pages || 1);
-        setDist(res?.distribution || { '1':0,'2':0,'3':0,'4':0,'5':0 });
+        setDist(computeDistribution(list));
       } catch (e: any) {
         toast.error(e.message || 'Failed to load reviews');
       } finally {
-        setLoading(false);
+        if (!ignore) setLoading(false);
       }
     };
     run();
+    return () => { ignore = true; };
   }, [productId, page]);
 
-  const avg =
-    totalReviews > 0
+  // fetch canonical summary for average + total (not limited to page)
+  const fetchSummary = async () => {
+    try {
+      const s = await reviewsService.summary(productId); // expects { averageRating, reviewCount }
+      setAvgApproved(Number(s?.averageRating || 0));
+      setTotalApproved(Number(s?.reviewCount || 0));
+    } catch {
+      // ignore – keep current
+    }
+  };
+
+  useEffect(() => {
+    fetchSummary();
+  }, [productId]);
+
+  // avg shown in header – prefer approved summary, fallback to page calc
+  const pageAvg =
+    items.length > 0
       ? (items.reduce((sum, r) => sum + (Number(r.rating) || 0), 0) / items.length)
       : 0;
+  const avg = (avgApproved || pageAvg);
+
+  const totalReviews = useMemo(
+    () => (totalApproved || Object.values(dist).reduce((a, b) => a + b, 0)),
+    [totalApproved, dist]
+  );
+
+  // broadcast helper – tells all ProductCards for this product to refresh
+  const broadcastReviewsChanged = () => {
+    try {
+      window.dispatchEvent(
+        new CustomEvent('reviews:changed', { detail: { productId } })
+      );
+      localStorage.setItem(`reviews:changed:${productId}`, String(Date.now()));
+    } catch {}
+  };
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -63,9 +109,20 @@ const Reviews: React.FC<Props> = ({ productId, productName }) => {
         userName: name.trim() || undefined,
         userEmail: email.trim() || undefined,
       });
-      toast.success('Review submitted for approval!');
+
+      toast.success('Review submitted! It will appear after moderation.');
       setRating(5); setTitle(''); setComment(''); setName(''); setEmail('');
       setPage(1);
+
+      // reload list & summary
+      const res = await reviewsService.list(productId, 1, 10, 'new');
+      setItems(res.reviews || []);
+      setPages(res?.pagination?.pages || 1);
+      setDist(computeDistribution(res.reviews || []));
+      await fetchSummary();
+
+      // 🔔 notify product cards to refresh their /api/reviews/summary
+      broadcastReviewsChanged();
     } catch (e: any) {
       toast.error(e.message || 'Failed to submit review');
     } finally {
@@ -117,7 +174,7 @@ const Reviews: React.FC<Props> = ({ productId, productName }) => {
           </div>
         ) : (
           items.map((r, idx) => (
-            <div key={idx} className="p-4 bg-white rounded-lg border">
+            <div key={r._id || idx} className="p-4 bg-white rounded-lg border">
               <div className="flex items-center gap-2 mb-1">
                 <span className="text-xs bg-green-100 text-green-800 px-2 py-0.5 rounded">{r.rating}★</span>
                 <span className="text-sm font-medium">{r.title || r.userName || 'Anonymous'}</span>
@@ -181,7 +238,6 @@ const Reviews: React.FC<Props> = ({ productId, productName }) => {
             required
           />
 
-          {/* If you don't have user auth, collect name/email */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-3">
             <input
               type="text"

@@ -738,28 +738,36 @@ export const getSupportFaqs = async (params?: { q?: string; category?: string })
   return data as { success: boolean; faqs: SupportFaq[] };
 };
 
+
+
+
 export const createSupportTicket = async (payload: {
   subject: string;
   message: string;
-  email: string;
+  email: string;                 // REQUIRED
   phone?: string;
   orderId?: string;
   category?: string;
-  priority?: TicketPriority;
+  priority?: 'low' | 'normal' | 'high';
   attachments?: File[];
 }) => {
   const form = new FormData();
   form.append('subject', payload.subject);
   form.append('message', payload.message);
-  form.append('email', payload.email);
+  form.append('email', payload.email); // ← must be present and valid
+
   if (payload.phone) form.append('phone', payload.phone);
   if (payload.orderId) form.append('orderId', payload.orderId);
   if (payload.category) form.append('category', payload.category);
   if (payload.priority) form.append('priority', payload.priority);
-  (payload.attachments || []).forEach(f => form.append('attachments', f));
 
-  const { data } = await adminApi.post('/support/tickets', form, { headers: { 'Content-Type': 'multipart/form-data' } });
-  return data as { success: boolean; ticket: { _id: string; status: TicketStatus } };
+  (payload.attachments || []).forEach(f => form.append('attachments', f)); // field name MUST be 'attachments'
+
+  // let the browser set the Content-Type with boundary
+  const { data } = await adminApi.post('/support/tickets', form, {
+    headers: undefined
+  });
+  return data as { success: boolean; ticket: { _id: string; status: 'open' | 'in_progress' | 'resolved' | 'closed' } };
 };
 
 // (optional, if you have user auth for non-admin area)
@@ -818,15 +826,23 @@ export const adminSupportListTickets = async (params?: {
   page?: number;
   limit?: number;
 }) => {
-  const { data } = await adminApi.get(`${SUPPORT_ADMIN_BASE}/tickets`, { params });
-  return data as {
-    success: boolean;
-    tickets: SupportTicket[];
-    page: number;
-    totalPages: number;
-    total: number;
+  const { data } = await adminApi.get('/admin/support/tickets', { params });
+
+  // Normalize various shapes to what the UI expects
+  const tickets = data?.tickets ?? data?.items ?? [];
+  const page = data?.page ?? data?.meta?.page ?? 1;
+  const totalPages = data?.totalPages ?? data?.meta?.totalPages ?? 1;
+  const total = data?.total ?? data?.meta?.total ?? tickets.length;
+
+  return {
+    success: !!data?.success,
+    tickets,
+    page,
+    totalPages,
+    total,
   };
 };
+
 
 export const adminSupportUpdateTicketStatus = async (id: string, status: TicketStatus) => {
   const { data } = await adminApi.patch(`${SUPPORT_ADMIN_BASE}/tickets/${id}/status`, { status });
@@ -834,20 +850,63 @@ export const adminSupportUpdateTicketStatus = async (id: string, status: TicketS
 };
 
 
-export const adminGetReturns = (params?: { status?: string; page?: number; limit?: number; q?: string }) =>
-  adminApi.get('/admin/returns', { params }).then(r => r.data);
+// === RETURNS (admin) ===========================================
+export const adminGetReturns = (params?: {
+  page?: number; limit?: number; status?: string; q?: string;
+}) => adminApi.get('/admin/returns', { params }).then(r => r.data);
 
 export const adminGetReturnById = (id: string) =>
   adminApi.get(`/admin/returns/${id}`).then(r => r.data);
 
-export const adminReturnDecision = (id: string, body: { action: 'approve' | 'reject'; adminNote?: string }) =>
-  adminApi.patch(`/admin/returns/${id}/decision`, body).then(r => r.data);
+export const adminReturnDecision = (
+  id: string,
+  action: 'approve' | 'reject',
+  adminNote?: string
+) => adminApi.patch(`/admin/returns/${id}/decision`, { action, adminNote }).then(r => r.data);
 
-export const adminReturnMarkReceived = (id: string, body?: { note?: string }) =>
-  adminApi.patch(`/admin/returns/${id}/mark-received`, body || {}).then(r => r.data);
+export const adminReturnMarkReceived = (id: string, note?: string) =>
+  adminApi.patch(`/admin/returns/${id}/received`, { note }).then(r => r.data);
 
-export const adminReturnRefund = (id: string, body: { method: 'original' | 'wallet' | 'manual'; reference?: string }) =>
-  adminApi.patch(`/admin/returns/${id}/refund`, body).then(r => r.data);
+export const adminReturnRefund = (
+  id: string,
+  payload: { method: 'original' | 'wallet' | 'manual'; reference?: string }
+) => adminApi.patch(`/admin/returns/${id}/refund`, payload).then(r => r.data);
+
+// === SHIPROCKET (admin) =====================================================
+// server mounts these under /api with authenticate + adminOnly
+export const srCreateOrder = (orderId: string) =>
+  adminApi.post(`/orders/${orderId}/shiprocket/create`).then(r => r.data);
+
+export const srAssignAwb = (orderId: string, courier_id?: number) =>
+  adminApi.post(`/orders/${orderId}/shiprocket/assign-awb`, { courier_id }).then(r => r.data);
+
+export const srGeneratePickup = (orderId: string) =>
+  adminApi.post(`/orders/${orderId}/shiprocket/pickup`).then(r => r.data);
+
+export const srGenerateLabel = (orderId: string) =>
+  adminApi.post(`/orders/${orderId}/shiprocket/label`).then(r => r.data);
+
+export const srGenerateInvoice = (orderId: string) =>
+  adminApi.post(`/orders/${orderId}/shiprocket/invoice`).then(r => r.data);
+
+export const srGenerateManifest = (orderId: string) =>
+  adminApi.post(`/orders/${orderId}/shiprocket/manifest`).then(r => r.data);
+
+// public utility (no admin auth required on your server)
+export const srCheckServiceability = (params: {
+  pickup_postcode: string;
+  delivery_postcode: string;
+  weight?: number;              // kg
+  cod?: boolean;                // true -> 1, false -> 0 internally
+  declared_value?: number;
+  mode?: 'Air' | 'Surface';
+}) =>
+  adminApi.get('/shiprocket/serviceability', { params }).then(r => r.data);
+
+// public utility
+export const srTrackByAwb = (awb: string) =>
+  adminApi.get(`/shiprocket/track/${awb}`).then(r => r.data);
+
 
 
 export default adminApi;

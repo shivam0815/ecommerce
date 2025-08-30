@@ -14,7 +14,7 @@ import {
 import { useCart } from '../../hooks/useCart';
 import { useAuth } from '../../hooks/useAuth';
 
-// Search result interface
+// ---- Types ----
 interface SearchResult {
   id: string;
   name: string;
@@ -23,98 +23,101 @@ interface SearchResult {
   category: string;
 }
 
+// ---- Config ----
+const CATEGORIES = [
+  { label: 'Neckband', slug: 'neckband' },
+  { label: 'TWS', slug: 'tws' },
+  { label: 'Car Charger', slug: 'car-charger' },
+  { label: 'Mobile Tools', slug: 'mobile-tools' },
+  { label: 'Data Cable', slug: 'data-cable' },
+  { label: 'Power Bank', slug: 'power-bank' },
+  { label: 'Earphone', slug: 'earphone' },
+];
+
+// Use /products?category=<slug>
+const categoryUrl = (slug: string) => `/products?category=${encodeURIComponent(slug)}`;
+// If you prefer /categories/:slug, use:
+// const categoryUrl = (slug: string) => `/categories/${encodeURIComponent(slug)}`;
+
 const Header: React.FC = () => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [isCategoriesOpen, setIsCategoriesOpen] = useState(false); // desktop hover + mobile accordion
+
   const [searchTerm, setSearchTerm] = useState('');
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
   const [showResults, setShowResults] = useState(false);
-  
+
   const { getTotalItems } = useCart();
   const { user, logout } = useAuth();
-  // Ensure header reflects token set by OAuth immediately
+  const navigate = useNavigate();
+
+  // Refs
+  const desktopSearchRef = useRef<HTMLInputElement>(null);
+  const mobileSearchRef = useRef<HTMLInputElement>(null);
+  const searchResultsRef = useRef<HTMLDivElement>(null);
+  const categoriesRef = useRef<HTMLDivElement>(null);
+
+  // Reflect token set by OAuth immediately
   useEffect(() => {
     const onStorage = (e: StorageEvent) => {
-      if (e.key === 'nakoda-token') {
-        window.location.reload();
-      }
+      if (e.key === 'nakoda-token') window.location.reload();
     };
     window.addEventListener('storage', onStorage);
     return () => window.removeEventListener('storage', onStorage);
   }, []);
-  const navigate = useNavigate();
-  
-  // Refs for search inputs
-  const desktopSearchRef = useRef<HTMLInputElement>(null);
-  const mobileSearchRef = useRef<HTMLInputElement>(null);
-  const searchResultsRef = useRef<HTMLDivElement>(null);
 
-  const navItems = [
-    { name: 'Home', path: '/' },
-    { name: 'Products', path: '/products' },
-    { name: 'Categories', path: '/categories' },        
-    { name: 'OEM Services', path: '/oem' },
-   
-    { name: 'Contact', path: '/contact' },
-      { name: 'Blog', path: '/blog' },
-  ];
-
-  // Debounced search function
+  // Debounced search
   useEffect(() => {
-    const delayedSearch = setTimeout(() => {
+    const t = setTimeout(() => {
       if (searchTerm.trim().length > 2) {
-        performSearch(searchTerm);
+        void performSearch(searchTerm);
       } else {
         setSearchResults([]);
         setShowResults(false);
       }
     }, 300);
-
-    return () => clearTimeout(delayedSearch);
+    return () => clearTimeout(t);
   }, [searchTerm]);
 
-  // Perform search API call
+  // Search API call
   const performSearch = async (query: string) => {
     setIsSearching(true);
     try {
-      const response = await fetch(`/api/search?q=${encodeURIComponent(query)}`);
-      const data = await response.json();
-      
-      if (response.ok) {
+      const resp = await fetch(`/api/search?q=${encodeURIComponent(query)}`);
+      const data = await resp.json();
+      if (resp.ok) {
         setSearchResults(data.results || []);
         setShowResults(true);
       } else {
         console.error('Search failed:', data.error);
         setSearchResults([]);
       }
-    } catch (error) {
-      console.error('Search error:', error);
+    } catch (err) {
+      console.error('Search error:', err);
       setSearchResults([]);
     } finally {
       setIsSearching(false);
     }
   };
 
-  // Handle search input change
+  // Search handlers
   const handleSearchChange = (value: string) => {
     setSearchTerm(value);
-    // Sync both search inputs
     if (desktopSearchRef.current) desktopSearchRef.current.value = value;
     if (mobileSearchRef.current) mobileSearchRef.current.value = value;
   };
 
-  // Handle search submit
   const handleSearchSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    if (searchTerm.trim()) {
-      navigate(`/search?q=${encodeURIComponent(searchTerm.trim())}`);
-      setShowResults(false);
-      setIsSearchOpen(false);
-    }
+    const q = searchTerm.trim();
+    if (!q) return;
+    navigate(`/search?q=${encodeURIComponent(q)}`);
+    setShowResults(false);
+    setIsSearchOpen(false);
   };
 
-  // Handle result click
   const handleResultClick = (productId: string) => {
     navigate(`/products/${productId}`);
     setShowResults(false);
@@ -122,23 +125,35 @@ const Header: React.FC = () => {
     setSearchTerm('');
   };
 
-  // Close search results when clicking outside
+  // Close popovers on outside click
   useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-      if (searchResultsRef.current && !searchResultsRef.current.contains(event.target as Node)) {
+    const onDocClick = (ev: MouseEvent) => {
+      if (searchResultsRef.current && !searchResultsRef.current.contains(ev.target as Node)) {
         setShowResults(false);
       }
+      if (categoriesRef.current && !categoriesRef.current.contains(ev.target as Node)) {
+        setIsCategoriesOpen(false);
+      }
     };
-
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
+    document.addEventListener('mousedown', onDocClick);
+    return () => document.removeEventListener('mousedown', onDocClick);
   }, []);
+
+  // Nav items excluding Categories (handled separately)
+  const navItems = [
+    { name: 'Home', path: '/' },
+    { name: 'Shop Now', path: '/products' },
+    { name: 'OEM Services', path: '/oem' },
+    { name: 'Contact', path: '/contact' },
+    { name: 'Blog', path: '/blog' },
+  ];
 
   return (
     <header className="bg-white shadow-lg sticky top-0 z-50">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+        {/* Top Row */}
         <div className="flex items-center justify-between h-16">
-          
+          {/* Logo */}
           <Link to="/" className="flex items-center space-x-2">
             <motion.div
               whileHover={{ rotate: 360 }}
@@ -153,8 +168,8 @@ const Header: React.FC = () => {
             </motion.div>
           </Link>
 
-          {/* Desktop Navigation */}
-          <nav className="hidden md:flex items-center space-x-8">
+          {/* Desktop Nav */}
+          <nav className="hidden md:flex items-center space-x-6">
             {navItems.map((item) => (
               <Link
                 key={item.name}
@@ -164,9 +179,67 @@ const Header: React.FC = () => {
                 {item.name}
               </Link>
             ))}
+
+            {/* Categories (desktop hover) */}
+            <div
+              ref={categoriesRef}
+              className="relative"
+              onMouseEnter={() => setIsCategoriesOpen(true)}
+              onMouseLeave={() => setIsCategoriesOpen(false)}
+            >
+              <button
+                className="text-gray-700 hover:text-blue-600 transition-colors duration-200 font-medium inline-flex items-center gap-1"
+                aria-haspopup="true"
+                aria-expanded={isCategoriesOpen}
+                onFocus={() => setIsCategoriesOpen(true)}
+              >
+                Categories
+                <motion.span
+                  animate={{ rotate: isCategoriesOpen ? 180 : 0 }}
+                  className="inline-block"
+                >
+                  ▾
+                </motion.span>
+              </button>
+
+              <AnimatePresence>
+                {isCategoriesOpen && (
+                  <motion.div
+                    initial={{ opacity: 0, y: 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    exit={{ opacity: 0, y: 8 }}
+                    transition={{ duration: 0.15 }}
+                    className="absolute left-1/2 -translate-x-1/2 top-full mt-3 w-[620px] bg-white border border-gray-200 rounded-2xl shadow-xl p-4 grid grid-cols-2 gap-2"
+                    role="menu"
+                  >
+                    {CATEGORIES.map((c) => (
+                      <Link
+                        key={c.slug}
+                        to={categoryUrl(c.slug)}
+                        className="flex items-center justify-between rounded-xl px-4 py-3 hover:bg-gray-50"
+                        onClick={() => setIsCategoriesOpen(false)}
+                        role="menuitem"
+                      >
+                        <span className="text-gray-800 font-medium">{c.label}</span>
+                        <span className="text-xs text-blue-600">Explore →</span>
+                      </Link>
+                    ))}
+                    <div className="col-span-2 mt-1">
+                      <Link
+                        to="/categories"
+                        className="block text-center w-full border border-gray-200 hover:border-blue-600 hover:text-blue-700 rounded-xl py-2 text-sm font-medium"
+                        onClick={() => setIsCategoriesOpen(false)}
+                      >
+                        View all categories
+                      </Link>
+                    </div>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            </div>
           </nav>
 
-          {/* Desktop Search Bar */}
+          {/* Desktop Search */}
           <div className="hidden lg:flex items-center relative" ref={searchResultsRef}>
             <form onSubmit={handleSearchSubmit} className="relative">
               <input
@@ -207,9 +280,7 @@ const Header: React.FC = () => {
                         className="w-12 h-12 object-cover rounded-md mr-3"
                       />
                       <div className="flex-1">
-                        <h4 className="text-sm font-medium text-gray-900 truncate">
-                          {result.name}
-                        </h4>
+                        <h4 className="text-sm font-medium text-gray-900 truncate">{result.name}</h4>
                         <p className="text-xs text-gray-500">{result.category}</p>
                         <p className="text-sm font-semibold text-blue-600">
                           ₹{result.price.toLocaleString()}
@@ -217,7 +288,6 @@ const Header: React.FC = () => {
                       </div>
                     </div>
                   ))}
-                  
                   {searchResults.length > 8 && (
                     <div className="p-3 text-center border-t">
                       <button
@@ -242,17 +312,18 @@ const Header: React.FC = () => {
             <button
               onClick={() => setIsSearchOpen(!isSearchOpen)}
               className="lg:hidden p-2 text-gray-700 hover:text-blue-600"
+              aria-label="Open search"
             >
               <Search className="h-5 w-5" />
             </button>
 
             {/* Wishlist */}
-            <Link to="/wishlist" className="p-2 text-gray-700 hover:text-blue-600">
+            <Link to="/wishlist" className="p-2 text-gray-700 hover:text-blue-600" aria-label="Wishlist">
               <Heart className="h-5 w-5" />
             </Link>
 
             {/* Cart */}
-            <Link to="/cart" className="relative p-2 text-gray-700 hover:text-blue-600">
+            <Link to="/cart" className="relative p-2 text-gray-700 hover:text-blue-600" aria-label="Cart">
               <ShoppingCart className="h-5 w-5" />
               {getTotalItems() > 0 && (
                 <motion.span
@@ -295,8 +366,12 @@ const Header: React.FC = () => {
 
             {/* Mobile Menu Button */}
             <button
-              onClick={() => setIsMenuOpen(!isMenuOpen)}
+              onClick={() => {
+                setIsMenuOpen((v) => !v);
+                if (isMenuOpen) setIsCategoriesOpen(false);
+              }}
               className="md:hidden p-2 text-gray-700 hover:text-blue-600"
+              aria-label="Open menu"
             >
               {isMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
             </button>
@@ -351,9 +426,7 @@ const Header: React.FC = () => {
                           className="w-10 h-10 object-cover rounded-md mr-3"
                         />
                         <div className="flex-1">
-                          <h4 className="text-sm font-medium text-gray-900 truncate">
-                            {result.name}
-                          </h4>
+                          <h4 className="text-sm font-medium text-gray-900 truncate">{result.name}</h4>
                           <p className="text-sm font-semibold text-blue-600">
                             ₹{result.price.toLocaleString()}
                           </p>
@@ -377,16 +450,85 @@ const Header: React.FC = () => {
               className="md:hidden py-3 border-t"
             >
               <nav className="flex flex-col space-y-2">
-                {navItems.map((item) => (
-                  <Link
-                    key={item.name}
-                    to={item.path}
-                    className="px-3 py-2 text-gray-700 hover:text-blue-600 hover:bg-gray-100 rounded-lg transition-colors duration-200"
-                    onClick={() => setIsMenuOpen(false)}
+                <Link
+                  to="/"
+                  className="px-3 py-2 text-gray-700 hover:text-blue-600 hover:bg-gray-100 rounded-lg transition-colors duration-200"
+                  onClick={() => setIsMenuOpen(false)}
+                >
+                  Home
+                </Link>
+
+                <Link
+                  to="/products"
+                  className="px-3 py-2 text-gray-700 hover:text-blue-600 hover:bg-gray-100 rounded-lg transition-colors duration-200"
+                  onClick={() => setIsMenuOpen(false)}
+                >
+                  Shop Now
+                </Link>
+
+                {/* Categories (mobile accordion) */}
+                <div className="border border-gray-200 rounded-lg overflow-hidden">
+                  <button
+                    className="w-full flex items-center justify-between px-3 py-2 text-gray-700"
+                    onClick={() => setIsCategoriesOpen((s) => !s)}
+                    aria-expanded={isCategoriesOpen}
                   >
-                    {item.name}
-                  </Link>
-                ))}
+                    <span className="font-medium">Categories</span>
+                    <motion.span animate={{ rotate: isCategoriesOpen ? 180 : 0 }}>▾</motion.span>
+                  </button>
+                  <AnimatePresence initial={false}>
+                    {isCategoriesOpen && (
+                      <motion.div
+                        initial={{ height: 0, opacity: 0 }}
+                        animate={{ height: 'auto', opacity: 1 }}
+                        exit={{ height: 0, opacity: 0 }}
+                        className="bg-white"
+                      >
+                        {CATEGORIES.map((c) => (
+                          <Link
+                            key={c.slug}
+                            to={categoryUrl(c.slug)}
+                            onClick={() => setIsMenuOpen(false)}
+                            className="block px-4 py-2 hover:bg-gray-50"
+                          >
+                            {c.label}
+                          </Link>
+                        ))}
+                        <Link
+                          to="/categories"
+                          onClick={() => setIsMenuOpen(false)}
+                          className="block px-4 py-2 text-blue-600 font-medium hover:bg-blue-50"
+                        >
+                          View all categories
+                        </Link>
+                      </motion.div>
+                    )}
+                  </AnimatePresence>
+                </div>
+
+                <Link
+                  to="/oem"
+                  className="px-3 py-2 text-gray-700 hover:text-blue-600 hover:bg-gray-100 rounded-lg transition-colors duration-200"
+                  onClick={() => setIsMenuOpen(false)}
+                >
+                  OEM Services
+                </Link>
+
+                <Link
+                  to="/contact"
+                  className="px-3 py-2 text-gray-700 hover:text-blue-600 hover:bg-gray-100 rounded-lg transition-colors duration-200"
+                  onClick={() => setIsMenuOpen(false)}
+                >
+                  Contact
+                </Link>
+
+                <Link
+                  to="/blog"
+                  className="px-3 py-2 text-gray-700 hover:text-blue-600 hover:bg-gray-100 rounded-lg transition-colors duration-200"
+                  onClick={() => setIsMenuOpen(false)}
+                >
+                  Blog
+                </Link>
               </nav>
             </motion.div>
           )}

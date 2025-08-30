@@ -361,3 +361,10 @@ export interface QualityAssessment {
   average: number;
   poor: number;
 }
+export type Language = 'en' | 'hi' | 'bn' | 'ta' | 'te' | 'mr' | 'gu';
+
+export interface UserPrefs {
+  notifications: boolean;
+  theme: 'light' | 'dark';
+  language: Language;
+}

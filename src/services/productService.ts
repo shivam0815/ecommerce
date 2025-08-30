@@ -29,7 +29,12 @@ export interface ProductFilters {
   excludeId?: string;
 }
 
-/* ---------- normalize helpers ---------- */
+/* ---------- helpers ---------- */
+const coerceNumber = (v: any): number | undefined => {
+  const n = typeof v === 'number' ? v : Number(v);
+  return Number.isFinite(n) ? n : undefined;
+};
+
 function normalizeSpecifications(input: any): Record<string, any> {
   if (input == null) return {};
   if (typeof input === 'string') {
@@ -47,12 +52,45 @@ function normalizeSpecifications(input: any): Record<string, any> {
   return {};
 }
 
+/**
+ * The IMPORTANT part:
+ * Standardize rating fields so UI always finds them.
+ * - averageRating: number (0..5)
+ * - rating:        number (alias of averageRating)
+ * - ratingsCount:  number
+ * - reviewCount / reviewsCount: same as ratingsCount (aliases)
+ */
 function normalizeProduct(p: any): Product {
-  return { ...p, specifications: normalizeSpecifications(p?.specifications) } as Product;
+  const avg =
+    coerceNumber(p?.averageRating) ??
+    coerceNumber(p?.ratingAvg) ??
+    coerceNumber(p?.ratingAverage) ??
+    coerceNumber(p?.rating) ??
+    0;
+
+  const count =
+    coerceNumber(p?.ratingsCount) ??
+    coerceNumber(p?.reviewCount) ??
+    coerceNumber(p?.reviewsCount) ??
+    coerceNumber(p?.numReviews) ??
+    (Array.isArray(p?.reviews) ? p.reviews.length : undefined) ??
+    0;
+
+  return {
+    ...p,
+    // normalized aggregates
+    averageRating: avg,
+    rating: avg, // keep old UI happy
+    ratingsCount: count,
+    reviewCount: count,
+    reviewsCount: count,
+    // normalized specs
+    specifications: normalizeSpecifications(p?.specifications),
+  } as Product;
 }
 
 function normalizeProductsResponse(data: any): ProductsResponse {
-  // Accept multiple common shapes: {products: []}, {data: []}, or [] directly
+  // Accept multiple common shapes
   const raw =
     (Array.isArray(data?.products) && data.products) ||
     (Array.isArray(data?.data) && data.data) ||
@@ -65,35 +103,34 @@ function normalizeProductsResponse(data: any): ProductsResponse {
 
   const totalPages = Number(
     data?.totalPages ??
-    pagination.totalPages ??
-    pagination.pages ??
-    1
+      pagination.totalPages ??
+      pagination.pages ??
+      1
   );
 
   const currentPage = Number(
     data?.currentPage ??
-    pagination.currentPage ??
-    pagination.page ??
-    1
+      pagination.currentPage ??
+      pagination.page ??
+      1
   );
 
   const total = Number(
     data?.total ??
-    pagination.totalProducts ??
-    pagination.total ??
-    products.length
+      pagination.totalProducts ??
+      pagination.total ??
+      products.length
   );
 
-  // 👇 Parenthesize the `||` part so it's not mixed with `??`
   const limit = Number(
     pagination.limit ??
-    data?.limit ??
-    (products.length || 12)
+      data?.limit ??
+      (products.length || 12)
   );
 
   const hasMore = Boolean(
     pagination.hasMore ??
-    (Number(currentPage) < Number(totalPages))
+      (Number(currentPage) < Number(totalPages))
   );
 
   return {
@@ -111,10 +148,11 @@ function normalizeProductsResponse(data: any): ProductsResponse {
   };
 }
 
-
 /* ---------- tiny in-memory cache (per-tab) ---------- */
 const memCache = new Map<string, { data: ProductsResponse; ts: number }>();
-const MC_TTL = 60_000;
+// Feel free to shorten while testing; set back to 60_000 later
+const MC_TTL = 15_000;
+
 const keyOf = (path: string, params?: Record<string, any>) =>
   `${path}?${new URLSearchParams(
     Object.entries(params || {}).reduce((acc, [k, v]) => {
@@ -124,28 +162,26 @@ const keyOf = (path: string, params?: Record<string, any>) =>
   ).toString()}`;
 
 /* ---------- constants ---------- */
-const DEFAULT_LIMIT = 200;   // 👈 show 200 per page by default
-const MAX_LIMIT = 1000;      // safety cap
+const DEFAULT_LIMIT = 200;
+const MAX_LIMIT = 1000;
 
 /* ---------- service ---------- */
 export const productService = {
-  /* Core listing */
   async getProducts(filters: ProductFilters = {}, forceRefresh = false): Promise<ProductsResponse> {
     try {
-      // ensure we always send page & limit
       const params: Record<string, any> = {
         page: filters.page ?? 1,
         ...filters,
-        limit: Math.min(
-          MAX_LIMIT,
-          Number(filters.limit ?? DEFAULT_LIMIT) || DEFAULT_LIMIT
-        ),
+        limit: Math.min(MAX_LIMIT, Number(filters.limit ?? DEFAULT_LIMIT) || DEFAULT_LIMIT),
         ...(forceRefresh ? { _t: Date.now() } : {}),
       };
 
       const urlKey = keyOf('/products', params);
 
-      if (!forceRefresh) {
+      // respect global refresh flag you already set elsewhere
+      const mustRefresh = forceRefresh || this.shouldRefresh();
+
+      if (!mustRefresh) {
         const hit = memCache.get(urlKey);
         if (hit && Date.now() - hit.ts < MC_TTL) return hit.data;
       }
@@ -156,7 +192,7 @@ export const productService = {
       memCache.set(urlKey, { data: normalized, ts: Date.now() });
       localStorage.setItem('products-cache', JSON.stringify({ data: normalized, timestamp: Date.now() }));
 
-      console.log('✅ Products fetched:', normalized.products.length, `(page ${params.page}, limit ${params.limit})`);
+     
       return normalized;
     } catch (error) {
       console.error('❌ Failed to fetch products:', error);
@@ -169,7 +205,6 @@ export const productService = {
     }
   },
 
-  /* Convenience list */
   async list(filters: ProductFilters = {}, limit = filters.limit ?? DEFAULT_LIMIT): Promise<Product[]> {
     const res = await this.getProducts({ ...filters, limit });
     const items = res.products.filter(p => {
@@ -179,7 +214,6 @@ export const productService = {
     return items;
   },
 
-  /* Related / rails helpers */
   async getRelatedProducts(id: string, limit = 15): Promise<Product[]> {
     try {
       try {

@@ -1,220 +1,228 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState, useCallback } from 'react';
 import {
   adminGetReturns,
-  adminGetReturnById,
   adminReturnDecision,
   adminReturnMarkReceived,
-  adminReturnRefund
+  adminReturnRefund,
 } from '../../config/adminApi';
 
-const statusColor: Record<string,string> = {
-  pending: 'bg-amber-50 text-amber-700',
-  approved: 'bg-blue-50 text-blue-700',
-  rejected: 'bg-rose-50 text-rose-700',
-  received: 'bg-indigo-50 text-indigo-700',
-  refund_completed: 'bg-emerald-50 text-emerald-700',
-  cancelled: 'bg-gray-50 text-gray-700'
+type AdminReturn = {
+  _id: string;
+  order?: { _id?: string; orderNumber?: string };
+  user?: { _id?: string; name?: string; email?: string };
+  status: 'pending' | 'approved' | 'rejected' | 'pickup_scheduled' | 'in_transit' | 'received' | 'refund_completed' | string;
+  reasonType?: string;
+  reasonNote?: string;
+  items: Array<{ productId: string; name?: string; quantity: number; unitPrice: number }>;
+  refundAmount?: number;
+  currency?: string;
+  images?: string[];
+  createdAt?: string;
 };
 
-const ReturnProduct: React.FC = () => {
-  const [rows, setRows] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+const pill = (s: string) => {
+  const k = s.toLowerCase();
+  if (['pending'].includes(k)) return 'text-amber-700 bg-amber-100';
+  if (['approved','pickup_scheduled','in_transit'].includes(k)) return 'text-indigo-700 bg-indigo-100';
+  if (['received'].includes(k)) return 'text-blue-700 bg-blue-100';
+  if (['refund_completed'].includes(k)) return 'text-emerald-700 bg-emerald-100';
+  if (['rejected','cancelled'].includes(k)) return 'text-rose-700 bg-rose-100';
+  return 'text-gray-700 bg-gray-100';
+};
+
+const fmt = (d?: string) =>
+  d ? new Date(d).toLocaleString() : '—';
+
+const money = (n?: number, cur = 'INR') =>
+  typeof n === 'number' ? n.toLocaleString('en-IN', { style: 'currency', currency: cur }) : '—';
+
+const ReturnProduct: React.FC<{
+  showNotification: (msg: string, type: 'success' | 'error') => void;
+  checkNetworkStatus: () => boolean;
+}> = ({ showNotification, checkNetworkStatus }) => {
+  const [rows, setRows] = useState<AdminReturn[]>([]);
+  const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState<string>('');
+  const [q, setQ] = useState('');
   const [page, setPage] = useState(1);
-  const [totalPages, setTotalPages] = useState(1);
+  const [limit, setLimit] = useState(10);
+  const [total, setTotal] = useState(0);
 
-  const [drawer, setDrawer] = useState<{open:boolean; data?:any}>({open:false});
-  const [note, setNote] = useState('');
-  const [refundRef, setRefundRef] = useState('');
+  const totalPages = useMemo(() => Math.max(1, Math.ceil(total / limit)), [total, limit]);
 
-  const load = async () => {
-    setLoading(true);
+  const fetchList = useCallback(async () => {
+  if (!checkNetworkStatus()) return;
+  setLoading(true);
+  try {
+    const res = await adminGetReturns({ page, limit, status: status || undefined, q: q || undefined });
+
+    // If server sent 304 or empty (due to cache), keep existing rows instead of wiping to []
+    if (res && Array.isArray(res.returns)) {
+      setRows(res.returns);
+      setTotal(res.total || 0);
+    } // else: do nothing (retain current list)
+  } catch (e: any) {
+    showNotification(e?.response?.data?.message || 'Failed to load returns', 'error');
+  } finally {
+    setLoading(false);
+  }
+}, [page, limit, status, q, checkNetworkStatus, showNotification]);
+
+  useEffect(() => { fetchList(); }, [fetchList]);
+
+  // Actions
+  const doDecision = async (id: string, action: 'approve' | 'reject') => {
+    if (!checkNetworkStatus()) return;
     try {
-      const res = await adminGetReturns({ status, page, limit: 20 });
-      setRows(res.returns || []);
-      setTotalPages(res.totalPages || 1);
-    } finally {
-      setLoading(false);
+      await adminReturnDecision(id, action);
+      showNotification(`Return ${action}d`, 'success');
+      fetchList();
+    } catch (e: any) {
+      showNotification(e?.response?.data?.message || `Failed to ${action}`, 'error');
     }
   };
 
-  useEffect(() => { load(); }, [status, page]);
-
-  const open = async (id: string) => {
-    const res = await adminGetReturnById(id);
-    setDrawer({ open: true, data: res.returnRequest });
-    setNote('');
-    setRefundRef('');
+  const doReceived = async (id: string) => {
+    if (!checkNetworkStatus()) return;
+    try {
+      await adminReturnMarkReceived(id);
+      showNotification('Marked as received', 'success');
+      fetchList();
+    } catch (e: any) {
+      showNotification(e?.response?.data?.message || 'Failed to mark received', 'error');
+    }
   };
 
-  const actApprove = async () => {
-    if (!drawer.data) return;
-    await adminReturnDecision(drawer.data._id, { action: 'approve', adminNote: note });
-    await load(); await open(drawer.data._id);
-  };
-  const actReject = async () => {
-    if (!drawer.data) return;
-    if (!confirm('Reject this return?')) return;
-    await adminReturnDecision(drawer.data._id, { action: 'reject', adminNote: note });
-    await load(); setDrawer({open:false});
-  };
-  const actReceived = async () => {
-    if (!drawer.data) return;
-    await adminReturnMarkReceived(drawer.data._id, { note });
-    await load(); await open(drawer.data._id);
-  };
-  const actRefund = async () => {
-    if (!drawer.data) return;
-    await adminReturnRefund(drawer.data._id, { method: 'original', reference: refundRef });
-    await load(); await open(drawer.data._id);
+  const doRefund = async (id: string) => {
+    if (!checkNetworkStatus()) return;
+    const method = window.prompt('Refund method: original | wallet | manual', 'original') as
+      | 'original' | 'wallet' | 'manual' | null;
+    if (!method) return;
+    const reference = window.prompt('Reference / note (optional)') || undefined;
+
+    try {
+      await adminReturnRefund(id, { method, reference });
+      showNotification('Refund completed', 'success');
+      fetchList();
+    } catch (e: any) {
+      showNotification(e?.response?.data?.message || 'Failed to refund', 'error');
+    }
   };
 
   return (
-    <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h2 className="text-xl font-semibold">Returns</h2>
-        <div className="flex gap-2">
-          <select className="border rounded-lg p-2" value={status} onChange={e=>{setStatus(e.target.value); setPage(1);}}>
-            <option value="">All</option>
-            <option value="pending">Pending</option>
-            <option value="approved">Approved</option>
-            <option value="received">Received</option>
-            <option value="refund_completed">Refunded</option>
-            <option value="rejected">Rejected</option>
-            <option value="cancelled">Cancelled</option>
-          </select>
-          <button onClick={load} className="px-3 py-2 border rounded-lg">Refresh</button>
-        </div>
+    <div className="p-2">
+      <h2 className="text-xl font-semibold mb-3">🔁 Return Requests</h2>
+
+      {/* Filters */}
+      <div className="flex flex-wrap gap-2 items-center mb-3">
+        <input
+          value={q}
+          onChange={e => setQ(e.target.value)}
+          placeholder="Search…"
+          className="border rounded-lg px-3 py-2"
+        />
+        <select value={status} onChange={e => setStatus(e.target.value)} className="border rounded-lg px-3 py-2">
+          <option value="">All statuses</option>
+          <option value="pending">Pending</option>
+          <option value="approved">Approved</option>
+          <option value="pickup_scheduled">Pickup Scheduled</option>
+          <option value="in_transit">In Transit</option>
+          <option value="received">Received</option>
+          <option value="refund_completed">Refund Completed</option>
+          <option value="rejected">Rejected</option>
+          <option value="cancelled">Cancelled</option>
+        </select>
+        <select value={limit} onChange={e => { setLimit(Number(e.target.value)); setPage(1); }} className="border rounded-lg px-3 py-2">
+          {[10,25,50].map(n => <option key={n} value={n}>{n} / page</option>)}
+        </select>
+        <button onClick={fetchList} disabled={loading} className="px-3 py-2 rounded-lg border">
+          {loading ? 'Loading…' : 'Refresh'}
+        </button>
       </div>
 
-      {loading ? (
-        <div>Loading…</div>
-      ) : rows.length === 0 ? (
-        <div className="text-gray-600">No returns.</div>
-      ) : (
-        <div className="bg-white border border-gray-100 rounded-xl overflow-hidden">
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="text-left p-3">Return</th>
-                <th className="text-left p-3">Order</th>
-                <th className="text-left p-3">User</th>
-                <th className="text-left p-3">Status</th>
-                <th className="text-right p-3">Refund</th>
-                <th className="text-right p-3">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {rows.map((r:any)=>(
-                <tr key={r._id} className="border-t">
-                  <td className="p-3 font-medium">#{String(r._id).slice(-6)}</td>
-                  <td className="p-3">#{r?.order?.orderNumber || String(r.order).slice(-6)}</td>
-                  <td className="p-3">{r?.user?.name} <span className="text-gray-500 text-xs">{r?.user?.email}</span></td>
-                  <td className="p-3"><span className={`px-2 py-0.5 rounded-full text-xs ${statusColor[r.status] || 'bg-gray-50'}`}>{r.status.replace('_',' ')}</span></td>
-                  <td className="p-3 text-right">₹{Number(r.refundAmount).toFixed(2)}</td>
-                  <td className="p-3 text-right">
-                    <button onClick={()=>open(r._id)} className="text-gray-900 hover:underline">Open</button>
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-          {/* simple pagination */}
-          <div className="flex items-center justify-end p-3 gap-2">
-            <button disabled={page<=1} onClick={()=>setPage(p=>p-1)} className="px-2 py-1 border rounded">Prev</button>
-            <span className="text-sm text-gray-600">Page {page} / {totalPages}</span>
-            <button disabled={page>=totalPages} onClick={()=>setPage(p=>p+1)} className="px-2 py-1 border rounded">Next</button>
-          </div>
-        </div>
-      )}
-
-      {/* Drawer / Side panel */}
-      {drawer.open && drawer.data && (
-        <div className="fixed inset-0 bg-black/30 z-[100]">
-          <div className="absolute right-0 top-0 h-full w-full max-w-xl bg-white shadow-xl p-5 overflow-y-auto">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-lg font-semibold">Return #{String(drawer.data._id).slice(-6)}</h3>
-              <button onClick={()=>setDrawer({open:false})}>✕</button>
-            </div>
-
-            <div className="space-y-4">
-              <div className="text-sm">
-                <div><span className="text-gray-500">Order:</span> #{drawer.data?.order?.orderNumber || String(drawer.data.order).slice(-6)}</div>
-                <div><span className="text-gray-500">User:</span> {drawer.data?.user?.name} ({drawer.data?.user?.email})</div>
-                <div><span className="text-gray-500">Status:</span> {drawer.data.status}</div>
-                <div><span className="text-gray-500">Reason:</span> {drawer.data.reasonType} — {drawer.data.reasonNote || '—'}</div>
-                <div><span className="text-gray-500">Refund:</span> ₹{Number(drawer.data.refundAmount).toFixed(2)}</div>
-              </div>
-
-              <div>
-                <h4 className="font-medium mb-2">Items</h4>
-                <div className="border rounded-lg divide-y">
-                  {drawer.data.items.map((it:any, idx:number)=>(
-                    <div key={idx} className="p-3 text-sm flex items-center justify-between">
-                      <div className="font-medium">{it.name || String(it.productId).slice(-6)}</div>
-                      <div>x{it.quantity} @ ₹{it.unitPrice}</div>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
-              {drawer.data.images?.length > 0 && (
-                <div>
-                  <h4 className="font-medium mb-2">Photos</h4>
-                  <div className="grid grid-cols-3 gap-2">
-                    {drawer.data.images.map((u:string, i:number)=>(
-                      <a href={u} target="_blank" key={i} className="block">
-                        <img src={u} className="w-full h-24 object-cover rounded-md border" />
-                      </a>
+      {/* Table */}
+      <div className="overflow-auto border rounded-xl">
+        <table className="min-w-[900px] w-full text-sm">
+          <thead className="bg-gray-50">
+            <tr className="text-left">
+              <th className="px-3 py-2">Return ID</th>
+              <th className="px-3 py-2">Order</th>
+              <th className="px-3 py-2">User</th>
+              <th className="px-3 py-2">Reason</th>
+              <th className="px-3 py-2">Items</th>
+              <th className="px-3 py-2">Refund</th>
+              <th className="px-3 py-2">Status</th>
+              <th className="px-3 py-2">Created</th>
+              <th className="px-3 py-2">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r._id} className="border-t">
+                <td className="px-3 py-2 font-mono">{r._id.slice(-8)}</td>
+                <td className="px-3 py-2">#{r.order?.orderNumber || '—'}</td>
+                <td className="px-3 py-2">
+                  <div className="flex flex-col">
+                    <span className="font-medium">{r.user?.name || '—'}</span>
+                    <span className="text-xs text-gray-500">{r.user?.email || ''}</span>
+                  </div>
+                </td>
+                <td className="px-3 py-2">
+                  <div className="flex flex-col">
+                    <span className="font-medium capitalize">{r.reasonType || '—'}</span>
+                    {r.reasonNote && <span className="text-xs text-gray-500">{r.reasonNote}</span>}
+                  </div>
+                </td>
+                <td className="px-3 py-2">
+                  <div className="text-xs text-gray-700">
+                    {r.items?.map((it, i) => (
+                      <div key={i}>• {it.name || it.productId} × {it.quantity}</div>
                     ))}
                   </div>
-                </div>
-              )}
-
-              <div className="space-y-2">
-                <label className="text-sm font-medium">Admin Note</label>
-                <textarea className="w-full border rounded-lg p-2 text-sm" rows={3} value={note} onChange={e=>setNote(e.target.value)} />
-              </div>
-
-              <div className="flex flex-wrap gap-2">
-                {drawer.data.status === 'pending' && (
-                  <>
-                    <button onClick={actApprove} className="px-4 py-2 rounded-lg bg-blue-600 text-white">Approve</button>
-                    <button onClick={actReject} className="px-4 py-2 rounded-lg bg-rose-600 text-white">Reject</button>
-                  </>
-                )}
-                {['approved','in_transit','pickup_scheduled'].includes(drawer.data.status) && (
-                  <button onClick={actReceived} className="px-4 py-2 rounded-lg bg-indigo-600 text-white">Mark Received</button>
-                )}
-                {['received','refund_initiated'].includes(drawer.data.status) && (
-                  <div className="flex items-center gap-2">
-                    <input
-                      className="border rounded-lg p-2 text-sm"
-                      placeholder="Transaction ref"
-                      value={refundRef}
-                      onChange={e=>setRefundRef(e.target.value)}
-                    />
-                    <button onClick={actRefund} className="px-4 py-2 rounded-lg bg-emerald-600 text-white">Mark Refunded</button>
+                </td>
+                <td className="px-3 py-2">{money(r.refundAmount, r.currency || 'INR')}</td>
+                <td className="px-3 py-2">
+                  <span className={`px-2 py-1 rounded-full text-xs ${pill(r.status)}`}>{r.status}</span>
+                </td>
+                <td className="px-3 py-2">{fmt(r.createdAt)}</td>
+                <td className="px-3 py-2">
+                  <div className="flex flex-wrap gap-2">
+                    {r.status === 'pending' && (
+                      <>
+                        <button className="px-2 py-1 rounded bg-emerald-600 text-white" onClick={() => doDecision(r._id, 'approve')}>Approve</button>
+                        <button className="px-2 py-1 rounded bg-rose-600 text-white" onClick={() => doDecision(r._id, 'reject')}>Reject</button>
+                      </>
+                    )}
+                    {['approved','pickup_scheduled','in_transit'].includes(r.status) && (
+                      <button className="px-2 py-1 rounded bg-indigo-600 text-white" onClick={() => doReceived(r._id)}>Mark Received</button>
+                    )}
+                    {['received','refund_initiated'].includes(r.status) && (
+                      <button className="px-2 py-1 rounded bg-gray-900 text-white" onClick={() => doRefund(r._id)}>Refund</button>
+                    )}
                   </div>
-                )}
-              </div>
+                </td>
+              </tr>
+            ))}
 
-              <div>
-                <h4 className="font-medium mb-2">History</h4>
-                <div className="border rounded-lg divide-y text-xs">
-                  {drawer.data.history?.map((h:any, idx:number)=>(
-                    <div key={idx} className="p-2 flex items-center justify-between">
-                      <div>{h.action}{h.note ? ` — ${h.note}` : ''}</div>
-                      <div className="text-gray-500">{new Date(h.at).toLocaleString()}</div>
-                    </div>
-                  )) || <div className="p-2 text-gray-500">—</div>}
-                </div>
-              </div>
-            </div>
+            {!loading && rows.length === 0 && (
+              <tr><td colSpan={9} className="px-3 py-8 text-center text-gray-500">No returns found</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
 
-          </div>
+      {/* Pagination */}
+      <div className="mt-3 flex items-center justify-between">
+        <div className="text-sm text-gray-600">
+          Page {page} / {totalPages} • {total} total
         </div>
-      )}
+        <div className="flex gap-2">
+          <button className="px-3 py-2 border rounded" onClick={() => setPage(1)} disabled={page===1}>First</button>
+          <button className="px-3 py-2 border rounded" onClick={() => setPage(p => Math.max(1, p-1))} disabled={page===1}>Prev</button>
+          <button className="px-3 py-2 border rounded" onClick={() => setPage(p => Math.min(totalPages, p+1))} disabled={page===totalPages}>Next</button>
+          <button className="px-3 py-2 border rounded" onClick={() => setPage(totalPages)} disabled={page===totalPages}>Last</button>
+        </div>
+      </div>
     </div>
   );
 };

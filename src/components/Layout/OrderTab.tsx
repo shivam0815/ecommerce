@@ -11,8 +11,6 @@ import {
   ClockIcon,
   BanknotesIcon,
   DocumentDuplicateIcon,
-  AdjustmentsHorizontalIcon,
-  FunnelIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
   ArrowPathIcon,
@@ -85,6 +83,22 @@ interface IOrderFull extends IOrder {
   paymentOrderId?: string;
   paymentId?: string;
   paymentSignature?: string;
+
+  /* ---- Shiprocket fields (added) ---- */
+  shipmentId?: number;
+  awbCode?: string;
+  courierName?: string;
+  labelUrl?: string;
+  invoiceUrl?: string;
+  manifestUrl?: string;
+  shiprocketStatus?:
+    | 'ORDER_CREATED'
+    | 'AWB_ASSIGNED'
+    | 'PICKUP_GENERATED'
+    | 'LABEL_READY'
+    | 'INVOICE_READY'
+    | 'MANIFEST_READY'
+    | 'TRACKING_UPDATED';
 }
 
 /* =========================
@@ -117,6 +131,7 @@ const getAdminToken = () =>
 
 /** NOTE: keep base the same to avoid breaking existing API wiring */
 const API_BASE = '/api/orders';
+const API_SHIPROCKET_BASE = (import.meta.env.VITE_API_URL || '/api').replace(/\/+$/, ''); // our backend mount for shiprocket routes
 
 function useDebounced<T>(value: T, delay = 300) {
   const [v, setV] = useState(value);
@@ -298,10 +313,11 @@ const OrdersTab: React.FC = () => {
     }
   }
 
-  async function fetchOrderDetails(id: string) {
+  // fetch one
+  const fetchOrderDetails = async (id: string) => {
+    setDrawerLoading(true);
     try {
-      setDrawerLoading(true);
-      const res = await fetch(`${API_BASE}/${id}`, {
+      const res = await fetch(`/api/orders/admin/${id}`, {
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${getAdminToken()}`,
@@ -309,18 +325,15 @@ const OrdersTab: React.FC = () => {
         credentials: 'include',
       });
       const data = await res.json();
-      if (!res.ok || data.success === false)
-        throw new Error(data.message || 'Failed to load order');
-
-      const o = (data.order || data.data || data) as IOrderFull;
-      setSelected({ ...o, status: (o.status || (o as any).orderStatus || 'pending') as OrderStatus });
+      if (!res.ok || data.success === false) throw new Error(data.message || 'Failed to load order');
+      const o = data.order;
+      setSelected({ ...o, status: (o.status || o.orderStatus || 'pending') });
     } catch (e: any) {
-      alert(e.message || 'Failed to load order details');
-      setOpenDrawer(false);
+      alert(e.message || 'Failed to load order');
     } finally {
       setDrawerLoading(false);
     }
-  }
+  };
 
   async function setStatus(id: string, status: OrderStatus) {
     try {
@@ -568,6 +581,164 @@ const OrdersTab: React.FC = () => {
       setToDate(toStr);
     }
   };
+
+  /* =========================
+     Shiprocket action callers
+  ========================= */
+  const authHeaders = () => ({
+    'Content-Type': 'application/json',
+    Authorization: `Bearer ${getAdminToken()}`,
+  });
+
+
+
+
+const srCreate = async (id: string) => {
+  setBusyId(id);
+  try {
+    const res = await fetch(`${API_SHIPROCKET_BASE}/orders/${id}/shiprocket/create`, {
+      method: 'POST',
+      headers: {
+        ...authHeaders(),
+        'Content-Type': 'application/json',
+      },
+      credentials: 'include',
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data?.error?.message || data?.error || 'Failed to create Shiprocket order');
+    alert(`Shiprocket order created. shipmentId = ${data.shipmentId}`);
+    if (selectedId === id) fetchOrderDetails(id);
+  } catch (e: any) {
+    alert(e.message || 'Shiprocket error');
+  } finally {
+    setBusyId(null);
+  }
+};
+
+  const srAssignAwb = async (id: string) => {
+    setBusyId(id);
+    try {
+      const res = await fetch(`${API_SHIPROCKET_BASE}/orders/${id}/shiprocket/assign-awb`, {
+        method: 'POST',
+        headers: authHeaders(),
+        credentials: 'include',
+        body: JSON.stringify({}),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error?.message || data?.error || 'Failed to assign AWB');
+
+      alert(`AWB: ${data.awbCode} (${data.courierName || 'courier'})`);
+      if (selectedId === id) fetchOrderDetails(id);
+    } catch (e: any) {
+      alert(e.message || 'Shiprocket error');
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const srPickup = async (id: string) => {
+    setBusyId(id);
+    try {
+      const res = await fetch(`${API_SHIPROCKET_BASE}/orders/${id}/shiprocket/pickup`, {
+        method: 'POST',
+        headers: authHeaders(),
+        credentials: 'include',
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error?.message || data?.error || 'Failed to generate pickup');
+
+      alert('Pickup generated.');
+      if (selectedId === id) fetchOrderDetails(id);
+    } catch (e: any) {
+      alert(e.message || 'Shiprocket error');
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const srLabel = async (id: string) => {
+    setBusyId(id);
+    try {
+      const res = await fetch(`${API_SHIPROCKET_BASE}/orders/${id}/shiprocket/label`, {
+        method: 'POST',
+        headers: authHeaders(),
+        credentials: 'include',
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error?.message || data?.error || 'Failed to generate label');
+
+      if (data.labelUrl) window.open(data.labelUrl, '_blank');
+      if (selectedId === id) fetchOrderDetails(id);
+    } catch (e: any) {
+      alert(e.message || 'Shiprocket error');
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const srInvoice = async (id: string) => {
+    setBusyId(id);
+    try {
+      const res = await fetch(`${API_SHIPROCKET_BASE}/orders/${id}/shiprocket/invoice`, {
+        method: 'POST',
+        headers: authHeaders(),
+        credentials: 'include',
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error?.message || data?.error || 'Failed to print invoice');
+
+      if (data.invoiceUrl) window.open(data.invoiceUrl, '_blank');
+      if (selectedId === id) fetchOrderDetails(id);
+    } catch (e: any) {
+      alert(e.message || 'Shiprocket error');
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const srManifest = async (id: string) => {
+    setBusyId(id);
+    try {
+      const res = await fetch(`${API_SHIPROCKET_BASE}/orders/${id}/shiprocket/manifest`, {
+        method: 'POST',
+        headers: authHeaders(),
+        credentials: 'include',
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error?.message || data?.error || 'Failed to print manifest');
+
+      if (data.manifestUrl) window.open(data.manifestUrl, '_blank');
+      if (selectedId === id) fetchOrderDetails(id);
+    } catch (e: any) {
+      alert(e.message || 'Shiprocket error');
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+
+
+// put this near other helpers in OrdersTab.tsx
+function trackingHref(o: IOrderFull): string {
+  const url = (o.trackingUrl || '').trim();
+  if (url) return url;
+
+  const awb = (o.awbCode || o.trackingNumber || '').trim();
+  if (!awb) return '';
+
+  const courier = (o.courierName || o.carrierName || '').toLowerCase();
+  if (courier.includes('delhivery'))   return `https://www.delhivery.com/track/package/${awb}`;
+  if (courier.includes('bluedart'))    return `https://bluedart.com/tracking?awb=${awb}`;
+  if (courier.includes('dtdc'))        return `https://www.dtdc.in/tracking/default.aspx?awb=${awb}`;
+  if (courier.includes('xpressbees'))  return `https://www.xpressbees.com/track?awb=${awb}`;
+  if (courier.includes('ecom'))        return `https://ecomexpress.in/tracking/?awb=${awb}`;
+  if (courier.includes('india post') || courier.includes('speed post'))
+                                       return `https://www.indiapost.gov.in/_layouts/15/dop.portal.tracking/trackconsignment.aspx?awb=${awb}`;
+  // generic Shiprocket fallback
+  return `https://track.shiprocket.in/?awb=${awb}`;
+}
+
+
 
   /* =========================
      Render
@@ -1149,6 +1320,12 @@ const OrdersTab: React.FC = () => {
                   <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs border bg-gray-50 text-gray-700">
                     {selected.paymentMethod?.toUpperCase()}
                   </span>
+                  {/* Shiprocket chip */}
+                  {selected.shiprocketStatus && (
+                    <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs border bg-indigo-50 text-indigo-700">
+                      SR: {selected.shiprocketStatus.replace(/_/g, ' ')}
+                    </span>
+                  )}
                 </div>
 
                 {/* Progress */}
@@ -1309,11 +1486,11 @@ const OrdersTab: React.FC = () => {
                     <div className="text-sm space-y-1">
                       <div className="flex justify-between">
                         <span className="text-gray-600">Carrier</span>
-                        <span>{selected.carrierName || '-'}</span>
+                        <span>{selected.courierName || selected.carrierName || '-'}</span>
                       </div>
                       <div className="flex justify-between">
                         <span className="text-gray-600">Tracking</span>
-                        <span className="font-mono text-xs">{selected.trackingNumber || '-'}</span>
+                        <span className="font-mono text-xs">{selected.awbCode || selected.trackingNumber || '-'}</span>
                       </div>
                       {selected.estimatedDelivery && (
                         <div className="flex justify-between">
@@ -1321,22 +1498,48 @@ const OrdersTab: React.FC = () => {
                           <span>{dt(selected.estimatedDelivery)}</span>
                         </div>
                       )}
-                      {(selected.trackingUrl || selected.trackingNumber) && (
-                        <div className="pt-1">
-                          <a
-                            className="inline-flex items-center gap-2 px-3 py-1.5 border rounded-xl hover:bg-gray-50"
-                            href={
-                              selected.trackingUrl ||
-                              `/track-order/${selected.trackingNumber}`
-                            }
-                            target={selected.trackingUrl ? '_blank' : undefined}
-                            rel="noreferrer"
-                          >
-                            <TruckIcon className="w-4 h-4" />
-                            Track package
-                          </a>
+                      {(selected.labelUrl || selected.invoiceUrl || selected.manifestUrl) && (
+                        <div className="pt-1 flex flex-wrap gap-2">
+                          {selected.labelUrl && (
+                            <a className="inline-flex items-center gap-2 px-3 py-1.5 border rounded-xl hover:bg-gray-50"
+                               href={selected.labelUrl} target="_blank" rel="noreferrer">
+                              Label
+                            </a>
+                          )}
+                          {selected.invoiceUrl && (
+                            <a className="inline-flex items-center gap-2 px-3 py-1.5 border rounded-xl hover:bg-gray-50"
+                               href={selected.invoiceUrl} target="_blank" rel="noreferrer">
+                              Invoice
+                            </a>
+                          )}
+                          {selected.manifestUrl && (
+                            <a className="inline-flex items-center gap-2 px-3 py-1.5 border rounded-xl hover:bg-gray-50"
+                               href={selected.manifestUrl} target="_blank" rel="noreferrer">
+                              Manifest
+                            </a>
+                          )}
                         </div>
                       )}
+                      {(selected?.trackingUrl || selected?.trackingNumber || selected?.awbCode) && (
+  <div className="pt-1">
+    <button
+      type="button"
+      className="inline-flex items-center gap-2 px-3 py-1.5 border rounded-xl hover:bg-gray-50"
+      onClick={() => {
+        const url = trackingHref(selected!);
+        if (url) {
+          window.open(url, '_blank', 'noopener,noreferrer');
+        } else {
+          alert('No tracking details available yet.');
+        }
+      }}
+    >
+      <TruckIcon className="w-4 h-4" />
+      Track package
+    </button>
+  </div>
+)}
+
                     </div>
                   </div>
                 </div>
@@ -1368,6 +1571,57 @@ const OrdersTab: React.FC = () => {
                       Cancel
                     </button>
                   )}
+
+                  {/* ---- Shiprocket Actions ---- */}
+                  <div className="w-full h-0" />
+                  <button
+                    className="px-3 py-2 rounded-xl border hover:bg-gray-50"
+                    onClick={() => selected && srCreate(selected._id)}
+                    disabled={busyId === selected?._id || !!selected.shipmentId}
+                    title={selected?.shipmentId ? 'Shipment already created' : 'Create Shiprocket order'}
+                  >
+                    {selected?.shipmentId ? `Shipment: ${selected.shipmentId}` : 'SR: Create Order'}
+                  </button>
+
+                  <button
+                    className="px-3 py-2 rounded-xl border hover:bg-gray-50"
+                    onClick={() => selected && srAssignAwb(selected._id)}
+                    disabled={busyId === selected?._id || !selected.shipmentId || !!selected.awbCode}
+                    title={!selected?.shipmentId ? 'Create Shiprocket order first' : (selected?.awbCode ? 'AWB already assigned' : 'Assign AWB')}
+                  >
+                    {selected?.awbCode ? `AWB: ${selected.awbCode}` : 'SR: Assign AWB'}
+                  </button>
+
+                  <button
+                    className="px-3 py-2 rounded-xl border hover:bg-gray-50"
+                    onClick={() => selected && srPickup(selected._id)}
+                    disabled={busyId === selected?._id || !selected.shipmentId || !selected.awbCode}
+                    title={!selected?.awbCode ? 'Assign AWB first' : 'Generate pickup'}
+                  >
+                    SR: Pickup
+                  </button>
+
+                  <button
+                    className="px-3 py-2 rounded-xl border hover:bg-gray-50"
+                    onClick={() => selected && srLabel(selected._id)}
+                    disabled={busyId === selected?._id || !selected.shipmentId}
+                  >
+                    SR: Label
+                  </button>
+                  <button
+                    className="px-3 py-2 rounded-xl border hover:bg-gray-50"
+                    onClick={() => selected && srInvoice(selected._id)}
+                    disabled={busyId === selected?._id || !selected.shipmentId}
+                  >
+                    SR: Invoice
+                  </button>
+                  <button
+                    className="px-3 py-2 rounded-xl border hover:bg-gray-50"
+                    onClick={() => selected && srManifest(selected._id)}
+                    disabled={busyId === selected?._id || !selected.shipmentId}
+                  >
+                    SR: Manifest
+                  </button>
                 </div>
               </>
             )}

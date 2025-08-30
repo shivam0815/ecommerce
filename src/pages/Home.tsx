@@ -14,9 +14,11 @@ import SEO from '../components/Layout/SEO';
 import { newsletterService } from '../services/newsletterService';
 import toast from 'react-hot-toast';
 import { generateResponsiveImageUrl } from '../utils/cloudinaryBrowser';
+import { useTranslation } from 'react-i18next';
 
 const isValidEmail = (e: string) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/i.test(e.trim());
 const API_BASE = (import.meta as any).env?.VITE_API_URL || 'http://localhost:5000/api';
+
 
 type Product = {
   _id: string;
@@ -66,8 +68,8 @@ const Home: React.FC = () => {
   ];
 
   const testimonials = [
-    { name: "Sarah Johnson", role: "Tech Enthusiast", content: "Amazing quality products! The TWS earbuds I bought exceeded my expectations. Crystal clear sound and perfect fit.", rating: 5, image: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&h=150&fit=crop&crop=face" },
-    { name: "Mike Chen", role: "Mobile Repair Shop Owner", content: "Their repair tools are professional grade. I've been using them for 2 years and they're still like new. Highly recommended!", rating: 5, image: "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150&h=150&fit=crop&crop=face" },
+    { name: "Saransh", role: "Tech Enthusiast", content: "Amazing quality products! The TWS earbuds I bought exceeded my expectations. Crystal clear sound and perfect fit.", rating: 5, image: "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150&h=150&fit=crop&crop=face" },
+    { name: "Mike chen", role: "Mobile Repair Shop Owner", content: "Their repair tools are professional grade. I've been using them for 2 years and they're still like new. Highly recommended!", rating: 5, image: "https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150&h=150&fit=crop&crop=face" },
     { name: "Priya Sharma", role: "Business Owner", content: "Excellent OEM services. They delivered 1000+ custom branded chargers on time with perfect quality. Great team!", rating: 5, image: "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=150&h=150&fit=crop&crop=face" }
   ];
 
@@ -197,7 +199,7 @@ const Home: React.FC = () => {
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
             <motion.div initial={{ opacity: 0, x: -50 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.8 }}>
               <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="inline-block bg-yellow-400 text-gray-900 px-4 py-2 rounded-full text-sm font-semibold mb-6">
-                ✨ Trusted by 5000+ Customers
+                ✨ Trusted by 100000+ Customers
               </motion.div>
 
               <h1 className="text-4xl md:text-6xl font-bold mb-6">
@@ -225,7 +227,7 @@ const Home: React.FC = () => {
                   <div className="flex -space-x-2 mr-2">
                     {[1, 2, 3, 4].map(i => (<div key={i} className="w-8 h-8 rounded-full bg-yellow-400 border-2 border-white"></div>))}
                   </div>
-                  <span>Join 5000+ Happy Customers</span>
+                  <span>Join 50000+ Happy Customers</span>
                 </div>
               </div>
             </motion.div>
@@ -251,9 +253,9 @@ const Home: React.FC = () => {
           <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
             {[
               { icon: ShoppingBag, value: '10,000+', label: 'Products Sold', color: 'from-blue-500 to-blue-600' },
-              { icon: Users, value: '5,000+', label: 'Happy Customers', color: 'from-green-500 to-green-600' },
+              { icon: Users, value: '50,000+', label: 'Happy Customers', color: 'from-green-500 to-green-600' },
               { icon: Star, value: '4.8/5', label: 'Average Rating', color: 'from-yellow-500 to-yellow-600' },
-              { icon: Award, value: '5 Years', label: 'Experience', color: 'from-purple-500 to-purple-600' }
+              { icon: Award, value: '25 Years', label: 'Experience', color: 'from-purple-500 to-purple-600' }
             ].map((stat, index) => (
               <motion.div key={index} initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.1 }} className="text-center group">
                 <div className={`bg-gradient-to-r ${stat.color} w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 shadow-lg group-hover:shadow-xl transition-shadow duration-300`}>
@@ -268,64 +270,7 @@ const Home: React.FC = () => {
           </div>
         </div>
       </section>
-
-      {/* Categories */}
-      <section className="py-16 bg-white">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <motion.div className="text-center mb-12" initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} transition={{ duration: 0.6 }}>
-            <h2 className="text-3xl font-bold text-gray-900 mb-4">Shop by Category</h2>
-            <p className="text-gray-600 max-w-2xl mx-auto">Browse our comprehensive collection of mobile accessories organized by category</p>
-          </motion.div>
-
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-            {categories.map((category, index) => (
-              <motion.div
-                key={category.id}
-                initial={{ opacity: 0, y: 30 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                transition={{ delay: index * 0.1, duration: 0.5 }}
-                className="group cursor-pointer"
-                onMouseEnter={() => setHoveredCategory(category.id)}
-                onMouseLeave={() => setHoveredCategory(null)}
-              >
-                <div
-                  className={`relative bg-white rounded-xl p-6 shadow-lg transition-all duration-300
-                  ${hoveredCategory === category.id ? 'transform -translate-y-2 shadow-2xl' : 'hover:shadow-xl'}
-                  border border-gray-200 overflow-hidden`}
-                >
-                  <div className={`absolute inset-0 bg-gradient-to-br ${category.gradient} opacity-0 transition-opacity duration-300
-                    ${hoveredCategory === category.id ? 'opacity-10' : 'group-hover:opacity-5'}`} />
-                  <div className={`relative text-4xl mb-4 transition-transform duration-300
-                    ${hoveredCategory === category.id ? 'scale-110' : 'group-hover:scale-105'}`}>
-                    {category.icon}
-                  </div>
-                  <h3
-                    className={`relative text-lg font-semibold mb-2 transition-colors duration-300
-                    ${hoveredCategory === category.id ? 'text-transparent bg-clip-text bg-gradient-to-r ' + category.gradient : 'text-gray-900 group-hover:text-gray-700'}`}
-                  >
-                    {category.name}
-                  </h3>
-                  <p className="relative text-sm text-gray-600 mb-4">{category.description}</p>
-                  <button
-                    onClick={() => handleCategoryClick(category.id)}
-                    className={`relative inline-flex items-center text-sm font-medium transition-all duration-300
-                      ${hoveredCategory === category.id ? `text-white bg-gradient-to-r ${category.gradient} px-3 py-1 rounded-md` : 'text-blue-600 group-hover:text-blue-700'}`}
-                  >
-                    Explore
-                    <ArrowRight className={`ml-1 w-4 h-4 transition-transform duration-300 ${hoveredCategory === category.id ? 'translate-x-1' : ''}`} />
-                  </button>
-                  <div className={`absolute top-0 right-0 w-20 h-20 ${category.color} opacity-10 rounded-full transform translate-x-8 -translate-y-8 transition-all duration-300 ${hoveredCategory === category.id ? 'scale-150 opacity-20' : ''}`} />
-                </div>
-              </motion.div>
-            ))}
-          </div>
-        </div>
-      </section>
-
-      <PromoSlider />
-
-      {/* 🔥 Hot Picks (distinct glossy UI) */}
-      <section className="py-14 bg-gradient-to-b from-white to-gray-50">
+  <section className="py-14 bg-gradient-to-b from-white to-gray-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="mb-8 flex items-center justify-between">
             <div className="flex items-center gap-3">
@@ -597,6 +542,63 @@ const Home: React.FC = () => {
           )}
         </div>
       </section>
+      {/* Categories */}
+      <section className="py-16 bg-white">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <motion.div className="text-center mb-12" initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} transition={{ duration: 0.6 }}>
+            <h2 className="text-3xl font-bold text-gray-900 mb-4">Shop by Category</h2>
+            <p className="text-gray-600 max-w-2xl mx-auto">Browse our comprehensive collection of mobile accessories organized by category</p>
+          </motion.div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+            {categories.map((category, index) => (
+              <motion.div
+                key={category.id}
+                initial={{ opacity: 0, y: 30 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                transition={{ delay: index * 0.1, duration: 0.5 }}
+                className="group cursor-pointer"
+                onMouseEnter={() => setHoveredCategory(category.id)}
+                onMouseLeave={() => setHoveredCategory(null)}
+              >
+                <div
+                  className={`relative bg-white rounded-xl p-6 shadow-lg transition-all duration-300
+                  ${hoveredCategory === category.id ? 'transform -translate-y-2 shadow-2xl' : 'hover:shadow-xl'}
+                  border border-gray-200 overflow-hidden`}
+                >
+                  <div className={`absolute inset-0 bg-gradient-to-br ${category.gradient} opacity-0 transition-opacity duration-300
+                    ${hoveredCategory === category.id ? 'opacity-10' : 'group-hover:opacity-5'}`} />
+                  <div className={`relative text-4xl mb-4 transition-transform duration-300
+                    ${hoveredCategory === category.id ? 'scale-110' : 'group-hover:scale-105'}`}>
+                    {category.icon}
+                  </div>
+                  <h3
+                    className={`relative text-lg font-semibold mb-2 transition-colors duration-300
+                    ${hoveredCategory === category.id ? 'text-transparent bg-clip-text bg-gradient-to-r ' + category.gradient : 'text-gray-900 group-hover:text-gray-700'}`}
+                  >
+                    {category.name}
+                  </h3>
+                  <p className="relative text-sm text-gray-600 mb-4">{category.description}</p>
+                  <button
+                    onClick={() => handleCategoryClick(category.id)}
+                    className={`relative inline-flex items-center text-sm font-medium transition-all duration-300
+                      ${hoveredCategory === category.id ? `text-white bg-gradient-to-r ${category.gradient} px-3 py-1 rounded-md` : 'text-blue-600 group-hover:text-blue-700'}`}
+                  >
+                    Explore
+                    <ArrowRight className={`ml-1 w-4 h-4 transition-transform duration-300 ${hoveredCategory === category.id ? 'translate-x-1' : ''}`} />
+                  </button>
+                  <div className={`absolute top-0 right-0 w-20 h-20 ${category.color} opacity-10 rounded-full transform translate-x-8 -translate-y-8 transition-all duration-300 ${hoveredCategory === category.id ? 'scale-150 opacity-20' : ''}`} />
+                </div>
+              </motion.div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      <PromoSlider />
+
+      {/* 🔥 Hot Picks (distinct glossy UI) */}
+    
 
       {/* Why Choose Us */}
       <section className="py-16 bg-gradient-to-br from-gray-900 via-blue-900 to-gray-900 text-white">

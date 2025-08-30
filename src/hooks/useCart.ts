@@ -1,8 +1,7 @@
-// src/hooks/useCart.ts - OPTIMIZED PRODUCTION VERSION
-
+// src/hooks/useCart.ts — FIXED: no singleton guard, hydrate from cache immediately
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { cartService, CartResponse } from '../services/cartService';
-import { CartItem } from '../types';
+import { cartService } from '../services/cartService';
+import type { CartItem } from '../types';
 
 interface UseCartReturn {
   cart: CartItem[];
@@ -14,180 +13,142 @@ interface UseCartReturn {
   updateQuantity: (productId: string, quantity: number) => Promise<void>;
   removeFromCart: (productId: string) => Promise<void>;
   clearCart: () => Promise<void>;
-  refreshCart: () => Promise<void>;
+  refreshCart: (force?: boolean) => Promise<void>;
   getTotalItems: () => number;
   getTotalPrice: () => number;
 }
 
+const isAuthed = () => !!(localStorage.getItem('nakoda-token') && localStorage.getItem('nakoda-user'));
+
+const readCache = (): { items: CartItem[]; totalAmount: number } => {
+  try {
+    const s = localStorage.getItem('nakoda-cart');
+    if (!s) return { items: [], totalAmount: 0 };
+    const j = JSON.parse(s);
+    return {
+      items: Array.isArray(j?.items) ? j.items : [],
+      totalAmount: Number(j?.totalAmount ?? 0),
+    };
+  } catch {
+    return { items: [], totalAmount: 0 };
+  }
+};
+
 export const useCart = (): UseCartReturn => {
-  const [cart, setCart] = useState<CartItem[]>([]);
-  const [totalAmount, setTotalAmount] = useState(0);
+  // ✅ Hydrate immediately from cache so Checkout never mounts “empty”
+  const cached = readCache();
+  const [cart, setCart] = useState<CartItem[]>(cached.items);
+  const [totalAmount, setTotalAmount] = useState(cached.totalAmount);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  
-  // ✅ Prevent infinite loops with refs
+
+  // fetch guards
   const isFetchingRef = useRef(false);
-  const lastFetchTimeRef = useRef(0);
-  const debounceTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const lastFetchRef = useRef(0);
 
-  // ✅ Check if user is authenticated
-  const isAuthenticated = () => {
-    const token = localStorage.getItem('nakoda-token');
-    const user = localStorage.getItem('nakoda-user');
-    return !!(token && user);
-  };
-
-  // ✅ Debounced fetch cart to prevent excessive API calls
-  const debouncedFetchCart = useCallback(() => {
-    if (debounceTimerRef.current) {
-      clearTimeout(debounceTimerRef.current);
-    }
-    
-    debounceTimerRef.current = setTimeout(() => {
-      fetchCart();
-    }, 300); // 300ms debounce
-  }, []);
-
-  // ✅ Optimized fetch cart with caching and rate limiting
-  const fetchCart = useCallback(async () => {
-    // Prevent concurrent fetches
-    if (isFetchingRef.current) return;
-    
-    // Rate limiting - don't fetch more than once per 2 seconds
-    const now = Date.now();
-    if (now - lastFetchTimeRef.current < 2000) return;
-    
-    if (!isAuthenticated()) {
-      const savedCart = localStorage.getItem('nakoda-cart');
-      if (savedCart) {
-        try {
-          const parsedCart = JSON.parse(savedCart);
-          setCart(Array.isArray(parsedCart.items) ? parsedCart.items : []);
-          setTotalAmount(parsedCart.totalAmount || 0);
-        } catch (error) {
-          setCart([]);
-          setTotalAmount(0);
-        }
-      } else {
-        setCart([]);
-        setTotalAmount(0);
-      }
+  const fetchCart = useCallback(async (force = false) => {
+    // Guests: serve cache only (don’t throw, don’t blank)
+    if (!isAuthed()) {
+      const c = readCache();
+      setCart(c.items);
+      setTotalAmount(c.totalAmount);
       return;
     }
+
+    if (isFetchingRef.current) return;
+    const now = Date.now();
+    if (!force && now - lastFetchRef.current < 1200) return;
 
     try {
       isFetchingRef.current = true;
-      lastFetchTimeRef.current = now;
+      lastFetchRef.current = now;
       setIsLoading(true);
       setError(null);
-      
-      const response = await cartService.getCart();
-      const items = Array.isArray(response.cart?.items) ? response.cart.items : [];
-      
+
+      const resp = await cartService.getCart(); // should be soft-safe per earlier fix
+      const items = Array.isArray(resp?.cart?.items) ? resp.cart.items : [];
+      const amount = Number(resp?.cart?.totalAmount ?? 0);
+
       setCart(items);
-      setTotalAmount(response.cart?.totalAmount || 0);
-      
-      // Cache for offline use
-      localStorage.setItem('nakoda-cart', JSON.stringify({
-        items: items,
-        totalAmount: response.cart?.totalAmount || 0
-      }));
-      
-    } catch (err: any) {
-      if (err.response?.status === 401) {
-        const savedCart = localStorage.getItem('nakoda-cart');
-        if (savedCart) {
-          try {
-            const parsedCart = JSON.parse(savedCart);
-            setCart(Array.isArray(parsedCart.items) ? parsedCart.items : []);
-            setTotalAmount(parsedCart.totalAmount || 0);
-          } catch (parseError) {
-            setCart([]);
-            setTotalAmount(0);
-          }
-        } else {
-          setCart([]);
-          setTotalAmount(0);
-        }
+      setTotalAmount(amount);
+      localStorage.setItem('nakoda-cart', JSON.stringify({ items, totalAmount: amount }));
+    } catch (e: any) {
+      // ❗ Don’t nuke existing UI on non-401 errors
+      if (e?.response?.status === 401) {
+        const c = readCache();
+        setCart(c.items);
+        setTotalAmount(c.totalAmount);
       } else {
-        setError(err.message || 'Failed to fetch cart');
-        setCart([]);
-        setTotalAmount(0);
+        setError(e?.message || 'Failed to fetch cart');
+        // keep whatever we already had (likely from cache)
       }
     } finally {
-      setIsLoading(false);
       isFetchingRef.current = false;
+      setIsLoading(false);
     }
   }, []);
 
-  // ✅ Optimized add to cart
-  const addToCart = useCallback(async (productId: string, quantity: number = 1) => {
-    if (!isAuthenticated()) {
+  // Always fetch on mount (no global singleton). Service coalescing prevents bursts.
+  useEffect(() => {
+    fetchCart(false);
+  }, [fetchCart]);
+
+  const addToCart = useCallback(async (productId: string, quantity = 1) => {
+    if (!isAuthed()) {
       setError('Please login to add items to cart');
       return;
     }
-
     try {
       setIsLoading(true);
       setError(null);
       await cartService.addToCart(productId, quantity);
-      await fetchCart();
-    } catch (err: any) {
-      if (err.response?.status === 401) {
-        setError('Authentication failed. Please login again.');
-      } else {
-        setError(err.response?.data?.message || err.message || 'Failed to add item to cart');
-      }
+      await fetchCart(true);
+    } catch (e: any) {
+      setError(e?.response?.data?.message || e?.message || 'Failed to add item to cart');
     } finally {
       setIsLoading(false);
     }
   }, [fetchCart]);
 
-  // ✅ Optimized update quantity
   const updateQuantity = useCallback(async (productId: string, quantity: number) => {
-    if (!isAuthenticated()) {
+    if (!isAuthed()) {
       setError('Please login to update cart');
       return;
     }
-
     try {
       setIsLoading(true);
       setError(null);
       await cartService.updateCartItem(productId, quantity);
-      await fetchCart();
-    } catch (err: any) {
-      setError(err.response?.data?.message || err.message || 'Failed to update cart item');
+      await fetchCart(true);
+    } catch (e: any) {
+      setError(e?.response?.data?.message || e?.message || 'Failed to update cart item');
     } finally {
       setIsLoading(false);
     }
   }, [fetchCart]);
 
-  // ✅ Optimized remove from cart
   const removeFromCart = useCallback(async (productId: string) => {
-    if (!isAuthenticated()) {
+    if (!isAuthed()) {
       setError('Please login to remove items from cart');
       return;
     }
-
     try {
       setIsLoading(true);
       setError(null);
       await cartService.removeFromCart(productId);
-      await fetchCart();
-    } catch (err: any) {
-      setError(err.response?.data?.message || err.message || 'Failed to remove item from cart');
+      await fetchCart(true);
+    } catch (e: any) {
+      setError(e?.response?.data?.message || e?.message || 'Failed to remove item from cart');
     } finally {
       setIsLoading(false);
     }
   }, [fetchCart]);
 
-  // ✅ Clear cart
   const clearCart = useCallback(async () => {
-    if (!isAuthenticated()) {
+    if (!isAuthed()) {
       setError('Please login to clear cart');
       return;
     }
-
     try {
       setIsLoading(true);
       setError(null);
@@ -195,44 +156,20 @@ export const useCart = (): UseCartReturn => {
       setCart([]);
       setTotalAmount(0);
       localStorage.removeItem('nakoda-cart');
-    } catch (err: any) {
-      setError(err.response?.data?.message || err.message || 'Failed to clear cart');
+    } catch (e: any) {
+      setError(e?.response?.data?.message || e?.message || 'Failed to clear cart');
     } finally {
       setIsLoading(false);
     }
   }, []);
 
-  // ✅ Optimized calculation functions
-  const getTotalPrice = useCallback((): number => {
-    if (!Array.isArray(cart)) return 0;
-    
-    return cart.reduce((total, item) => {
-      const price = typeof item?.price === 'number' ? item.price : 0;
-      const quantity = typeof item?.quantity === 'number' ? item.quantity : 0;
-      return total + (price * quantity);
-    }, 0);
+  const getTotalPrice = useCallback(() => {
+    return (cart || []).reduce((sum, it) => sum + (Number(it.price) || 0) * (Number(it.quantity) || 0), 0);
   }, [cart]);
 
-  const getTotalItems = useCallback((): number => {
-    if (!Array.isArray(cart)) return 0;
-    
-    return cart.reduce((total, item) => {
-      const quantity = typeof item?.quantity === 'number' ? item.quantity : 0;
-      return total + quantity;
-    }, 0);
+  const getTotalItems = useCallback(() => {
+    return (cart || []).reduce((sum, it) => sum + (Number(it.quantity) || 0), 0);
   }, [cart]);
-
-  // ✅ Load cart only once on mount
-  useEffect(() => {
-    debouncedFetchCart();
-    
-    // Cleanup on unmount
-    return () => {
-      if (debounceTimerRef.current) {
-        clearTimeout(debounceTimerRef.current);
-      }
-    };
-  }, []); // Empty dependency array to run only once
 
   return {
     cart,

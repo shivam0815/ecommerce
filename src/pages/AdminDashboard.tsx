@@ -2064,8 +2064,13 @@ case 'products':
 
         case 'orders':
   return <OrdersTab />;
- case 'returns':
-      return <ReturnProduct />;
+case 'returns':
+  return (
+    <ReturnProduct
+      showNotification={showNotification}
+      checkNetworkStatus={checkNetworkStatus}
+    />
+  );
     case 'reviews':
       return <ProductReview />;
     case 'payments':

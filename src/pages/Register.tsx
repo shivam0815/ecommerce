@@ -152,7 +152,7 @@ const Register: React.FC = () => {
     <div className="relative min-h-screen overflow-hidden">
       {/* FULL-PAGE IMAGE BACKGROUND */}
       <img
-        src="/3d.png" // reuse the same wide hero used on Login
+        src="/home.webp" // reuse the same wide hero used on Login
         alt="E-commerce hero"
         className="pointer-events-none select-none absolute inset-0 -z-10 h-full w-full object-cover"
       />

@@ -1,37 +1,98 @@
-import React from 'react';
+// src/pages/Cart.tsx
+import React, { useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Plus, Minus, Trash2, ShoppingBag, ArrowLeft, ImageIcon } from 'lucide-react';
-import { useCart } from '../hooks/useCart';
+import { useCartContext } from '../context/CartContext';
 import { useAuth } from '../hooks/useAuth';
 import toast from 'react-hot-toast';
-import { CartItem } from '../types';
+import type { CartItem } from '../types';
+
+/* -------- Category-wise MOQ fallback (used if product.minOrderQty is absent) -------- */
+const CATEGORY_MOQ: Record<string, number> = {
+  'Car Chargers': 2,
+  'Bluetooth Neckbands': 5,
+  'TWS': 3,
+  'Data Cables': 5,
+  'Mobile Chargers': 2,
+  'Bluetooth Speakers': 2,
+  'Power Banks': 2,
+  'Mobile ICs': 1,
+  'Mobile Repairing Tools': 1,
+  'Electronics': 1,
+  'Accessories': 1,
+  'Others': 1,
+};
+
+const MAX_PER_LINE = 50;
+const clampCartQty = (q: number) => Math.max(1, Math.min(Math.floor(q || 1), MAX_PER_LINE));
+
+const getMOQFromItem = (item: any): number => {
+  const p = item?.productId || item || {};
+  if (typeof p?.minOrderQty === 'number' && p.minOrderQty >= 1) return p.minOrderQty;
+  return CATEGORY_MOQ[p?.category || ''] ?? 1;
+};
+
+const getMaxQtyFromItem = (item: any): number => {
+  const p = item?.productId || item || {};
+  const stock = Number(p?.stockQuantity ?? item?.stockQuantity ?? 0);
+  return stock > 0 ? stock : 99;
+};
+
+const getItemId = (item: any): string =>
+  String(item?.productId?._id || item?.productId?.id || item?.productId || item?._id || item?.id || '');
 
 const Cart: React.FC = () => {
-  const { cartItems, updateQuantity, removeFromCart, getTotalPrice, getTotalItems, isLoading, error } = useCart();
+  const {
+    cartItems,
+    updateQuantity,
+    removeFromCart,
+    getTotalPrice,
+    getTotalItems,
+    isLoading,
+    error,
+    refreshCart,
+  } = useCartContext();
+
   const { user } = useAuth();
   const navigate = useNavigate();
 
+  // ✅ Guarantee a fresh load when visiting /cart
+  useEffect(() => {
+    // no await needed; context should manage isLoading internally
+    refreshCart(true);
+  }, [refreshCart]);
+
+  // If you ever want the programmatic route instead of Link, keep this around:
   const handleCheckout = () => {
     if (!user) {
-      navigate('/login', { state: { from: { pathname: '/checkout' } } });
+      navigate('/login', { state: { from: '/checkout' } });
       return;
     }
     navigate('/checkout');
   };
 
-  const handleQuantityUpdate = (itemId: string, newQuantity: number) => {
+  const handleQuantityUpdate = (item: any, newQuantity: number) => {
+    const itemId = getItemId(item);
     if (!itemId || itemId === 'undefined' || itemId === 'null') {
       toast.error('Unable to update item. Please refresh the page.');
       return;
     }
-    
-    if (newQuantity < 1) {
+
+    const clamped = clampCartQty(newQuantity);
+    const moq = getMOQFromItem(item);
+    const maxQty = getMaxQtyFromItem(item);
+
+    // Respect MOQ and Stock silently
+    const finalQty = Math.max(moq, Math.min(clamped, maxQty));
+
+    // If result falls below 1, remove item
+    if (finalQty < 1) {
       handleRemoveItem(itemId);
       return;
     }
-    
-    updateQuantity(itemId, newQuantity);
+
+    updateQuantity(itemId, finalQty);
   };
 
   const handleRemoveItem = (itemId: string) => {
@@ -39,7 +100,6 @@ const Cart: React.FC = () => {
       toast.error('Unable to remove item. Please refresh the page.');
       return;
     }
-    
     removeFromCart(itemId);
     toast.success('Item removed from cart');
   };
@@ -48,31 +108,34 @@ const Cart: React.FC = () => {
     const productData = item.productId || {};
     const imageUrl = productData.image || productData.images?.[0] || item.image || item.images?.[0];
     const altText = String(productData.name || item.name || 'Product');
-    
-    if (imageUrl) {
-      return (
-        <img
-          src={String(imageUrl)}
-          alt={altText}
-          className="w-16 h-16 object-cover rounded-md"
-          onError={(e) => {
-            const target = e.target as HTMLImageElement;
-            target.style.display = 'none';
-            const placeholder = target.nextElementSibling as HTMLElement;
-            if (placeholder) placeholder.style.display = 'flex';
-          }}
-        />
-      );
-    }
-    
+
     return (
-      <div className="w-16 h-16 bg-gray-100 rounded-md flex items-center justify-center">
-        <ImageIcon className="h-6 w-6 text-gray-400" />
+      <div className="w-16 h-16 rounded-md overflow-hidden bg-gray-100 flex items-center justify-center">
+        {imageUrl ? (
+          <>
+            <img
+              src={String(imageUrl)}
+              alt={altText}
+              className="w-full h-full object-cover"
+              onError={(e) => {
+                const target = e.currentTarget as HTMLImageElement;
+                target.style.display = 'none';
+                const placeholder = target.nextElementSibling as HTMLElement;
+                if (placeholder) placeholder.style.display = 'flex';
+              }}
+            />
+            <div className="hidden w-full h-full items-center justify-center">
+              <ImageIcon className="h-6 w-6 text-gray-400" />
+            </div>
+          </>
+        ) : (
+          <ImageIcon className="h-6 w-6 text-gray-400" />
+        )}
       </div>
     );
   };
 
-  if (isLoading) {
+  if (isLoading && (!cartItems || cartItems.length === 0)) {
     return (
       <div className="min-h-screen bg-gray-50 flex items-center justify-center">
         <div className="text-center">
@@ -89,9 +152,7 @@ const Cart: React.FC = () => {
         <div className="max-w-2xl mx-auto px-4 py-16 text-center">
           <ShoppingBag className="h-16 w-16 text-gray-400 mx-auto mb-4" />
           <h2 className="text-2xl font-bold text-gray-900 mb-2">Your cart is empty</h2>
-          <p className="text-gray-600 mb-8">
-            Looks like you haven't added any items to your cart yet.
-          </p>
+          <p className="text-gray-600 mb-8">Looks like you haven't added any items to your cart yet.</p>
           <Link
             to="/products"
             className="inline-flex items-center px-6 py-3 border border-transparent text-base font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 transition-colors"
@@ -109,10 +170,7 @@ const Cart: React.FC = () => {
         {/* Header */}
         <div className="flex items-center justify-between mb-8">
           <div className="flex items-center">
-            <Link
-              to="/products"
-              className="mr-4 p-2 rounded-md hover:bg-gray-200 transition-colors"
-            >
+            <Link to="/products" className="mr-4 p-2 rounded-md hover:bg-gray-200 transition-colors">
               <ArrowLeft className="h-5 w-5" />
             </Link>
             <h1 className="text-3xl font-bold text-gray-900">Shopping Cart</h1>
@@ -134,44 +192,53 @@ const Cart: React.FC = () => {
                   {getTotalItems()} {getTotalItems() === 1 ? 'item' : 'items'} in your cart
                 </h2>
               </div>
-              
+
               <div className="p-4 space-y-4">
                 <AnimatePresence>
                   {cartItems.map((item: any, index: number) => {
-                    let itemId: string = '';
-                    let productName: string = '';
-                    let productPrice: number = 0;
-                    let productCategory: string = '';
-                    let itemQuantity: number = 0;
-                    
+                    let itemId = '';
+                    let productName = '';
+                    let productPrice = 0;
+                    let productCategory = '';
+                    let itemQuantity = 0;
+
                     try {
                       if (item.productId && typeof item.productId === 'object') {
                         itemId = String(item.productId._id || item.productId.id || '');
                         productName = String(item.productId.name || 'Unknown Product');
-                        productPrice = Number(item.price || item.productId.price || 0);
+                        productPrice = Number(item.price ?? item.productId.price ?? 0);
                         productCategory = String(item.productId.category || '');
                       } else {
-                        itemId = String(item.productId || item._id || item.id || '');
+                        itemId = String(item.productId ?? item._id ?? item.id ?? '');
                         productName = String(item.name || 'Unknown Product');
-                        productPrice = Number(item.price || 0);
+                        productPrice = Number(item.price ?? 0);
                         productCategory = String(item.category || '');
                       }
-                      
+
                       itemQuantity = Number(item.quantity || 0);
-                    } catch (error) {
-                      return null;
-                    }
-                    
-                    const uniqueKey = itemId ? `${itemId}-${index}` : `fallback-${index}`;
-                    
-                    if (!itemId || !productName) {
+                    } catch {
                       return (
                         <div key={`error-${index}`} className="p-4 bg-red-50 border border-red-200 rounded-md">
                           <p className="text-red-600">Error loading item. Please refresh the page.</p>
                         </div>
                       );
                     }
-                    
+
+                    const uniqueKey = itemId ? `${itemId}-${index}` : `fallback-${index}`;
+                    if (!itemId || !productName) {
+                      return (
+                        <div key={`err-${index}`} className="p-4 bg-red-50 border border-red-200 rounded-md">
+                          <p className="text-red-600">Error loading item. Please refresh the page.</p>
+                        </div>
+                      );
+                    }
+
+                    // MOQ & Stock for controls
+                    const moq = getMOQFromItem(item);
+                    const maxQty = getMaxQtyFromItem(item);
+                    const atMin = itemQuantity <= moq;
+                    const atMax = itemQuantity >= maxQty;
+
                     return (
                       <motion.div
                         key={uniqueKey}
@@ -183,41 +250,37 @@ const Cart: React.FC = () => {
                       >
                         <div className="flex items-center space-x-4">
                           {/* Product Image */}
-                          <div className="flex-shrink-0">
-                            {renderProductImage(item)}
-                          </div>
+                          <div className="flex-shrink-0">{renderProductImage(item)}</div>
 
                           {/* Product Details */}
                           <div className="flex-1 min-w-0">
-                            <h3 className="text-lg font-medium text-gray-900 truncate">
-                              {productName}
-                            </h3>
-                            {productCategory && (
-                              <p className="text-sm text-gray-500">{productCategory}</p>
-                            )}
-                            <p className="text-lg font-bold text-blue-600 mt-1">
-                              ₹{productPrice.toLocaleString()}
-                            </p>
+                            <h3 className="text-lg font-medium text-gray-900 truncate">{productName}</h3>
+                            {productCategory && <p className="text-sm text-gray-500">{productCategory}</p>}
+                            <p className="text-lg font-bold text-blue-600 mt-1">₹{productPrice.toLocaleString()}</p>
                           </div>
 
                           {/* Quantity Controls */}
                           <div className="flex items-center space-x-2">
                             <button
-                              onClick={() => handleQuantityUpdate(itemId, itemQuantity - 1)}
+                              type="button"
+                              onClick={() => handleQuantityUpdate(item, itemQuantity - 1)}
                               className="p-1 rounded-md hover:bg-gray-100 transition-colors disabled:opacity-50"
-                              disabled={isLoading}
+                              disabled={isLoading || atMin}
+                              aria-label="Decrease quantity"
+                              title={atMin ? undefined : 'Decrease'}
                             >
                               <Minus className="h-4 w-4" />
                             </button>
-                            
-                            <span className="mx-3 font-medium min-w-[2rem] text-center">
-                              {itemQuantity}
-                            </span>
-                            
+
+                            <span className="mx-3 font-medium min-w-[2rem] text-center">{itemQuantity}</span>
+
                             <button
-                              onClick={() => handleQuantityUpdate(itemId, itemQuantity + 1)}
+                              type="button"
+                              onClick={() => handleQuantityUpdate(item, itemQuantity + 1)}
                               className="p-1 rounded-md hover:bg-gray-100 transition-colors disabled:opacity-50"
-                              disabled={isLoading}
+                              disabled={isLoading || atMax}
+                              aria-label="Increase quantity"
+                              title={atMax ? undefined : 'Increase'}
                             >
                               <Plus className="h-4 w-4" />
                             </button>
@@ -232,6 +295,7 @@ const Cart: React.FC = () => {
 
                           {/* Remove Button */}
                           <button
+                            type="button"
                             onClick={() => handleRemoveItem(itemId)}
                             className="p-2 text-red-500 hover:bg-red-50 rounded-md transition-colors disabled:opacity-50"
                             disabled={isLoading}
@@ -240,6 +304,13 @@ const Cart: React.FC = () => {
                             <Trash2 className="h-4 w-4" />
                           </button>
                         </div>
+
+                        {/* MOQ guidance */}
+                        {moq > 1 && itemQuantity < moq ? (
+                          <p className="mt-2 text-xs text-amber-600">
+                            Minimum order quantity for this product is {moq}. Your quantity will be adjusted at checkout.
+                          </p>
+                        ) : null}
                       </motion.div>
                     );
                   })}
@@ -252,44 +323,44 @@ const Cart: React.FC = () => {
           <div className="lg:col-span-1">
             <div className="bg-white rounded-lg shadow-sm border p-6 sticky top-4">
               <h2 className="text-lg font-medium text-gray-900 mb-4">Order Summary</h2>
-              
+
               <div className="space-y-3">
                 <div className="flex justify-between">
                   <span className="text-gray-600">Subtotal</span>
                   <span className="font-medium">₹{getTotalPrice().toLocaleString()}</span>
                 </div>
-                
+
                 <div className="flex justify-between">
                   <span className="text-gray-600">Shipping</span>
                   <span className="font-medium text-green-600">Free</span>
                 </div>
-                
+
                 <div className="border-t pt-3">
                   <div className="flex justify-between">
                     <span className="text-lg font-medium text-gray-900">Total</span>
-                    <span className="text-lg font-bold text-gray-900">
-                      ₹{getTotalPrice().toLocaleString()}
-                    </span>
+                    <span className="text-lg font-bold text-gray-900">₹{getTotalPrice().toLocaleString()}</span>
                   </div>
                 </div>
               </div>
 
-              <button
-                onClick={handleCheckout}
-                disabled={isLoading}
-                className="w-full mt-6 bg-blue-600 text-white py-3 px-4 rounded-md hover:bg-blue-700 transition-colors font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {!user ? (
-                  <>
-                    Proceed to Checkout
-                    <span className="block text-sm text-blue-200 mt-1">
-                      (You'll be redirected to login first)
-                    </span>
-                  </>
-                ) : (
-                  'Proceed to Checkout'
-                )}
-              </button>
+              {/* ✅ Use Link so navigation cannot be blocked by disabled/onClick issues */}
+              {user ? (
+                <Link
+                  to="/checkout"
+                  className="w-full mt-6 block text-center bg-blue-600 text-white py-3 px-4 rounded-md hover:bg-blue-700 transition-colors font-medium"
+                >
+                  Proceed to Checkout
+                </Link>
+              ) : (
+                <Link
+                  to="/login"
+                  state={{ from: '/checkout' }}
+                  className="w-full mt-6 block text-center bg-blue-600 text-white py-3 px-4 rounded-md hover:bg-blue-700 transition-colors font-medium"
+                >
+                  Proceed to Checkout
+                  <span className="block text-sm text-blue-200 mt-1">(You'll be redirected to login first)</span>
+                </Link>
+              )}
 
               <div className="mt-4">
                 <Link
@@ -299,6 +370,9 @@ const Cart: React.FC = () => {
                   Continue Shopping
                 </Link>
               </div>
+
+              {/* If you insist on a button instead of Link, keep this as a fallback: */}
+              {/* <button type="button" onClick={handleCheckout} className="hidden" /> */}
             </div>
           </div>
         </div>
@@ -308,24 +382,14 @@ const Cart: React.FC = () => {
 };
 
 export default Cart;
-export const CartItemType = {
-  id: String,
-  name: String,
-  price: Number,
-  quantity: Number,
-  image: String,
-  category: String,
-  productId: {
-    _id: String,
-    name: String,
-    price: Number,
-    category: String,
-    image: String,
-    images: [String],
-  },
-};
 
-export type CartItemType = CartItem & {
+/* --------- Types cleanup ---------
+   Avoid exporting a const named CartItemType that shadows the TS type.
+   If you need a runtime schema, define it elsewhere or rename.
+----------------------------------- */
+
+// Helper type if you want stricter narrowing inside this file (optional)
+export type CartItemWithProduct = CartItem & {
   productId?: {
     _id?: string;
     id?: string;
@@ -334,5 +398,7 @@ export type CartItemType = CartItem & {
     category?: string;
     image?: string;
     images?: string[];
+    minOrderQty?: number;
+    stockQuantity?: number;
   };
-};    
+};

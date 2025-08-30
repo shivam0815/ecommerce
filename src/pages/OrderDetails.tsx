@@ -74,7 +74,18 @@ interface OrderDetails {
   cancelledAt?: string;
   createdAt: string;
   updatedAt: string;
+
+  // optional hints if you later switch to /orders/details/:orderId
+  canCancel?: boolean;
+  canTrack?: boolean;
 }
+
+type TimelineItem = {
+  status: string;
+  date?: string;
+  completed: boolean;
+  description: string;
+};
 
 const fade = {
   hidden: { opacity: 0, y: 14 },
@@ -88,7 +99,6 @@ const ORDER_FLOW: OrderDetails['status'][] = ['pending', 'confirmed', 'processin
 const toNum = (v: any) => {
   if (typeof v === 'number') return Number.isFinite(v) ? v : 0;
   if (typeof v === 'string') {
-    // remove currency symbols, commas, spaces, any non digit/.- chars
     const cleaned = v.replace(/[^\d.-]/g, '');
     const n = Number(cleaned);
     return Number.isFinite(n) ? n : 0;
@@ -121,38 +131,23 @@ function deriveBreakdown(o: OrderDetails) {
     toNum((o as any).vat);
   const totalKnown = toNum(o.total);
 
-  // If a percentage is provided (order or item-level), prefer that for tax
-  const taxRatePct =
-    toNum((o as any).taxRate) ||
-    toNum((o as any).gstPercent) ||
-    0;
-
+  const taxRatePct = toNum((o as any).taxRate) || toNum((o as any).gstPercent) || 0;
   if (taxKnown === 0 && taxRatePct > 0) {
     taxKnown = +(itemsSubtotal * (taxRatePct / 100)).toFixed(2);
   }
 
-  // If still missing, try to back-solve from total
   if (totalKnown > 0) {
-    // 1) have tax, missing shipping
     if (shippingKnown === 0 && taxKnown > 0) {
       const s = totalKnown - subtotal - taxKnown;
       shippingKnown = Math.max(0, +s.toFixed(2));
-    }
-    // 2) have shipping, missing tax
-    else if (taxKnown === 0 && shippingKnown > 0) {
+    } else if (taxKnown === 0 && shippingKnown > 0) {
       const t = totalKnown - subtotal - shippingKnown;
       taxKnown = Math.max(0, +t.toFixed(2));
-    }
-    // 3) both missing; assign entire remainder to shipping by default
-    else if (shippingKnown === 0 && taxKnown === 0) {
+    } else if (shippingKnown === 0 && taxKnown === 0) {
       const rest = totalKnown - subtotal;
-      // If a tax rate isn’t known, we can’t split confidently. Prefer “shipping = rest”.
       shippingKnown = Math.max(0, +rest.toFixed(2));
       taxKnown = 0;
-      // If you prefer a different rule, change here (e.g., try 18% tax if your store uses fixed GST).
     }
-  } else {
-    // No total given → rebuild total from parts we know
   }
 
   const total =
@@ -225,6 +220,11 @@ const OrderDetailsPage: React.FC = () => {
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
+  // track modal
+  const [showTrack, setShowTrack] = useState(false);
+  const [timeline, setTimeline] = useState<TimelineItem[] | null>(null);
+  const [busy, setBusy] = useState(false);
+
   useEffect(() => {
     if (orderId) fetchOrderDetails(orderId);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -245,7 +245,21 @@ const OrderDetailsPage: React.FC = () => {
       }
 
       if (orderData?._id) {
-        setOrder(orderData as OrderDetails);
+        // derive canCancel/canTrack if not present
+        const canCancel =
+          typeof orderData.canCancel === 'boolean'
+            ? orderData.canCancel
+            : ['pending', 'confirmed'].includes((orderData.status || orderData.orderStatus || '').toLowerCase());
+
+        const canTrack =
+          typeof orderData.canTrack === 'boolean'
+            ? orderData.canTrack
+            : Boolean(orderData.trackingUrl || orderData.trackingNumber) ||
+              ['shipped', 'out_for_delivery', 'delivered'].includes(
+                (orderData.status || orderData.orderStatus || '').toLowerCase()
+              );
+
+        setOrder({ ...orderData, canCancel, canTrack } as OrderDetails);
       } else {
         setError('Order not found - Invalid response format');
       }
@@ -259,6 +273,70 @@ const OrderDetailsPage: React.FC = () => {
   };
 
   const onPrint = () => window.print();
+
+  const handleTrack = async () => {
+    if (!order) return;
+    // open carrier link if provided
+    if (order.trackingUrl) {
+      window.open(order.trackingUrl, '_blank', 'noopener,noreferrer');
+      return;
+    }
+    try {
+      setBusy(true);
+      const { data } = await api.get(`/orders/track/${order._id}`);
+      if (data?.success) {
+        setTimeline(data.timeline || null);
+        setShowTrack(true);
+      } else {
+        alert(data?.message || 'Tracking not available yet.');
+      }
+    } catch (e: any) {
+      alert(e?.response?.data?.message || 'Failed to fetch tracking.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleCancel = async () => {
+    if (!order) return;
+    // guard
+    const canCancel =
+      (order as any).canCancel ??
+      ['pending', 'confirmed'].includes((order.status || order.orderStatus || '').toLowerCase());
+    if (!canCancel) {
+      alert('This order can no longer be cancelled.');
+      return;
+    }
+
+    const reason = prompt('Add a cancellation reason (optional):') || undefined;
+    if (!confirm('Are you sure you want to cancel this order?')) return;
+
+    try {
+      setBusy(true);
+      const { data } = await api.post(`/orders/${order._id}/cancel`, { reason });
+      if (data?.success) {
+        // reflect new state locally
+        setOrder((prev) =>
+          prev
+            ? {
+                ...prev,
+                status: 'cancelled',
+                orderStatus: 'cancelled',
+                cancelledAt: new Date().toISOString(),
+                canCancel: false,
+              }
+            : prev
+        );
+        alert('Order cancelled successfully.');
+      } else {
+        alert(data?.message || 'Could not cancel the order.');
+      }
+    } catch (e: any) {
+      alert(e?.response?.data?.message || 'Failed to cancel order.');
+    } finally {
+      setBusy(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -331,11 +409,25 @@ const OrderDetailsPage: React.FC = () => {
   }
 
   // Use robust derived values everywhere we show money
-  const breakdown = deriveBreakdown(order);
+// Use robust derived values everywhere we show money
+const breakdown = deriveBreakdown(order);
 
-  const isCancelled = order.status === 'cancelled';
-  const currentStep = isCancelled ? -1 : Math.max(0, ORDER_FLOW.indexOf(order.status));
-  const showTracking = order.trackingUrl || order.trackingNumber;
+const isCancelled = order.status === 'cancelled';
+const currentStep = isCancelled ? -1 : Math.max(0, ORDER_FLOW.indexOf(order.status));
+const showTracking = order.trackingUrl || order.trackingNumber;
+
+// normalize status once
+const statusKey = ((order.status ?? order.orderStatus) ?? '').toLowerCase();
+
+// ✅ OK: ?? only inside the parens; || is outside
+const canCancel =
+  (order as any).canCancel ??
+  ['pending', 'confirmed'].includes(statusKey);
+
+// ✅ OK: group (A ?? B) before using || C
+const canTrack =
+  ((order as any).canTrack ?? Boolean(order.trackingUrl || order.trackingNumber)) ||
+  ['shipped', 'out_for_delivery', 'delivered'].includes(statusKey);
 
   return (
     <div className="min-h-screen bg-gray-50 py-8 px-4">
@@ -375,9 +467,13 @@ const OrderDetailsPage: React.FC = () => {
                           Track package
                         </a>
                       ) : (
-                        <Link className="underline underline-offset-2" to={`/track-order/${order.trackingNumber}`}>
+                        <button
+                          type="button"
+                          onClick={handleTrack}
+                          className="underline underline-offset-2"
+                        >
                           Track package
-                        </Link>
+                        </button>
                       )}
                     </>
                   )}
@@ -385,17 +481,47 @@ const OrderDetailsPage: React.FC = () => {
               </div>
             </div>
 
-            <div className="flex items-center gap-2">
-              <button onClick={() => window.print()} className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 hover:bg-gray-50">
+            <div className="flex flex-wrap items-center gap-2">
+              <button onClick={onPrint} className="inline-flex items-center gap-2 px-3 py-2 rounded-lg border border-gray-200 hover:bg-gray-50">
                 <PrinterIcon className="w-4 h-4" />
                 <span className="text-sm font-medium">Print</span>
               </button>
+
               <button
                 onClick={() => navigate('/profile?tab=support')}
                 className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-gray-900 text-white hover:bg-black"
               >
                 <ChatBubbleLeftIcon className="w-4 h-4" />
                 <span className="text-sm font-medium">Support</span>
+              </button>
+
+              {/* NEW: Track + Cancel */}
+              <button
+                onClick={handleTrack}
+                disabled={busy || !canTrack}
+                className={clsx(
+                  'inline-flex items-center gap-2 px-3 py-2 rounded-lg border text-sm',
+                  canTrack ? 'border-gray-200 hover:bg-gray-50' : 'border-gray-200 opacity-50 cursor-not-allowed'
+                )}
+                title={canTrack ? 'Track order' : 'Tracking not available yet'}
+              >
+                <TruckIcon className="w-4 h-4" />
+                Track
+              </button>
+
+              <button
+                onClick={handleCancel}
+                disabled={busy || !canCancel}
+                className={clsx(
+                  'inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm',
+                  canCancel
+                    ? 'bg-rose-600 text-white hover:bg-rose-700'
+                    : 'bg-rose-600 text-white opacity-50 cursor-not-allowed'
+                )}
+                title={canCancel ? 'Cancel this order' : 'Order can no longer be cancelled'}
+              >
+                <XCircleIcon className="w-4 h-4" />
+                Cancel
               </button>
             </div>
           </div>
@@ -419,18 +545,22 @@ const OrderDetailsPage: React.FC = () => {
 
           <div className="mt-6">
             <div className="flex items-center gap-2 md:gap-3">
-              {isCancelled ? (
+              {order.status === 'cancelled' ? (
                 <div className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-rose-50 border border-rose-200 text-rose-700 text-sm">
                   <XCircleIcon className="w-4 h-4" />
                   Order cancelled {order.cancelledAt ? `on ${niceDate(order.cancelledAt)}` : ''}
                 </div>
               ) : (
                 ORDER_FLOW.map((s, i) => {
-                  const done = i <= currentStep;
+                  const done = i <= Math.max(0, ORDER_FLOW.indexOf(order.status));
                   return (
                     <div key={s} className="flex items-center gap-2">
-                      <div className={clsx('w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-semibold',
-                        done ? 'bg-gray-900 text-white' : 'bg-gray-200 text-gray-600')}>
+                      <div
+                        className={clsx(
+                          'w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-semibold',
+                          done ? 'bg-gray-900 text-white' : 'bg-gray-200 text-gray-600'
+                        )}
+                      >
                         {i + 1}
                       </div>
                       {i < ORDER_FLOW.length - 1 && (
@@ -458,7 +588,7 @@ const OrderDetailsPage: React.FC = () => {
               <h2 className="text-lg font-semibold text-gray-900">Items</h2>
             </div>
             <div className="text-right">
-              <div className="text-2xl font-semibold text-gray-900">{inr(breakdown.total)}</div>
+              <div className="text-2xl font-semibold text-gray-900">{inr(deriveBreakdown(order).total)}</div>
               <div className="text-xs text-gray-500 text-right">
                 {order.items?.length || 0} item{(order.items?.length || 0) > 1 ? 's' : ''}
               </div>
@@ -493,19 +623,19 @@ const OrderDetailsPage: React.FC = () => {
             <div className="space-y-2 text-sm">
               <div className="flex justify-between text-gray-600">
                 <span>Subtotal</span>
-                <span>{inr(breakdown.subtotal)}</span>
+                <span>{inr(deriveBreakdown(order).subtotal)}</span>
               </div>
               <div className="flex justify-between text-gray-600">
                 <span>Tax</span>
-                <span>{inr(breakdown.tax)}</span>
+                <span>{inr(deriveBreakdown(order).tax)}</span>
               </div>
               <div className="flex justify-between text-gray-600">
                 <span>Shipping</span>
-                <span>{inr(breakdown.shipping)}</span>
+                <span>{inr(deriveBreakdown(order).shipping)}</span>
               </div>
               <div className="flex justify-between text-base font-semibold text-gray-900 pt-2 border-t border-gray-100">
                 <span>Total</span>
-                <span>{inr(breakdown.total)}</span>
+                <span>{inr(deriveBreakdown(order).total)}</span>
               </div>
             </div>
           </div>
@@ -578,6 +708,40 @@ const OrderDetailsPage: React.FC = () => {
           </motion.div>
         </div>
       </div>
+
+      {/* Simple tracking modal */}
+      {showTrack && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4">
+          <div className="w-full max-w-lg rounded-xl bg-white p-5 shadow-lg">
+            <div className="flex items-center justify-between mb-2">
+              <div className="text-lg font-semibold text-gray-900">Tracking</div>
+              <button
+                className="text-gray-500 hover:text-gray-900"
+                onClick={() => setShowTrack(false)}
+                aria-label="Close tracking"
+              >
+                ✕
+              </button>
+            </div>
+            {!timeline || timeline.length === 0 ? (
+              <div className="text-sm text-gray-600">No tracking events yet.</div>
+            ) : (
+              <ol className="space-y-3">
+                {timeline.map((t, i) => (
+                  <li key={i} className="flex items-start gap-3">
+                    <div className={clsx('mt-1 w-2 h-2 rounded-full', t.completed ? 'bg-emerald-600' : 'bg-gray-300')} />
+                    <div className="text-sm">
+                      <div className="font-medium text-gray-900">{t.status}</div>
+                      <div className="text-gray-600">{t.description}</div>
+                      {t.date && <div className="text-xs text-gray-500 mt-0.5">{niceDate(t.date)}</div>}
+                    </div>
+                  </li>
+                ))}
+              </ol>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 };

@@ -12,7 +12,7 @@ const slides = [
     title: '46dB Neckband',
     subtitle: 'AirDopes Prime 701ANC',
     price: '₹2,199',
-    img: '/neck.png',
+    img: '/N-removebg-preview.png',
     cta: 'Shop Now',
     link: '/products',
     bg: 'bg-gradient-to-r from-gray-900 via-black to-gray-800',
