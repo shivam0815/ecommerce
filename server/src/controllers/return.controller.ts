@@ -36,6 +36,18 @@ type IncomingItem = {
   reason?: string;
 };
 
+
+const idStr = (v: any): string => {
+  if (!v) return '';
+  if (typeof v === 'string') return v;
+  if (typeof v === 'object') {
+    if (typeof v._id === 'string') return v._id;
+    if (v._id) return String(v._id);
+    if (v.id) return String(v.id);
+  }
+  try { return String(v); } catch { return ''; }
+};
+
 export const createReturnRequest = async (req: any, res: Response) => {
   try {
     // 1) Auth guard
@@ -89,48 +101,71 @@ export const createReturnRequest = async (req: any, res: Response) => {
     }
 
     // 4) Build items strictly from order data (do NOT trust client productId)
-    const orderItems: OrderItem[] = Array.isArray((order as any).items)
-      ? (order as any).items
-      : [];
+   // 4) Build items strictly from order data (robust productId matching)
+const orderItems: OrderItem[] = Array.isArray((order as any).items)
+  ? (order as any).items
+  : [];
 
-    const builtItems = itemsPayload.map((it) => {
-      const match = orderItems.find((oi) =>
-        it.orderItemId
-          ? String(oi._id ?? oi.id ?? '') === String(it.orderItemId)
-          : it.productId
-          ? String(oi.productId) === String(it.productId)
-          : false
-      );
+// index order items by normalized productId
+const productIndex = new Map<string, OrderItem[]>();
+for (const oi of orderItems) {
+  const pid = idStr((oi as any).productId);
+  if (!pid) continue;
+  const arr = productIndex.get(pid) || [];
+  arr.push(oi);
+  productIndex.set(pid, arr);
+}
 
-      if (!match) throw new Error('Invalid item in request');
+const builtItems = itemsPayload.map((it) => {
+  const wantedPid = idStr(it.productId);
+  if (!wantedPid) {
+    throw new Error('Missing productId in request item');
+  }
+  if (!Types.ObjectId.isValid(wantedPid)) {
+    throw new Error(`Invalid productId format: ${wantedPid}`);
+  }
 
-      const purchasedQty = Number(match.quantity || 1);
-      const reqQty = Number(it.quantity || 0);
-      if (!Number.isFinite(reqQty) || reqQty < 1 || reqQty > purchasedQty) {
-        throw new Error('Invalid quantity');
-      }
+  // candidates for this product in the order
+  const candidates = productIndex.get(wantedPid) || [];
 
-      // Ensure a valid ObjectId for productId from the ORDER (not the client)
-      const rawPid = String((match as any).productId);
-      if (!Types.ObjectId.isValid(rawPid)) {
-        throw new Error('Invalid productId stored on order');
-      }
+  // if orderItemId is provided, prefer exact row; otherwise take first candidate
+  const match = it.orderItemId
+    ? candidates.find((oi) => idStr((oi as any)._id ?? (oi as any).id) === String(it.orderItemId))
+    : candidates[0];
 
-      // Price snapshot: prefer `price` then `unitPrice`, else 0
-      const unitPrice = Number((match as any).price ?? (match as any).unitPrice ?? 0);
-      if (!Number.isFinite(unitPrice)) {
-        throw new Error('Invalid price on order item');
-      }
+  if (!match) {
+    // better error to debug: tell which product wasn’t found
+    throw new Error(`Item not found on order for productId ${wantedPid}`);
+  }
 
-      return {
-        productId: new Types.ObjectId(rawPid),
-        orderItemId: (match as any)._id ?? (match as any).id,
-        name: match.name,
-        quantity: reqQty,
-        unitPrice,
-        reason: it.reason,
-      };
-    });
+  const purchasedQty = Number((match as any).quantity || 1);
+  const reqQty = Number(it.quantity || 0);
+  if (!Number.isFinite(reqQty) || reqQty < 1) {
+    throw new Error('Invalid quantity');
+  }
+  if (reqQty > purchasedQty) {
+    throw new Error(`Requested quantity (${reqQty}) exceeds purchased (${purchasedQty})`);
+  }
+
+  const rawPid = idStr((match as any).productId);
+  // enforce using the order’s productId (trusted source)
+  const productIdObj = new Types.ObjectId(rawPid);
+
+  const unitPrice = Number((match as any).price ?? (match as any).unitPrice ?? 0);
+  if (!Number.isFinite(unitPrice) || unitPrice < 0) {
+    throw new Error('Invalid price on order item');
+  }
+
+  return {
+    productId: productIdObj,
+    orderItemId: (match as any)._id ?? (match as any).id,
+    name: (match as any).name,
+    quantity: reqQty,
+    unitPrice,
+    reason: it.reason,
+  };
+});
+
 
     const refundAmount = builtItems.reduce(
       (sum, it: any) => sum + Number(it.unitPrice || 0) * Number(it.quantity || 0),

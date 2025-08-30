@@ -6,7 +6,10 @@ import {
   updateOrderStatus,
   getAllOrders,
   getOrderDetails,
-  getOrderByIdAdmin,         // <-- add this export in your controller (shown below)
+  getOrderByIdAdmin,
+  // ⬇️ make sure these two are exported from your controller file
+  cancelOrder,
+  trackOrder,
 } from '../controllers/orderController';
 import { authenticate, authorize } from '../middleware/auth';
 
@@ -16,9 +19,7 @@ const router = express.Router();
  * Admin routes FIRST (and specific) – so they don't get captured by /:id
  */
 router.get('/admin/all', authenticate, authorize(['admin', 'super_admin']), getAllOrders);
-// routes/orders.ts
-router.get('/admin/:id', authenticate, authorize(['admin','super_admin']), getOrderByIdAdmin);
-
+router.get('/admin/:id', authenticate, authorize(['admin', 'super_admin']), getOrderByIdAdmin);
 router.put('/:id/status', authenticate, authorize(['admin', 'super_admin']), updateOrderStatus);
 
 /**
@@ -27,8 +28,17 @@ router.put('/:id/status', authenticate, authorize(['admin', 'super_admin']), upd
 router.post('/', authenticate, createOrder);
 router.get('/', authenticate, getOrders);
 
-// Use a different path for the “details” version since the controller expects :orderId
+// Details expects :orderId (per your controller)
 router.get('/details/:orderId', authenticate, getOrderDetails);
+
+/**
+ * NEW: Track + Cancel
+ * - Track also expects :orderId (matches your controller)
+ * - Cancel expects :id (matches your controller)
+ * Keep these ABOVE '/:id' so the generic matcher doesn't swallow them.
+ */
+router.get('/track/:orderId', authenticate, trackOrder);
+router.post('/:id/cancel', authenticate, cancelOrder);
 
 // Keep this LAST so it doesn’t shadow the others
 router.get('/:id', authenticate, getOrder);
