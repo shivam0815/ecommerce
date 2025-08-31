@@ -74,7 +74,7 @@ const slides: Slide[] = [
   
 ];
 
-const HeroSlider: React.FC = () => {
+const PdBan: React.FC = () => {
   return (
     <section className="w-full relative">
       <Swiper
@@ -149,4 +149,4 @@ const HeroSlider: React.FC = () => {
   );
 };
 
-export default HeroSlider;
+export default PdBan;

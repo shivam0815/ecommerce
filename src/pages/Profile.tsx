@@ -24,7 +24,7 @@ import {
   DocumentTextIcon,
 } from '@heroicons/react/24/solid';
 
-import SettingsTab from '../components/Layout/SettingsTab';
+
 import NotificationCenter from '../components/Layout/NotificationCenter';
 import HelpSupport from '../components/Layout/HelpSupport';
 import FAQs from '../components/Layout/FAQs';
@@ -147,7 +147,7 @@ const Profile: React.FC = () => {
   const [ordersLoading, setOrdersLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<
-    'profile' | 'orders' | 'settings' | 'security' | 'notifications' | 'support' | 'faqs' | 'terms' | 'returns'
+    'profile' | 'orders' |  'security' | 'notifications' | 'support' | 'faqs' | 'terms' | 'returns'
   >('profile');
   const [orderFilter, setOrderFilter] = useState<'all' | 'pending' | 'completed'>('all');
   const [isUpdating, setIsUpdating] = useState(false);
@@ -338,7 +338,7 @@ const Profile: React.FC = () => {
                   { id: 'orders', label: 'Orders', icon: <ShoppingBagIcon className="w-4 h-4" /> },
                   { id: 'returns', label: 'Returns', icon: <ArrowPathIcon className="w-4 h-4" /> }, // NEW
                   { id: 'notifications', label: 'Notifications', icon: <BellIcon className="w-4 h-4" /> },
-                  { id: 'settings', label: 'Settings', icon: <Cog6ToothIcon className="w-4 h-4" /> },
+                 
                   { id: 'support', label: 'Help & Support', icon: <LifebuoyIcon className="w-4 h-4" /> },
                   { id: 'faqs', label: 'FAQs', icon: <QuestionMarkCircleIcon className="w-4 h-4" /> },
                   { id: 'terms', label: 'Terms', icon: <DocumentTextIcon className="w-4 h-4" /> },
@@ -402,11 +402,7 @@ const Profile: React.FC = () => {
                   </motion.div>
                 )}
 
-                {activeTab === 'settings' && (
-                  <motion.div key="settings" variants={fade} initial="hidden" animate="visible" exit="exit">
-                    <SettingsTab user={user} onUpdate={updateUserProfile} />
-                  </motion.div>
-                )}
+               
 
                 {activeTab === 'support' && (
                   <motion.div key="support" variants={fade} initial="hidden" animate="visible" exit="exit">

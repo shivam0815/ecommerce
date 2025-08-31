@@ -1,15 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import {
-  ShoppingCart,
-  User,
-  Search,
-  Menu,
-  X,
-  Heart,
-  Loader2
-} from 'lucide-react';
+import { ShoppingCart, User, Search, Menu, X, Heart, Loader2 } from 'lucide-react';
 
 import { useCart } from '../../hooks/useCart';
 import { useAuth } from '../../hooks/useAuth';
@@ -34,15 +26,12 @@ const CATEGORIES = [
   { label: 'Earphone', slug: 'earphone' },
 ];
 
-// Use /products?category=<slug>
 const categoryUrl = (slug: string) => `/products?category=${encodeURIComponent(slug)}`;
-// If you prefer /categories/:slug, use:
-// const categoryUrl = (slug: string) => `/categories/${encodeURIComponent(slug)}`;
 
 const Header: React.FC = () => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isSearchOpen, setIsSearchOpen] = useState(false);
-  const [isCategoriesOpen, setIsCategoriesOpen] = useState(false); // desktop hover + mobile accordion
+  const [isCategoriesOpen, setIsCategoriesOpen] = useState(false);
 
   const [searchTerm, setSearchTerm] = useState('');
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
@@ -59,7 +48,7 @@ const Header: React.FC = () => {
   const searchResultsRef = useRef<HTMLDivElement>(null);
   const categoriesRef = useRef<HTMLDivElement>(null);
 
-  // Reflect token set by OAuth immediately
+  // reflect OAuth token
   useEffect(() => {
     const onStorage = (e: StorageEvent) => {
       if (e.key === 'nakoda-token') window.location.reload();
@@ -68,12 +57,11 @@ const Header: React.FC = () => {
     return () => window.removeEventListener('storage', onStorage);
   }, []);
 
-  // Debounced search
+  // debounce search
   useEffect(() => {
     const t = setTimeout(() => {
-      if (searchTerm.trim().length > 2) {
-        void performSearch(searchTerm);
-      } else {
+      if (searchTerm.trim().length > 2) void performSearch(searchTerm);
+      else {
         setSearchResults([]);
         setShowResults(false);
       }
@@ -81,7 +69,6 @@ const Header: React.FC = () => {
     return () => clearTimeout(t);
   }, [searchTerm]);
 
-  // Search API call
   const performSearch = async (query: string) => {
     setIsSearching(true);
     try {
@@ -102,7 +89,6 @@ const Header: React.FC = () => {
     }
   };
 
-  // Search handlers
   const handleSearchChange = (value: string) => {
     setSearchTerm(value);
     if (desktopSearchRef.current) desktopSearchRef.current.value = value;
@@ -125,7 +111,7 @@ const Header: React.FC = () => {
     setSearchTerm('');
   };
 
-  // Close popovers on outside click
+  // close popovers on outside click
   useEffect(() => {
     const onDocClick = (ev: MouseEvent) => {
       if (searchResultsRef.current && !searchResultsRef.current.contains(ev.target as Node)) {
@@ -139,7 +125,6 @@ const Header: React.FC = () => {
     return () => document.removeEventListener('mousedown', onDocClick);
   }, []);
 
-  // Nav items excluding Categories (handled separately)
   const navItems = [
     { name: 'Home', path: '/' },
     { name: 'Shop Now', path: '/products' },
@@ -151,164 +136,148 @@ const Header: React.FC = () => {
   return (
     <header className="bg-white shadow-lg sticky top-0 z-50">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        {/* Top Row */}
-        <div className="flex items-center justify-between h-16">
+        {/* Top Row: 3 columns => logo | nav+search (grows) | right actions */}
+        <div className="grid grid-cols-[auto,1fr,auto] items-center h-16 gap-4">
           {/* Logo */}
           <Link to="/" className="flex items-center space-x-2">
-            <motion.div
-              whileHover={{ rotate: 360 }}
-              transition={{ duration: 0.5 }}
-              className="p-1 rounded-lg"
-            >
-              <img
-                src="/nakodalogo.png"
-                alt="Logo"
-                className="w-auto h-10 object-contain"
-              />
+            <motion.div whileHover={{ rotate: 360 }} transition={{ duration: 0.5 }} className="p-1 rounded-lg">
+              <img src="/nakodalogo.png" alt="Logo" className="w-auto h-10 object-contain" />
             </motion.div>
           </Link>
 
-          {/* Desktop Nav */}
-          <nav className="hidden md:flex items-center space-x-6">
-            {navItems.map((item) => (
-              <Link
-                key={item.name}
-                to={item.path}
-                className="text-gray-700 hover:text-blue-600 transition-colors duration-200 font-medium"
-              >
-                {item.name}
-              </Link>
-            ))}
-
-            {/* Categories (desktop hover) */}
-            <div
-              ref={categoriesRef}
-              className="relative"
-              onMouseEnter={() => setIsCategoriesOpen(true)}
-              onMouseLeave={() => setIsCategoriesOpen(false)}
-            >
-              <button
-                className="text-gray-700 hover:text-blue-600 transition-colors duration-200 font-medium inline-flex items-center gap-1"
-                aria-haspopup="true"
-                aria-expanded={isCategoriesOpen}
-                onFocus={() => setIsCategoriesOpen(true)}
-              >
-                Categories
-                <motion.span
-                  animate={{ rotate: isCategoriesOpen ? 180 : 0 }}
-                  className="inline-block"
+          {/* Desktop: nav + wide search */}
+          <div className="hidden md:flex items-center gap-5 min-w-0">
+            {/* Nav */}
+            <nav className="flex items-center gap-6 shrink-0">
+              {navItems.map((item) => (
+                <Link
+                  key={item.name}
+                  to={item.path}
+                  className="text-gray-700 hover:text-blue-600 transition-colors duration-200 font-medium"
                 >
-                  ▾
-                </motion.span>
-              </button>
+                  {item.name}
+                </Link>
+              ))}
 
+              {/* Categories (desktop hover) */}
+              <div
+                ref={categoriesRef}
+                className="relative"
+                onMouseEnter={() => setIsCategoriesOpen(true)}
+                onMouseLeave={() => setIsCategoriesOpen(false)}
+              >
+                <button
+                  className="text-gray-700 hover:text-blue-600 transition-colors duration-200 font-medium inline-flex items-center gap-1"
+                  aria-haspopup="true"
+                  aria-expanded={isCategoriesOpen}
+                  onFocus={() => setIsCategoriesOpen(true)}
+                >
+                  Categories
+                  <motion.span animate={{ rotate: isCategoriesOpen ? 180 : 0 }} className="inline-block">▾</motion.span>
+                </button>
+
+                <AnimatePresence>
+                  {isCategoriesOpen && (
+                    <motion.div
+                      initial={{ opacity: 0, y: 8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      exit={{ opacity: 0, y: 8 }}
+                      transition={{ duration: 0.15 }}
+                      className="absolute left-1/2 -translate-x-1/2 top-full mt-3 w-[620px] bg-white border border-gray-200 rounded-2xl shadow-xl p-4 grid grid-cols-2 gap-2"
+                      role="menu"
+                    >
+                      {CATEGORIES.map((c) => (
+                        <Link
+                          key={c.slug}
+                          to={categoryUrl(c.slug)}
+                          className="flex items-center justify-between rounded-xl px-4 py-3 hover:bg-gray-50"
+                          onClick={() => setIsCategoriesOpen(false)}
+                          role="menuitem"
+                        >
+                          <span className="text-gray-800 font-medium">{c.label}</span>
+                          <span className="text-xs text-blue-600">Explore →</span>
+                        </Link>
+                      ))}
+                      <div className="col-span-2 mt-1">
+                        <Link
+                          to="/categories"
+                          className="block text-center w-full border border-gray-200 hover:border-blue-600 hover:text-blue-700 rounded-xl py-2 text-sm font-medium"
+                          onClick={() => setIsCategoriesOpen(false)}
+                        >
+                          View all categories
+                        </Link>
+                      </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
+            </nav>
+
+            {/* WIDE Desktop Search (grows) */}
+            <div className="relative flex-1 max-w-2xl xl:max-w-3xl 2xl:max-w-4xl" ref={searchResultsRef}>
+              <form onSubmit={handleSearchSubmit} className="relative">
+                <input
+                  ref={desktopSearchRef}
+                  type="text"
+                  placeholder="Search products…"
+                  value={searchTerm}
+                  onChange={(e) => handleSearchChange(e.target.value)}
+                  className="w-full pl-11 pr-4 py-2.5 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                />
+                <button type="submit" className="absolute left-3 top-1/2 -translate-y-1/2">
+                  {isSearching ? (
+                    <Loader2 className="h-5 w-5 text-gray-400 animate-spin" />
+                  ) : (
+                    <Search className="h-5 w-5 text-gray-400" />
+                  )}
+                </button>
+              </form>
+
+              {/* Desktop Search Results (match input width) */}
               <AnimatePresence>
-                {isCategoriesOpen && (
+                {showResults && searchResults.length > 0 && (
                   <motion.div
-                    initial={{ opacity: 0, y: 8 }}
+                    initial={{ opacity: 0, y: -10 }}
                     animate={{ opacity: 1, y: 0 }}
-                    exit={{ opacity: 0, y: 8 }}
-                    transition={{ duration: 0.15 }}
-                    className="absolute left-1/2 -translate-x-1/2 top-full mt-3 w-[620px] bg-white border border-gray-200 rounded-2xl shadow-xl p-4 grid grid-cols-2 gap-2"
-                    role="menu"
+                    exit={{ opacity: 0, y: -10 }}
+                    className="absolute top-full left-0 right-0 mt-2 bg-white border rounded-lg shadow-lg max-h-96 overflow-y-auto z-50"
                   >
-                    {CATEGORIES.map((c) => (
-                      <Link
-                        key={c.slug}
-                        to={categoryUrl(c.slug)}
-                        className="flex items-center justify-between rounded-xl px-4 py-3 hover:bg-gray-50"
-                        onClick={() => setIsCategoriesOpen(false)}
-                        role="menuitem"
+                    {searchResults.slice(0, 8).map((result) => (
+                      <div
+                        key={result.id}
+                        onClick={() => handleResultClick(result.id)}
+                        className="flex items-center p-3 hover:bg-gray-50 cursor-pointer border-b last:border-b-0"
                       >
-                        <span className="text-gray-800 font-medium">{c.label}</span>
-                        <span className="text-xs text-blue-600">Explore →</span>
-                      </Link>
+                        <img src={result.image} alt={result.name} className="w-12 h-12 object-cover rounded-md mr-3" />
+                        <div className="flex-1">
+                          <h4 className="text-sm font-medium text-gray-900 truncate">{result.name}</h4>
+                          <p className="text-xs text-gray-500">{result.category}</p>
+                          <p className="text-sm font-semibold text-blue-600">₹{result.price.toLocaleString()}</p>
+                        </div>
+                      </div>
                     ))}
-                    <div className="col-span-2 mt-1">
-                      <Link
-                        to="/categories"
-                        className="block text-center w-full border border-gray-200 hover:border-blue-600 hover:text-blue-700 rounded-xl py-2 text-sm font-medium"
-                        onClick={() => setIsCategoriesOpen(false)}
-                      >
-                        View all categories
-                      </Link>
-                    </div>
+                    {searchResults.length > 8 && (
+                      <div className="p-3 text-center border-t">
+                        <button
+                          onClick={() => {
+                            navigate(`/search?q=${encodeURIComponent(searchTerm)}`);
+                            setShowResults(false);
+                          }}
+                          className="text-blue-600 hover:text-blue-800 text-sm font-medium"
+                        >
+                          View all {searchResults.length} results
+                        </button>
+                      </div>
+                    )}
                   </motion.div>
                 )}
               </AnimatePresence>
             </div>
-          </nav>
-
-          {/* Desktop Search */}
-          <div className="hidden lg:flex items-center relative" ref={searchResultsRef}>
-            <form onSubmit={handleSearchSubmit} className="relative">
-              <input
-                ref={desktopSearchRef}
-                type="text"
-                placeholder="Search products..."
-                value={searchTerm}
-                onChange={(e) => handleSearchChange(e.target.value)}
-                className="w-64 pl-10 pr-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-              />
-              <button type="submit" className="absolute left-3 top-2.5">
-                {isSearching ? (
-                  <Loader2 className="h-5 w-5 text-gray-400 animate-spin" />
-                ) : (
-                  <Search className="h-5 w-5 text-gray-400" />
-                )}
-              </button>
-            </form>
-
-            {/* Desktop Search Results */}
-            <AnimatePresence>
-              {showResults && searchResults.length > 0 && (
-                <motion.div
-                  initial={{ opacity: 0, y: -10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: -10 }}
-                  className="absolute top-full left-0 w-full mt-2 bg-white border rounded-lg shadow-lg max-h-96 overflow-y-auto z-50"
-                >
-                  {searchResults.slice(0, 8).map((result) => (
-                    <div
-                      key={result.id}
-                      onClick={() => handleResultClick(result.id)}
-                      className="flex items-center p-3 hover:bg-gray-50 cursor-pointer border-b last:border-b-0"
-                    >
-                      <img
-                        src={result.image}
-                        alt={result.name}
-                        className="w-12 h-12 object-cover rounded-md mr-3"
-                      />
-                      <div className="flex-1">
-                        <h4 className="text-sm font-medium text-gray-900 truncate">{result.name}</h4>
-                        <p className="text-xs text-gray-500">{result.category}</p>
-                        <p className="text-sm font-semibold text-blue-600">
-                          ₹{result.price.toLocaleString()}
-                        </p>
-                      </div>
-                    </div>
-                  ))}
-                  {searchResults.length > 8 && (
-                    <div className="p-3 text-center border-t">
-                      <button
-                        onClick={() => {
-                          navigate(`/search?q=${encodeURIComponent(searchTerm)}`);
-                          setShowResults(false);
-                        }}
-                        className="text-blue-600 hover:text-blue-800 text-sm font-medium"
-                      >
-                        View all {searchResults.length} results
-                      </button>
-                    </div>
-                  )}
-                </motion.div>
-              )}
-            </AnimatePresence>
           </div>
 
-          {/* Right Actions */}
-          <div className="flex items-center space-x-4">
-            {/* Mobile Search */}
+          {/* Right actions (always pinned to far right) */}
+          <div className="flex items-center justify-self-end space-x-3 sm:space-x-4">
+            {/* Mobile Search toggle */}
             <button
               onClick={() => setIsSearchOpen(!isSearchOpen)}
               className="lg:hidden p-2 text-gray-700 hover:text-blue-600"
@@ -336,21 +305,18 @@ const Header: React.FC = () => {
               )}
             </Link>
 
-            {/* User Menu */}
+            {/* Account */}
             {user ? (
               <div className="relative group">
                 <button className="flex items-center space-x-2 p-2 text-gray-700 hover:text-blue-600">
                   <User className="h-5 w-5" />
                   <span className="hidden sm:block">{user.name}</span>
                 </button>
-                <div className="absolute right-0 mt-2 w-48 bg-white rounded-lg shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200">
-                  <Link to="/profile" className="block px-4 py-2 text-gray-700 hover:bg-gray-100">
-                    Profile
-                  </Link>
-                  <button
-                    onClick={logout}
-                    className="block w-full text-left px-4 py-2 text-gray-700 hover:bg-gray-100"
-                  >
+                <div className="absolute right-0 mt-2 w-52 bg-white rounded-lg shadow-lg opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200">
+                  <Link to="/profile" className="block px-4 py-2 text-gray-700 hover:bg-gray-100">Profile</Link>
+                 
+                  
+                  <button onClick={logout} className="block w-full text-left px-4 py-2 text-gray-700 hover:bg-gray-100">
                     Logout
                   </button>
                 </div>
@@ -364,7 +330,7 @@ const Header: React.FC = () => {
               </Link>
             )}
 
-            {/* Mobile Menu Button */}
+            {/* Mobile menu toggle */}
             <button
               onClick={() => {
                 setIsMenuOpen((v) => !v);
@@ -405,7 +371,7 @@ const Header: React.FC = () => {
                 </button>
               </form>
 
-              {/* Mobile Search Results */}
+              {/* Mobile results */}
               <AnimatePresence>
                 {showResults && searchResults.length > 0 && (
                   <motion.div
@@ -420,16 +386,10 @@ const Header: React.FC = () => {
                         onClick={() => handleResultClick(result.id)}
                         className="flex items-center p-3 hover:bg-gray-50 cursor-pointer border-b last:border-b-0"
                       >
-                        <img
-                          src={result.image}
-                          alt={result.name}
-                          className="w-10 h-10 object-cover rounded-md mr-3"
-                        />
+                        <img src={result.image} alt={result.name} className="w-10 h-10 object-cover rounded-md mr-3" />
                         <div className="flex-1">
                           <h4 className="text-sm font-medium text-gray-900 truncate">{result.name}</h4>
-                          <p className="text-sm font-semibold text-blue-600">
-                            ₹{result.price.toLocaleString()}
-                          </p>
+                          <p className="text-sm font-semibold text-blue-600">₹{result.price.toLocaleString()}</p>
                         </div>
                       </div>
                     ))}
@@ -450,23 +410,10 @@ const Header: React.FC = () => {
               className="md:hidden py-3 border-t"
             >
               <nav className="flex flex-col space-y-2">
-                <Link
-                  to="/"
-                  className="px-3 py-2 text-gray-700 hover:text-blue-600 hover:bg-gray-100 rounded-lg transition-colors duration-200"
-                  onClick={() => setIsMenuOpen(false)}
-                >
-                  Home
-                </Link>
+                <Link to="/" className="px-3 py-2 text-gray-700 hover:text-blue-600 hover:bg-gray-100 rounded-lg" onClick={() => setIsMenuOpen(false)}>Home</Link>
+                <Link to="/products" className="px-3 py-2 text-gray-700 hover:text-blue-600 hover:bg-gray-100 rounded-lg" onClick={() => setIsMenuOpen(false)}>Shop Now</Link>
 
-                <Link
-                  to="/products"
-                  className="px-3 py-2 text-gray-700 hover:text-blue-600 hover:bg-gray-100 rounded-lg transition-colors duration-200"
-                  onClick={() => setIsMenuOpen(false)}
-                >
-                  Shop Now
-                </Link>
-
-                {/* Categories (mobile accordion) */}
+                {/* Categories accordion */}
                 <div className="border border-gray-200 rounded-lg overflow-hidden">
                   <button
                     className="w-full flex items-center justify-between px-3 py-2 text-gray-700"
@@ -485,20 +432,11 @@ const Header: React.FC = () => {
                         className="bg-white"
                       >
                         {CATEGORIES.map((c) => (
-                          <Link
-                            key={c.slug}
-                            to={categoryUrl(c.slug)}
-                            onClick={() => setIsMenuOpen(false)}
-                            className="block px-4 py-2 hover:bg-gray-50"
-                          >
+                          <Link key={c.slug} to={categoryUrl(c.slug)} onClick={() => setIsMenuOpen(false)} className="block px-4 py-2 hover:bg-gray-50">
                             {c.label}
                           </Link>
                         ))}
-                        <Link
-                          to="/categories"
-                          onClick={() => setIsMenuOpen(false)}
-                          className="block px-4 py-2 text-blue-600 font-medium hover:bg-blue-50"
-                        >
+                        <Link to="/categories" onClick={() => setIsMenuOpen(false)} className="block px-4 py-2 text-blue-600 font-medium hover:bg-blue-50">
                           View all categories
                         </Link>
                       </motion.div>
@@ -506,29 +444,9 @@ const Header: React.FC = () => {
                   </AnimatePresence>
                 </div>
 
-                <Link
-                  to="/oem"
-                  className="px-3 py-2 text-gray-700 hover:text-blue-600 hover:bg-gray-100 rounded-lg transition-colors duration-200"
-                  onClick={() => setIsMenuOpen(false)}
-                >
-                  OEM Services
-                </Link>
-
-                <Link
-                  to="/contact"
-                  className="px-3 py-2 text-gray-700 hover:text-blue-600 hover:bg-gray-100 rounded-lg transition-colors duration-200"
-                  onClick={() => setIsMenuOpen(false)}
-                >
-                  Contact
-                </Link>
-
-                <Link
-                  to="/blog"
-                  className="px-3 py-2 text-gray-700 hover:text-blue-600 hover:bg-gray-100 rounded-lg transition-colors duration-200"
-                  onClick={() => setIsMenuOpen(false)}
-                >
-                  Blog
-                </Link>
+                <Link to="/oem" className="px-3 py-2 text-gray-700 hover:text-blue-600 hover:bg-gray-100 rounded-lg" onClick={() => setIsMenuOpen(false)}>OEM Services</Link>
+                <Link to="/contact" className="px-3 py-2 text-gray-700 hover:text-blue-600 hover:bg-gray-100 rounded-lg" onClick={() => setIsMenuOpen(false)}>Contact</Link>
+                <Link to="/blog" className="px-3 py-2 text-gray-700 hover:text-blue-600 hover:bg-gray-100 rounded-lg" onClick={() => setIsMenuOpen(false)}>Blog</Link>
               </nav>
             </motion.div>
           )}

@@ -190,6 +190,7 @@ productSchema.pre('save', function (next) {
   this.inStock = (this.stockQuantity || 0) > 0;
   next();
 });
+productSchema.index({ name: 'text', category: 'text', brand: 'text' });
 
 /** 🆕 virtual: effective MOQ visible to API & client */
 productSchema.virtual('minOrderQty').get(function (this: IProduct) {

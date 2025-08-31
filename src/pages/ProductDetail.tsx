@@ -26,6 +26,7 @@ import toast from 'react-hot-toast';
 import SEO from '../components/Layout/SEO';
 import Reviews from '../components/Layout/Reviews';
 import { reviewsService } from '../services/reviewsService';
+import Breadcrumbs from './Breadcrumbs';
 
 /* ------------------------- MOQ + MAX helpers ------------------------- */
 const MAX_PER_LINE = 50;
@@ -516,13 +517,14 @@ const ProductDetail: React.FC = () => {
     <div className="min-h-screen bg-gray-50 py-8">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         {/* Breadcrumb */}
-        <nav className="flex items-center space-x-2 text-sm text-gray-600 mb-6">
-          <Link to="/" className="hover:text-gray-900">Home</Link>
-          <span>/</span>
-          <Link to="/products" className="hover:text-gray-900">Products</Link>
-          <span>/</span>
-          <span className="text-gray-900">{product.name}</span>
-        </nav>
+       <Breadcrumbs
+  items={[
+    { label: "Home", to: "/" },
+    { label: "Products", to: "/products" },
+    { label: product.name } // current page (no link)
+  ]}
+/>
+
 
         <div className="bg-white rounded-xl shadow-lg overflow-hidden">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 p-6">
@@ -642,92 +644,113 @@ const ProductDetail: React.FC = () => {
               )}
 
               {/* Actions */}
-              <div className="flex space-x-4">
-                <motion.button
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                  onClick={handleAddToCart}
-                  disabled={!(product as any).inStock || isLoading}
-                  className={`flex-1 flex items-center justify-center space-x-2 py-3 px-6 rounded-lg font-medium transition-all duration-200 ${
-                    (product as any).inStock && !isLoading ? 'bg-blue-600 text-white hover:bg-blue-700 shadow-md hover:shadow-lg' : 'bg-gray-300 text-gray-500 cursor-not-allowed'
-                  }`}
-                >
-                  <ShoppingCart className="h-5 w-5" />
-                  <span>{!(product as any).inStock ? 'Out of Stock' : isLoading ? 'Adding...' : 'Add to Cart'}</span>
-                </motion.button>
+              {/* Actions — single row on all breakpoints */}
+<div className="flex items-stretch gap-2 sm:gap-3">
+  {/* Add to Cart */}
+  <motion.button
+    whileHover={{ scale: 1.02 }}
+    whileTap={{ scale: 0.98 }}
+    onClick={handleAddToCart}
+    disabled={!(product as any).inStock || isLoading}
+    className={`flex-1 sm:flex-none sm:min-w-[168px] h-12 sm:h-11 px-4 rounded-lg font-medium
+      inline-flex items-center justify-center gap-2 transition-all duration-200
+      ${
+        (product as any).inStock && !isLoading
+          ? 'bg-blue-600 text-white hover:bg-blue-700 shadow-md hover:shadow-lg'
+          : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+      }`}
+    aria-label="Add to Cart"
+  >
+    <ShoppingCart className="h-5 w-5" />
+    <span className="whitespace-nowrap text-sm sm:text-base">
+      {!(product as any).inStock ? 'Out of Stock' : isLoading ? 'Adding...' : 'Add to Cart'}
+    </span>
+  </motion.button>
 
-                <motion.button
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                  onClick={async () => {
-                    try {
-                      const pid = (product as any)._id || (product as any).id;
-                      const finalQty = Math.max(
-                        moq,
-                        Math.min(
-                          Math.min(MAX_PER_LINE, Number((product as any).stockQuantity ?? MAX_PER_LINE) || MAX_PER_LINE),
-                          quantity
-                        )
-                      );
-                      await addToCart(pid, finalQty);
-                      navigate('/cart');
-                    } catch (e: any) {
-                      toast.error(e?.message || 'Could not proceed to checkout');
-                    }
-                  }}
-                  disabled={!(product as any).inStock || isLoading}
-                  className="flex-1 flex items-center justify-center space-x-2 py-3 px-6 rounded-lg font-medium bg-gray-900 text-white hover:bg-black disabled:opacity-60"
-                >
-                  <CreditCard className="h-5 w-5" />
-                  <span>Buy Now</span>
-                </motion.button>
+  {/* Buy Now */}
+  <motion.button
+    whileHover={{ scale: 1.05 }}
+    whileTap={{ scale: 0.95 }}
+    onClick={async () => {
+      try {
+        const pid = (product as any)._id || (product as any).id;
+        const finalQty = Math.max(
+          moq,
+          Math.min(
+            Math.min(MAX_PER_LINE, Number((product as any).stockQuantity ?? MAX_PER_LINE) || MAX_PER_LINE),
+            quantity
+          )
+        );
+        await addToCart(pid, finalQty);
+        navigate('/cart');
+      } catch (e: any) {
+        toast.error(e?.message || 'Could not proceed to checkout');
+      }
+    }}
+    disabled={!(product as any).inStock || isLoading}
+    className="flex-1 sm:flex-none sm:min-w-[168px] h-12 sm:h-11 px-4 rounded-lg font-medium
+               inline-flex items-center justify-center gap-2 bg-gray-900 text-white hover:bg-black
+               disabled:opacity-60"
+    aria-label="Buy Now"
+  >
+    <CreditCard className="h-5 w-5" />
+    <span className="whitespace-nowrap text-sm sm:text-base">Buy Now</span>
+  </motion.button>
 
-                <motion.button
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                  onClick={handleWishlistToggle}
-                  disabled={wishlistLoading}
-                  className={`p-3 border rounded-lg transition-all duration-200 ${
-                    inWishlist ? 'border-red-300 bg-red-50 text-red-600 hover:bg-red-100' : 'border-gray-300 hover:bg-gray-50 hover:text-red-600'
-                  }`}
-                  title={inWishlist ? 'Remove from wishlist' : 'Add to wishlist'}
-                >
-                  <Heart className={`h-5 w-5 ${inWishlist ? 'fill-current' : ''}`} />
-                </motion.button>
+  {/* Wishlist */}
+  <motion.button
+    whileHover={{ scale: 1.05 }}
+    whileTap={{ scale: 0.95 }}
+    onClick={handleWishlistToggle}
+    disabled={wishlistLoading}
+    className={`w-12 h-12 sm:w-11 sm:h-11 p-0 border rounded-lg transition-all duration-200
+      inline-flex items-center justify-center
+      ${inWishlist ? 'border-red-300 bg-red-50 text-red-600 hover:bg-red-100' : 'border-gray-300 hover:bg-gray-50 hover:text-red-600'}`}
+    title={inWishlist ? 'Remove from wishlist' : 'Add to wishlist'}
+    aria-label={inWishlist ? 'Remove from wishlist' : 'Add to wishlist'}
+  >
+    <Heart className={`h-5 w-5 ${inWishlist ? 'fill-current' : ''}`} />
+  </motion.button>
 
-                {/* Share */}
-                <motion.button
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                  className="p-3 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors"
-                  onClick={() => {
-                    const url = window.location.href;
-                    const text = `${product.name} - ${product.description ?? ''}`.slice(0, 180);
-                    if ((navigator as any).share) {
-                      (navigator as any).share({ title: product.name, text, url }).catch(() => {
-                        navigator.clipboard.writeText(url);
-                        toast.success('Product link copied to clipboard!');
-                      });
-                    } else {
-                      navigator.clipboard.writeText(url);
-                      toast.success('Product link copied to clipboard!');
-                    }
-                  }}
-                >
-                  <Share2 className="h-5 w-5" />
-                </motion.button>
+  {/* Share */}
+  <motion.button
+    whileHover={{ scale: 1.05 }}
+    whileTap={{ scale: 0.95 }}
+    className="w-12 h-12 sm:w-11 sm:h-11 p-0 border border-gray-300 rounded-lg hover:bg-gray-50
+               inline-flex items-center justify-center"
+    onClick={() => {
+      const url = window.location.href;
+      const text = `${product.name} - ${product.description ?? ''}`.slice(0, 180);
+      if ((navigator as any).share) {
+        (navigator as any).share({ title: product.name, text, url }).catch(() => {
+          navigator.clipboard.writeText(url);
+          toast.success('Product link copied to clipboard!');
+        });
+      } else {
+        navigator.clipboard.writeText(url);
+        toast.success('Product link copied to clipboard!');
+      }
+    }}
+    title="Share"
+    aria-label="Share"
+  >
+    <Share2 className="h-5 w-5" />
+  </motion.button>
 
-                {/* WhatsApp */}
-                <a
-                  href={`https://wa.me/?text=${encodeURIComponent(`${product.name} ${window.location.href}`)}`}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="p-3 border border-green-300 rounded-lg hover:bg-green-50 text-green-700 inline-flex items-center"
-                  title="Share on WhatsApp"
-                >
-                  <MessageCircle className="h-5 w-5" />
-                </a>
-              </div>
+  {/* Chat (WhatsApp) */}
+  <a
+    href={`https://wa.me/?text=${encodeURIComponent(`${product.name} ${window.location.href}`)}`}
+    target="_blank"
+    rel="noreferrer"
+    className="w-12 h-12 sm:w-11 sm:h-11 p-0 border border-green-300 rounded-lg hover:bg-green-50
+               text-green-700 inline-flex items-center justify-center"
+    title="Chat on WhatsApp"
+    aria-label="Chat on WhatsApp"
+  >
+    <MessageCircle className="h-5 w-5" />
+  </a>
+</div>
+
 
               {/* Trust Badges */}
               <div className="border-t pt-6">
