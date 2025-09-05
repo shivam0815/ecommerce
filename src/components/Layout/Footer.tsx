@@ -36,16 +36,16 @@ const Footer: React.FC = () => {
               Quality products, competitive prices, and exceptional service.
             </p>
             <div className="flex space-x-4">
-              <a href="#" className="text-gray-300 hover:text-blue-400 transition-colors">
+              <a href="https://www.facebook.com/jitendra.kothari.121/" className="text-gray-300 hover:text-blue-400 transition-colors">
                 <Facebook className="h-5 w-5" />
               </a>
-              <a href="#" className="text-gray-300 hover:text-blue-400 transition-colors">
+              <a href="https://x.com/_nakodamobile_?t=yJpXFZwym_u7fbB_3ORckQ&s=08" className="text-gray-300 hover:text-blue-400 transition-colors">
                 <Twitter className="h-5 w-5" />
               </a>
-              <a href="#" className="text-gray-300 hover:text-blue-400 transition-colors">
+              <a href="https://www.instagram.com/v2m_nakoda_mobile/" className="text-gray-300 hover:text-blue-400 transition-colors">
                 <Instagram className="h-5 w-5" />
               </a>
-              <a href="#" className="text-gray-300 hover:text-blue-400 transition-colors">
+              <a href="https://www.youtube.com/@V2MNakodaMobile" className="text-gray-300 hover:text-blue-400 transition-colors">
                 <Youtube className="h-5 w-5" />
               </a>
             </div>

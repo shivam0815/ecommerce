@@ -1,20 +1,32 @@
 // src/config/api.ts
 import axios from 'axios';
 
+/**
+ * Public/API base
+ */
 const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 
-// Axios instance
+/**
+ * Single axios instance for the user-facing app
+ */
 const api = axios.create({
   baseURL: API_BASE_URL,
   headers: { 'Content-Type': 'application/json' },
-  withCredentials: true,
+  withCredentials: true, // keep if your server sets httpOnly cookies
 });
 
-// ---------- Token on requests ----------
+/* ----------------------------------------------------------------------------
+ * REQUEST INTERCEPTOR
+ * - Attach Authorization for authenticated endpoints
+ * - BUT skip attaching for public OTP routes (/auth/phone/*)
+ * -------------------------------------------------------------------------- */
 api.interceptors.request.use(
   (config) => {
     const token = localStorage.getItem('nakoda-token');
-    if (token) {
+    const url = config.url || '';
+    const isPhoneAuth = url.startsWith('/auth/phone/'); // public endpoints
+
+    if (!isPhoneAuth && token) {
       config.headers = config.headers || {};
       (config.headers as any).Authorization = `Bearer ${token}`;
     }
@@ -23,14 +35,18 @@ api.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
-
-// ---------- Safe 401 handling ----------
+/* ----------------------------------------------------------------------------
+ * 401 HANDLING
+ * - Global redirect to /login on 401
+ * - BUT allow opt-out via params (?skip401=1 or ?skipRedirect=1),
+ *   and always skip for certain endpoints (e.g., support/tickets/my)
+ * -------------------------------------------------------------------------- */
 const shouldSkip401Redirect = (config?: any): boolean => {
   const url: string = config?.url || '';
-  // treat this endpoint as optional (never redirect)
+  // Treat this endpoint as optional (never redirect)
   if (url.includes('/support/tickets/my')) return true;
 
-  // also allow explicit opt-out via query param (no custom header -> no preflight)
+  // Opt-out via query param to avoid custom headers/preflight
   const p = config?.params || {};
   if (String(p.skip401) === '1' || String(p.skipRedirect) === '1') return true;
 
@@ -52,13 +68,22 @@ api.interceptors.response.use(
   }
 );
 
-// ---------- RETURNS ----------
-export const getMyReturns = () => api.get('/returns').then(r => r.data);
+/* ============================================================================
+ * RETURNS (user)
+ * ========================================================================== */
+export const getMyReturns = () =>
+  api.get('/returns').then((r) => r.data);
 
 export const createReturn = (payload: {
   orderId: string;
   items: { productId: string; orderItemId?: string; quantity: number; reason?: string }[];
-  reasonType: 'damaged' | 'wrong_item' | 'not_as_described' | 'defective' | 'no_longer_needed' | 'other';
+  reasonType:
+    | 'damaged'
+    | 'wrong_item'
+    | 'not_as_described'
+    | 'defective'
+    | 'no_longer_needed'
+    | 'other';
   reasonNote?: string;
   images?: File[];
   pickupAddress?: any;
@@ -69,14 +94,16 @@ export const createReturn = (payload: {
   if (payload.reasonNote) fd.append('reasonNote', payload.reasonNote);
   fd.append('items', JSON.stringify(payload.items));
   if (payload.pickupAddress) fd.append('pickupAddress', JSON.stringify(payload.pickupAddress));
-  (payload.images || []).forEach(f => fd.append('images', f));
-  return api.post('/returns', fd).then(r => r.data);
+  (payload.images || []).forEach((f) => fd.append('images', f));
+  return api.post('/returns', fd).then((r) => r.data);
 };
 
 export const cancelMyReturn = (id: string) =>
-  api.patch(`/returns/${id}/cancel`, {}).then(r => r.data);
+  api.patch(`/returns/${id}/cancel`, {}).then((r) => r.data);
 
-// ---------- SUPPORT (types) ----------
+/* ============================================================================
+ * SUPPORT (types)
+ * ========================================================================== */
 export type TicketStatus = 'open' | 'in_progress' | 'resolved' | 'closed';
 export type TicketPriority = 'low' | 'normal' | 'high';
 
@@ -116,15 +143,17 @@ export interface SupportTicket {
   updatedAt?: string;
 }
 
-// ---------- SUPPORT (calls) ----------
+/* ============================================================================
+ * SUPPORT (calls)
+ * ========================================================================== */
 export const getSupportConfig = () =>
-  api.get('/support/config').then(r =>
-    r.data as { success: boolean; config: SupportConfig }
+  api.get('/support/config').then(
+    (r) => r.data as { success: boolean; config: SupportConfig }
   );
 
 export const getSupportFaqs = (params?: { q?: string; category?: string }) =>
-  api.get('/support/faqs', { params }).then(r =>
-    r.data as { success: boolean; faqs: SupportFaq[] }
+  api.get('/support/faqs', { params }).then(
+    (r) => r.data as { success: boolean; faqs: SupportFaq[] }
   );
 
 // field name MUST be "attachments"
@@ -146,7 +175,7 @@ export const createSupportTicket = async (payload: {
   if (payload.orderId) form.append('orderId', payload.orderId);
   if (payload.category) form.append('category', payload.category);
   if (payload.priority) form.append('priority', payload.priority);
-  (payload.attachments || []).forEach(f => form.append('attachments', f));
+  (payload.attachments || []).forEach((f) => form.append('attachments', f));
 
   const { data } = await api.post('/support/tickets', form, {
     headers: { 'Content-Type': 'multipart/form-data' },
@@ -154,11 +183,35 @@ export const createSupportTicket = async (payload: {
   return data as { success: boolean; ticket: { _id: string; status: TicketStatus } };
 };
 
-// ✅ IMPORTANT: Do NOT redirect to login if 401 here (page is public)
+// ✅ Do NOT redirect to login if 401 here (page is public)
 export const getMySupportTickets = () =>
-  api.get('/support/tickets/my', {
-    params: { skip401: 1 }, // 👈 replaces the custom header
-  }).then(r => r.data as { success: boolean; tickets: SupportTicket[] });
+  api
+    .get('/support/tickets/my', {
+      params: { skip401: 1 }, // bypass global 401 redirect
+    })
+    .then((r) => r.data as { success: boolean; tickets: SupportTicket[] });
 
+/* ============================================================================
+ * AUTH: PHONE OTP (public)
+ * - Use skip401=1 to prevent redirects on invalid/expired states
+ * - Request interceptor skips Authorization for these endpoints
+ * ========================================================================== */
+export const sendPhoneOtp = (phone: string) =>
+  api
+    .post(
+      '/auth/phone/send-otp',
+      { phone },
+      { params: { skip401: 1 } } // avoid redirect on any 401 from server
+    )
+    .then((r) => r.data);
+
+export const verifyPhoneOtp = (phone: string, otp: string) =>
+  api
+    .post(
+      '/auth/phone/verify',
+      { phone, otp },
+      { params: { skip401: 1 } }
+    )
+    .then((r) => r.data);
 
 export default api;

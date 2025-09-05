@@ -291,7 +291,7 @@ const Profile: React.FC = () => {
           <div className="flex flex-col md:flex-row items-center gap-6">
             <div className="relative">
               <div className="w-28 h-28 rounded-full bg-gray-100 ring-1 ring-gray-200 overflow-hidden flex items-center justify-center">
-                {user.avatar ? <img src={user.avatar} alt="avatar" className="w-full h-full object-cover" /> : <UserIcon className="w-12 h-12 text-gray-400" />}
+                {user.avatar ? <img src={user.avatar} alt="" className="w-full h-full object-cover" /> : <UserIcon className="w-12 h-12 text-gray-400" />}
               </div>
              
             </div>

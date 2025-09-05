@@ -1,3 +1,4 @@
+// src/pages/CheckoutPage.tsx
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -58,6 +59,7 @@ const emptyAddress: Address = {
 };
 
 const SHIPPING_FREE_THRESHOLD = 999;
+const BASE_SHIPPING_FEE = 0; // ✅ used when threshold/coupon doesn't make shipping free
 const COD_FEE = 25;
 const GIFT_WRAP_FEE = 49;
 const FIRST_ORDER_RATE = 0.1; // 10%
@@ -68,6 +70,14 @@ type CouponResult = {
   amount: number; // monetary discount (₹)
   freeShipping?: boolean;
   message: string;
+};
+
+type PaymentResult = {
+  success: boolean;
+  redirected?: boolean; // e.g., Stripe Checkout redirect
+  order?: any; // created/verified order object from server
+  paymentId?: string | null; // gateway payment id
+  method: 'razorpay' | 'stripe' | 'cod';
 };
 
 const formatINR = (n: number) => `₹${Math.max(0, Math.round(n)).toLocaleString()}`;
@@ -120,16 +130,14 @@ const CheckoutPage: React.FC = () => {
       (user as any)?.ordersCount === 0 ||
       (user as any)?.isFirstOrder === true ||
       (user as any)?.firstOrderDone === false;
-    return !localFlag && (byBackend || true); // default to TRUE if unknown; remove "|| true" if you only trust backend
+    return !localFlag && (byBackend || true); // default to TRUE if unknown; adjust if you only trust backend
   }, [user]);
 
   // First order discount (if no better coupon is applied)
   const firstOrderDiscount = useMemo(() => {
     if (!isFirstOrderCandidate || rawSubtotal <= 0) return 0;
-    // if coupon already gives a monetary discount, we apply the better of the two
     const natural = Math.min(Math.round(rawSubtotal * FIRST_ORDER_RATE), FIRST_ORDER_CAP);
     if (appliedCoupon && appliedCoupon.amount > 0) {
-      // prefer the larger of coupon vs first order
       return appliedCoupon.amount >= natural ? 0 : natural;
     }
     return natural;
@@ -200,7 +208,7 @@ const CheckoutPage: React.FC = () => {
   const shippingFee = useMemo(() => {
     // Free shipping via threshold or coupon
     const free = effectiveSubtotal >= SHIPPING_FREE_THRESHOLD || appliedCoupon?.freeShipping;
-    return free ? 0 : 0;
+    return free ? 0 : BASE_SHIPPING_FEE; // ✅ fixed (was always 0)
   }, [effectiveSubtotal, appliedCoupon]);
 
   const giftWrapFee = giftWrap ? GIFT_WRAP_FEE : 0;
@@ -312,11 +320,13 @@ const CheckoutPage: React.FC = () => {
 
       const orderData = {
         items: cartItems.map((item) => ({
-          productId: item.productId || (item as any).id,
-          quantity: item.quantity,
-          price: item.price,
+          productId: (item as any).productId || (item as any).id,
+          quantity: (item as any).quantity,
+          price: (item as any).price,
         })),
+      // @ts-ignore
         shippingAddress: shipping,
+      // @ts-ignore
         billingAddress: sameAsShipping ? shipping : billing,
         extras: {
           orderNotes: orderNotes.trim() || undefined,
@@ -345,14 +355,35 @@ const CheckoutPage: React.FC = () => {
         phone: shipping.phoneNumber,
       };
 
-      const result = await processPayment(total, method, orderData, userDetails);
+      const result = (await processPayment(
+        total,
+        method,
+        orderData,
+        userDetails
+      )) as PaymentResult;
 
-      if (result.success && !result.redirected) {
+      if (result.success) {
+        // Stripe: likely already redirected to hosted checkout
+        if (result.redirected) return;
+
+        // COD / Razorpay: we have the order immediately
         clearCart();
-        // Mark as not first order anymore
         localStorage.setItem('hasOrderedBefore', '1');
-        toast.success('Order placed successfully!');
-        navigate('/orders');
+
+        const successState = {
+          order: result.order,
+          paymentMethod: result.method,
+          paymentId: result.paymentId ?? null,
+        };
+
+        // Persist fallback so refresh on success still works
+        localStorage.setItem('lastOrderSuccess', JSON.stringify(successState));
+
+        // ✅ Navigate to success page
+        navigate('/order-success', {
+          state: successState,
+          replace: true,
+        });
       }
     } catch (error: any) {
       console.error('Checkout error:', error);
@@ -451,18 +482,18 @@ const CheckoutPage: React.FC = () => {
             </div>
 
             <div className="space-y-3 sm:space-y-4 max-h-60 sm:max-h-72 overflow-y-auto pr-2 mb-6">
-              {cartItems.map((item, index) => (
-                <div key={(item as any).id || index} className="flex items-center justify-between p-3 sm:p-4 bg-gray-50 rounded-xl">
+              {cartItems.map((item: any, index: number) => (
+                <div key={item?.id || index} className="flex items-center justify-between p-3 sm:p-4 bg-gray-50 rounded-xl">
                   <div className="flex-1 min-w-0">
                     <h4 className="text-sm sm:text-base font-semibold text-gray-900 truncate">
-                      {item.name || 'Product'}
+                      {item?.name || 'Product'}
                     </h4>
                     <p className="text-xs sm:text-sm text-gray-600 mt-1">
-                      Qty: {item.quantity || 1} × {formatINR(item.price || 0)}
+                      Qty: {item?.quantity || 1} × {formatINR(item?.price || 0)}
                     </p>
                   </div>
                   <span className="font-bold text-sm sm:text-lg text-gray-900 ml-2">
-                    {formatINR((item.price || 0) * (item.quantity || 1))}
+                    {formatINR((item?.price || 0) * (item?.quantity || 1))}
                   </span>
                 </div>
               ))}
@@ -560,6 +591,10 @@ const CheckoutPage: React.FC = () => {
                 <span>Total Amount</span>
                 <span className="text-blue-600">{formatINR(total)}</span>
               </div>
+
+              {monetaryDiscount > 0 && (
+                <p className="text-xs text-gray-500 mt-1">Best discount applied: {discountLabel}</p>
+              )}
             </div>
 
             {/* Payment method indicator */}
@@ -932,9 +967,9 @@ const CheckoutPage: React.FC = () => {
                           <select
                             value={card.expiryMonth}
                             onChange={(e) => handleCard('expiryMonth', e.target.value)}
-                            className={`w-full pl-10 pr-4 py-3 border-2 rounded-xl focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 transition-all duration-200 bg-gray-50 focus:bg-white ${
+                            className={`w-full pl-10 pr-4 py-3 border-2 rounded-XL focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 transition-all duration-200 bg-gray-50 focus:bg-white ${
                               errors.expiryMonth ? 'border-red-400 bg-red-50' : 'border-gray-200 hover:border-gray-300'
-                            }`}
+                            }`.replace('rounded-XL', 'rounded-xl')}
                           >
                             <option value="">Month</option>
                             {Array.from({ length: 12 }, (_, i) => (

@@ -35,6 +35,7 @@ import notificationRoutes from './routes/notification.routes';
 import returnRoutes from './routes/return.routes';
 import shiprocketRoutes from "./routes/shiprocketRoutes";
 import { authenticate, adminOnly } from './middleware/auth';
+import phoneAuthRoutes from './routes/auth.phone';
 const app = express();
 const server = http.createServer(app);
 const PORT = process.env.PORT || 5000;
@@ -71,9 +72,9 @@ const devOrigins = [
 ];
 
 const prodOrigins = [
-  'https://yourdomain.com',
-  'https://www.yourdomain.com',
-  'https://ecommerce-three-phi-86.vercel.app',
+  'https://nakodamobile.in',
+  'https://www.nakodamobile.in',
+  
 ];
 // ✅ Setup Socket.IO
 const allowedSocketOrigins =
@@ -230,8 +231,8 @@ app.use(cors({
 
     const allowedOrigins = process.env.NODE_ENV === 'production'
       ? [
-          'https://yourdomain.com',
-          'https://www.yourdomain.com'
+          'https://nakodamobile.in',
+          'https://www.nakodamobile.in'
         ]
       : [
           'http://localhost:5173',
@@ -389,6 +390,7 @@ app.use('/api', notificationRoutes);
 app.use('/api', returnRoutes);
 app.set('etag', false); 
 app.use('/api', reviewsPublic);
+app.use('/api', phoneAuthRoutes);
 
 app.use('/api/admin', authenticate, adminRoutes);
 // protect every endpoint defined inside shiprocketRoutes
@@ -405,7 +407,7 @@ app.get('/api/test/uploads', (req, res) => {
       exists: uploadsExists,
       fileCount: files.length,
       sampleFiles: files.slice(0, 10),
-      testUrls: files.slice(0, 3).map(file => `http://localhost:${PORT}/uploads/${file}`)
+      testUrls: files.slice(0, 3).map(file => `https://nokodamobile.in:${PORT}/uploads/${file}`)
     });
   } catch (error: any) {
     res.status(500).json({

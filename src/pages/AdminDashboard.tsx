@@ -1971,7 +1971,7 @@ const [activeTab, setActiveTab] = useState<
     }
   };
 
-  const showNotification = useCallback((message: string, type: 'success' | 'error') => {
+  const showNotification = useCallback((message: string, type: 'success' | 'error' | 'info') => {
     const existingNotifications = document.querySelectorAll('.notification');
     existingNotifications.forEach(notification => notification.remove());
 

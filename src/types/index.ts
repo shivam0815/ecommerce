@@ -145,6 +145,10 @@ export interface IProduct extends Document {
   isActive: boolean;
   createdAt: Date;
   updatedAt: Date;
+   isOnSale?: boolean;
+  views?: number;
+  brand?: string;
+  stock?: number;
 }
 
 export interface ICart extends Document {

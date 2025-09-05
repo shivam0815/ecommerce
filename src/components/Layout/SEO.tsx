@@ -11,7 +11,7 @@ type SEOProps = {
   jsonLd?: object | object[];
 };
 
-const SITE_NAME = 'Your Store Name';
+const SITE_NAME = 'Nakoda Mobile';
 const SITE_URL = 'https://www.your-domain.com'; // <-- change to your domain
 const DEFAULT_IMAGE = `${SITE_URL}/og-default.png`; // put a fallback in /public
 

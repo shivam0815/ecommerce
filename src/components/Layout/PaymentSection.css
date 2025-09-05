@@ -247,3 +247,30 @@
 .badge--pending   { background: rgba(245, 158, 11, .12); color: var(--warn); }
 .badge--failed    { background: rgba(220, 38, 38, .12); color: var(--danger); }
 .badge--refunded  { background: rgba(79, 70, 229, .12); color: var(--accent); }
+.charts-grid {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 12px;
+  margin: 12px 0 16px;
+}
+.chart-card {
+  background: #fff;
+  border: 1px solid #eee;
+  border-radius: 12px;
+  overflow: hidden;
+}
+.chart-title {
+  padding: 10px 12px;
+  font-weight: 600;
+  color: #111827;
+  border-bottom: 1px solid #f1f5f9;
+  background: #fafafa;
+}
+.chart-body {
+  padding: 8px 12px 12px;
+}
+@media (min-width: 900px) {
+  .charts-grid {
+    grid-template-columns: 2fr 1fr 1fr; /* trend wider; mix & status side-by-side */
+  }
+}

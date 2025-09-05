@@ -23,7 +23,7 @@ import Login from './pages/Login';
 import Register from './pages/Register';
 import Cart from './pages/Cart';
 import OEM from './pages/OEM';
-import About from './pages/About';
+
 import Contact from './pages/Contact';
 import Wishlist from './pages/Wishlist';
 import Profile from './pages/Profile';
@@ -44,6 +44,8 @@ import Blog from './pages/Blog';
 import BlogPost from './pages/BlogPost';
 import Privacy from './pages/Privacy';
 import Terms from './pages/Terms';
+import Video from "./pages/video";
+
 
 // ✅ Use the auth context directly; no new files are added
 import { useAuth } from './context/AuthContext';
@@ -85,6 +87,7 @@ function App() {
 
           {/* PUBLIC */}
           <Route path="/" element={<PublicLayout><Home /></PublicLayout>} />
+  <Route path="/video" element={<Video />} />
 
           {/* Products listing + detail */}
           <Route path="/products" element={<PublicLayout><Products /></PublicLayout>} />
@@ -114,7 +117,7 @@ function App() {
 
           {/* Info pages */}
           <Route path="/oem" element={<PublicLayout><OEM /></PublicLayout>} />
-          <Route path="/about" element={<PublicLayout><About /></PublicLayout>} />
+          
           <Route path="/contact" element={<PublicLayout><Contact /></PublicLayout>} />
 
           {/* Wishlist */}
@@ -136,6 +139,7 @@ function App() {
           {/* Legal */}
           <Route path="/privacy" element={<Privacy />} />
           <Route path="/terms" element={<Terms />} />
+          <Route path="/order-success" element={<OrderSuccess />} />
 
           {/* Fallback */}
           <Route path="*" element={<Navigate to="/" replace />} />

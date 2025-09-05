@@ -1,57 +1,117 @@
-import React, { useState } from 'react';
+// src/pages/Contact.tsx
+import React, { useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
-import { 
-  MapPin, 
-  Phone, 
-  Mail, 
-  Clock, 
+import {
+  MapPin,
+  Phone,
+  Mail,
+  Clock,
   Send,
   MessageSquare,
   User,
   Building2,
-  Globe,
   Facebook,
   Twitter,
   Instagram,
   Youtube,
-  CheckCircle
+  CheckCircle,
+  Copy,
+  Check
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { contactService } from '../services/contactService';
-const isEmail = (e: string) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/i.test(e.trim());
+
+type DeptValue =
+  | 'general'
+  | 'support'
+  | 'oem'
+  | 'wholesale'
+  | 'technical'
+  | 'partnership';
+
+const isEmail = (e: string) => /^[^\s@]+@[^\s@]{2,}\.[^\s@]{2,}$/i.test(e.trim());
+const is10DigitPhone = (p: string) => /^\d{10}$/.test(p);
+
+type FormState = {
+  name: string;
+  email: string;
+  phone: string;
+  subject: '' | DeptValue;
+  message: string;
+  website: string; // honeypot
+};
+
+type FormErrors = Partial<Record<keyof FormState, string>>;
+
 const Contact: React.FC = () => {
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<FormState>({
     name: '',
     email: '',
     phone: '',
     subject: '',
     message: '',
-      website: '',
+    website: '', // honeypot (must remain empty)
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [sentOk, setSentOk] = useState(false);
 
- const handleSubmit = async (e: React.FormEvent) => {
+  // --- derived values
+  const msgChars = formData.message.length;
+  const msgTooShort = msgChars > 0 && msgChars < 10;
+
+  // --- validation
+  const validate = (data: FormState): FormErrors => {
+    const errs: FormErrors = {};
+    if (!data.name.trim()) errs.name = 'Name is required';
+    if (!isEmail(data.email)) errs.email = 'Valid email required';
+    if (!data.subject) errs.subject = 'Please select a department';
+    if (!data.message.trim()) errs.message = 'Message is required';
+    if (msgTooShort) errs.message = 'Please enter at least 10 characters';
+    if (data.phone && !is10DigitPhone(data.phone.trim())) errs.phone = 'Phone must be 10 digits';
+    if (data.website) errs.website = 'Spam detected';
+    return errs;
+  };
+
+  const [errors, setErrors] = useState<FormErrors>({});
+
+  const handleBlur = (e: React.FocusEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
+    const { name } = e.target;
+    setErrors(prev => ({ ...prev, [name]: validate(formData)[name as keyof FormState] }));
+  };
+
+  const handleChange = (
+    e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>
+  ) => {
+    const { name, value } = e.target;
+    setFormData(prev => ({
+      ...prev,
+      [name]: name === 'phone' ? value.replace(/[^\d]/g, '') : value,
+    }));
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-
-    if (!formData.name.trim()) return toast.error('Name is required');
-    if (!isEmail(formData.email)) return toast.error('Valid email required');
-    if (!formData.subject) return toast.error('Please select a department');
-    if (!formData.message.trim()) return toast.error('Message is required');
-    if (formData.phone && !/^\d{10}$/.test(formData.phone.trim())) {
-      return toast.error('Phone must be 10 digits');
+    const v = validate(formData);
+    setErrors(v);
+    if (Object.keys(v).length) {
+      const firstErr = Object.values(v)[0];
+      if (firstErr) toast.error(firstErr);
+      return;
     }
 
     setIsSubmitting(true);
+    setSentOk(false);
     try {
       await contactService.send({
         name: formData.name.trim(),
         email: formData.email.trim(),
         phone: formData.phone.trim() || undefined,
-        subject: formData.subject as any,
+        subject: formData.subject as DeptValue,
         message: formData.message.trim(),
         website: formData.website, // honeypot (empty for humans)
       });
 
+      setSentOk(true);
       setFormData({
         name: '',
         email: '',
@@ -67,85 +127,129 @@ const Contact: React.FC = () => {
     }
   };
 
-   const handleChange = (
-    e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>
-  ) => {
-    const { name, value } = e.target;
-    setFormData(prev => ({
-      ...prev,
-      [name]: name === 'phone' ? value.replace(/[^\d]/g, '') : value,
-    }));
+  // --- contact info cards
+  type ContactCard = {
+    icon: React.ComponentType<React.SVGProps<SVGSVGElement>>;
+    title: string;
+    details: Array<{ text: string; href?: string }>;
   };
 
-  const contactInfo = [
+  const contactCards: ContactCard[] = [
     {
       icon: MapPin,
       title: 'Visit Our Store',
       details: [
-        'Nakoda Mobile near church gali no. 2, Electronics Market',
-        'Karol bhag, New Delhi - 110055',
-        'India'
-      ]
+        { text: 'Building No.3372, Gali No.2, Christian Colony' },
+        { text: 'Electronics Market, Karol Bagh' },
+        { text: 'Karol Bagh New Delhi – 110005' },
+      ],
     },
     {
       icon: Phone,
       title: 'Call Us',
       details: [
-        '+91 9876543210',
-        '+91 9876543211',
-        'Tue-Sun: 9:00 AM - 8:00 PM'
-      ]
+        { text: '+91 9876543210', href: 'tel:+919876543210' },
+        { text: '+91 9667960044', href: 'tel:9667960044' },
+        { text: 'Tue–Sun: 11:00 AM – 8:00 PM' },
+      ],
     },
     {
       icon: Mail,
       title: 'Email Us',
       details: [
-        'nakodamobile150579@gmail.com',
-        'support@nakodamobile.com',
-        'oem@nakodamobile.com'
-      ]
+        { text: 'nakodamobile150579@gmail.com', href: 'mailto:nakodamobile150579@gmail.com' },
+        { text: 'support@nakodamobile.com', href: 'mailto:info@nakodamobile.com' },
+        { text: 'oem@nakodamobile.com', href: 'mailto:nakodaoem@gmail.com' },
+      ],
     },
     {
       icon: Clock,
       title: 'Business Hours',
       details: [
-        'Tuesday - Sunday: 11:00 AM-8:00 PM',
-        'Sunday: 10:00 AM - 6:00 PM',
-        '24/7 Online Support'
-      ]
-    }
+        { text: 'Tuesday – Sunday: 11:00 AM – 8:00 PM' },
+        
+        { text: '24/7 Online Support' },
+      ],
+    },
   ];
 
-  const departments = [
+  const departments: { value: DeptValue; label: string }[] = [
     { value: 'general', label: 'General Inquiry' },
     { value: 'support', label: 'Customer Support' },
     { value: 'oem', label: 'OEM Services' },
     { value: 'wholesale', label: 'Wholesale Inquiry' },
     { value: 'technical', label: 'Technical Support' },
-    { value: 'partnership', label: 'Partnership' }
+    { value: 'partnership', label: 'Partnership' },
   ];
 
   const faqs = [
     {
       question: 'What is your return policy?',
-      answer: 'We offer a 30-day return policy for all products. Items must be in original condition with packaging.'
+      answer:
+        'We offer a 07-day return policy for all products. Items must be in original condition with packaging.',
     },
     {
       question: 'Do you provide warranty on products?',
-      answer: 'Yes, all our products come with manufacturer warranty. Warranty period varies by product category.'
+      answer:
+        'Yes, all our products come with manufacturer warranty. Warranty period varies by product category.',
     },
     {
       question: 'How long does shipping take?',
-      answer: 'Standard shipping takes 3-5 business days. Express shipping is available for faster delivery.'
+      answer:
+        'Standard shipping takes 3–5 business days. Express shipping is available for faster delivery.',
     },
     {
       question: 'Do you offer bulk discounts?',
-      answer: 'Yes, we provide attractive discounts for bulk orders. Contact our OEM team for custom pricing.'
-    }
+      answer:
+        'Yes, we provide attractive discounts for bulk orders. Contact our OEM team for custom pricing.',
+    },
   ];
+
+  // copy helpers
+  const [copied, setCopied] = useState<string>('');
+  const handleCopy = async (text: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(text);
+      setTimeout(() => setCopied(''), 1500);
+      toast.success('Copied!');
+    } catch {
+      toast.error('Copy failed');
+    }
+  };
+
+  // JSON-LD (LocalBusiness)
+  const jsonLd = useMemo(
+    () => ({
+      '@context': 'https://schema.org',
+      '@type': 'LocalBusiness',
+      name: 'Nakoda Mobile',
+      image: 'https://www.your-domain.com/favicon-512.png',
+      address: {
+        '@type': 'PostalAddress',
+        streetAddress: 'Near Church Gali No. 2, Electronics Market, Karol Bagh',
+        addressLocality: 'New Delhi',
+        postalCode: '110055',
+        addressCountry: 'IN',
+      },
+      telephone: '+919876543210',
+      email: 'support@nakodamobile.com',
+      openingHours: ['Tu-Sa 11:00-20:00', 'Su 10:00-18:00'],
+      sameAs: [
+        'https://facebook.com/',
+        'https://twitter.com/',
+        'https://instagram.com/',
+        'https://youtube.com/',
+      ],
+    }),
+    []
+  );
 
   return (
     <div className="min-h-screen bg-gray-50">
+      {/* Structured data */}
+      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }} />
+
       {/* Hero Section */}
       <section className="bg-gradient-to-br from-blue-600 via-purple-600 to-blue-800 text-white py-20">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -155,13 +259,15 @@ const Contact: React.FC = () => {
             transition={{ duration: 0.8 }}
             className="text-center"
           >
-            <h1 className="text-4xl md:text-6xl font-bold mb-6">
-              Get in Touch
-            </h1>
+            <h1 className="text-4xl md:text-6xl font-bold mb-6">Get in Touch</h1>
             <p className="text-xl mb-8 text-gray-200 max-w-3xl mx-auto">
-              Have questions? We'd love to hear from you. Send us a message 
-              and we'll respond as soon as possible.
+              Have questions? We’d love to hear from you. Send us a message and we’ll respond as soon as
+              possible.
             </p>
+            <div className="inline-flex items-center gap-2 bg-white/15 px-4 py-2 rounded-full text-sm">
+              <CheckCircle className="h-4 w-4 text-emerald-300" />
+              Typical response time: under 24 hours
+            </div>
           </motion.div>
         </div>
       </section>
@@ -170,26 +276,44 @@ const Contact: React.FC = () => {
       <section className="py-16 bg-white">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
-            {contactInfo.map((info, index) => (
+            {contactCards.map((info, index) => (
               <motion.div
-                key={index}
+                key={info.title}
                 initial={{ opacity: 0, y: 20 }}
                 whileInView={{ opacity: 1, y: 0 }}
-                transition={{ delay: index * 0.1 }}
-                className="bg-gray-50 rounded-xl p-6 text-center hover:shadow-lg transition-shadow duration-300"
+                viewport={{ once: true }}
+                transition={{ delay: index * 0.08 }}
+                className="relative rounded-xl p-6 text-center border border-gray-200 bg-white shadow-sm hover:shadow-md transition-shadow"
               >
-                <div className="bg-blue-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
-                  <info.icon className="h-8 w-8 text-blue-600" />
-                </div>
-                <h3 className="text-xl font-semibold text-gray-900 mb-3">
-                  {info.title}
-                </h3>
-                <div className="space-y-1">
-                  {info.details.map((detail, idx) => (
-                    <p key={idx} className="text-gray-600 text-sm">
-                      {detail}
-                    </p>
-                  ))}
+                <div className="absolute inset-0 rounded-xl bg-gradient-to-br from-indigo-50 to-transparent opacity-50" />
+                <div className="relative">
+                  <div className="bg-blue-100 w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <info.icon className="h-8 w-8 text-blue-600" />
+                  </div>
+                  <h3 className="text-xl font-semibold text-gray-900 mb-3">{info.title}</h3>
+                  <div className="space-y-1">
+                    {info.details.map((d, i) => (
+                      <div key={i} className="flex items-center justify-center gap-2 text-sm">
+                        {d.href ? (
+                          <>
+                            <a href={d.href} className="text-blue-600 hover:text-blue-700">
+                              {d.text}
+                            </a>
+                            <button
+                              type="button"
+                              onClick={() => handleCopy(d.text)}
+                              className="inline-flex items-center rounded border border-gray-200 px-2 py-0.5 text-xs text-gray-600 hover:bg-gray-50"
+                              title="Copy"
+                            >
+                              {copied === d.text ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                            </button>
+                          </>
+                        ) : (
+                          <span className="text-gray-600">{d.text}</span>
+                        )}
+                      </div>
+                    ))}
+                  </div>
                 </div>
               </motion.div>
             ))}
@@ -202,17 +326,34 @@ const Contact: React.FC = () => {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-12">
             {/* Contact Form */}
-            <motion.div
-              initial={{ opacity: 0, x: -20 }}
-              whileInView={{ opacity: 1, x: 0 }}
-              transition={{ duration: 0.8 }}
-            >
+            <motion.div initial={{ opacity: 0, x: -20 }} whileInView={{ opacity: 1, x: 0 }} transition={{ duration: 0.6 }}>
               <div className="bg-white rounded-xl shadow-lg p-8">
-                <h2 className="text-3xl font-bold text-gray-900 mb-6">
-                  Send us a Message
-                </h2>
-                
-                <form onSubmit={handleSubmit} className="space-y-6">
+                <h2 className="text-3xl font-bold text-gray-900 mb-6">Send us a Message</h2>
+
+                {sentOk && (
+                  <div
+                    role="status"
+                    aria-live="polite"
+                    className="mb-6 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-emerald-800 flex items-center gap-2"
+                  >
+                    <CheckCircle className="w-5 h-5" />
+                    Thank you! Your message has been sent. We’ll get back to you shortly.
+                  </div>
+                )}
+
+                <form onSubmit={handleSubmit} className="space-y-6" noValidate>
+                  {/* honeypot */}
+                  <input
+                    type="text"
+                    name="website"
+                    value={formData.website}
+                    onChange={handleChange}
+                    tabIndex={-1}
+                    autoComplete="off"
+                    className="hidden"
+                    aria-hidden="true"
+                  />
+
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                     <div>
                       <label htmlFor="name" className="block text-sm font-medium text-gray-700 mb-2">
@@ -223,14 +364,20 @@ const Contact: React.FC = () => {
                           type="text"
                           id="name"
                           name="name"
+                          autoComplete="name"
                           required
                           value={formData.name}
                           onChange={handleChange}
-                          className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                          onBlur={handleBlur}
+                          className={
+                            'w-full pl-10 pr-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ' +
+                            (errors.name ? 'border-rose-300' : 'border-gray-300')
+                          }
                           placeholder="Enter your full name"
                         />
                         <User className="absolute left-3 top-3.5 h-5 w-5 text-gray-400" />
                       </div>
+                      {errors.name && <p className="mt-1 text-xs text-rose-600">{errors.name}</p>}
                     </div>
 
                     <div>
@@ -242,14 +389,20 @@ const Contact: React.FC = () => {
                           type="email"
                           id="email"
                           name="email"
+                          autoComplete="email"
                           required
                           value={formData.email}
                           onChange={handleChange}
-                          className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                          onBlur={handleBlur}
+                          className={
+                            'w-full pl-10 pr-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ' +
+                            (errors.email ? 'border-rose-300' : 'border-gray-300')
+                          }
                           placeholder="Enter your email"
                         />
                         <Mail className="absolute left-3 top-3.5 h-5 w-5 text-gray-400" />
                       </div>
+                      {errors.email && <p className="mt-1 text-xs text-rose-600">{errors.email}</p>}
                     </div>
 
                     <div>
@@ -261,13 +414,21 @@ const Contact: React.FC = () => {
                           type="tel"
                           id="phone"
                           name="phone"
+                          inputMode="numeric"
+                          autoComplete="tel"
                           value={formData.phone}
                           onChange={handleChange}
-                          className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                          placeholder="Enter your phone number"
+                          onBlur={handleBlur}
+                          maxLength={10}
+                          className={
+                            'w-full pl-10 pr-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ' +
+                            (errors.phone ? 'border-rose-300' : 'border-gray-300')
+                          }
+                          placeholder="10-digit number"
                         />
                         <Phone className="absolute left-3 top-3.5 h-5 w-5 text-gray-400" />
                       </div>
+                      {errors.phone && <p className="mt-1 text-xs text-rose-600">{errors.phone}</p>}
                     </div>
 
                     <div>
@@ -281,7 +442,11 @@ const Contact: React.FC = () => {
                           required
                           value={formData.subject}
                           onChange={handleChange}
-                          className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                          onBlur={handleBlur}
+                          className={
+                            'w-full pl-10 pr-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ' +
+                            (errors.subject ? 'border-rose-300' : 'border-gray-300')
+                          }
                         >
                           <option value="">Select department</option>
                           {departments.map((dept) => (
@@ -292,6 +457,7 @@ const Contact: React.FC = () => {
                         </select>
                         <Building2 className="absolute left-3 top-3.5 h-5 w-5 text-gray-400" />
                       </div>
+                      {errors.subject && <p className="mt-1 text-xs text-rose-600">{errors.subject}</p>}
                     </div>
                   </div>
 
@@ -305,26 +471,41 @@ const Contact: React.FC = () => {
                         name="message"
                         required
                         rows={6}
+                        maxLength={1000}
                         value={formData.message}
                         onChange={handleChange}
-                        className="w-full pl-10 pr-4 py-3 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                        onBlur={handleBlur}
+                        className={
+                          'w-full pl-10 pr-4 py-3 border rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent ' +
+                          (errors.message ? 'border-rose-300' : 'border-gray-300')
+                        }
                         placeholder="Tell us how we can help you..."
+                        aria-describedby="message-help"
                       />
                       <MessageSquare className="absolute left-3 top-3.5 h-5 w-5 text-gray-400" />
                     </div>
+                    <div className="mt-1 flex items-center justify-between text-xs">
+                      <span id="message-help" className={msgTooShort ? 'text-rose-600' : 'text-gray-500'}>
+                        {msgTooShort ? 'Please enter at least 10 characters' : 'Be as detailed as possible'}
+                      </span>
+                      <span className="text-gray-400">{msgChars}/1000</span>
+                    </div>
+                    {errors.message && <p className="mt-1 text-xs text-rose-600">{errors.message}</p>}
                   </div>
 
                   <motion.button
-                    whileHover={{ scale: 1.02 }}
-                    whileTap={{ scale: 0.98 }}
+                    whileHover={{ scale: isSubmitting ? 1 : 1.02 }}
+                    whileTap={{ scale: isSubmitting ? 1 : 0.98 }}
                     type="submit"
                     disabled={isSubmitting}
-                    className="w-full bg-blue-600 text-white py-3 rounded-lg font-semibold hover:bg-blue-700 transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center space-x-2"
+                    className="w-full bg-blue-600 text-white py-3 rounded-lg font-semibold hover:bg-blue-700 transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+                    aria-busy={isSubmitting}
+                    aria-live="polite"
                   >
                     {isSubmitting ? (
                       <>
-                        <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
-                        <span>Sending...</span>
+                        <div className="animate-spin rounded-full h-5 w-5 border-2 border-white border-b-transparent" />
+                        <span>Sending…</span>
                       </>
                     ) : (
                       <>
@@ -338,30 +519,26 @@ const Contact: React.FC = () => {
             </motion.div>
 
             {/* Map & Additional Info */}
-            <motion.div
-              initial={{ opacity: 0, x: 20 }}
-              whileInView={{ opacity: 1, x: 0 }}
-              transition={{ duration: 0.8 }}
-              className="space-y-8"
-            >
+            <motion.div initial={{ opacity: 0, x: 20 }} whileInView={{ opacity: 1, x: 0 }} transition={{ duration: 0.6 }} className="space-y-8">
               {/* Map */}
               <div className="bg-white rounded-xl shadow-lg overflow-hidden">
-                <div className="h-64 bg-gray-200 flex items-center justify-center">
-                  <div className="text-center">
-                    <MapPin className="h-12 w-12 text-gray-400 mx-auto mb-2" />
-                    <p className="text-gray-600">Interactive Map</p>
-                    <p className="text-sm text-gray-500">Nehru Place, New Delhi</p>
-                  </div>
+                <div className="h-64">
+                  <iframe
+                    title="Nakoda Mobile Location"
+                    loading="lazy"
+                    referrerPolicy="no-referrer-when-downgrade"
+                    className="w-full h-full"
+                    src={
+                      'https://www.google.com/maps?q=Karol%20Bagh%20Electronics%20Market%20New%20Delhi%20110055&output=embed'
+                    }
+                  />
                 </div>
                 <div className="p-6">
-                  <h3 className="text-xl font-semibold text-gray-900 mb-2">
-                    Visit Our Store
-                  </h3>
+                  <h3 className="text-xl font-semibold text-gray-900 mb-2">Visit Our Store</h3>
                   <p className="text-gray-600 mb-4">
-                    Come visit our physical store to see our products in person 
-                    and get expert advice from our team.
+                    Come visit our physical store to see our products in person and get expert advice from our team.
                   </p>
-                  <div className="flex items-center space-x-4 text-sm text-gray-600">
+                  <div className="flex items-center gap-4 text-sm text-gray-600">
                     <div className="flex items-center">
                       <CheckCircle className="h-4 w-4 text-green-500 mr-1" />
                       Free Parking
@@ -376,24 +553,22 @@ const Contact: React.FC = () => {
 
               {/* Social Media */}
               <div className="bg-white rounded-xl shadow-lg p-6">
-                <h3 className="text-xl font-semibold text-gray-900 mb-4">
-                  Follow Us
-                </h3>
+                <h3 className="text-xl font-semibold text-gray-900 mb-4">Follow Us</h3>
                 <p className="text-gray-600 mb-6">
-                  Stay connected with us on social media for the latest updates, 
-                  offers, and tech news.
+                  Stay connected with us on social media for the latest updates, offers, and tech news.
                 </p>
                 <div className="flex space-x-4">
                   {[
-                    { icon: Facebook, color: 'text-blue-600', bg: 'bg-blue-100' },
-                    { icon: Twitter, color: 'text-blue-400', bg: 'bg-blue-50' },
-                    { icon: Instagram, color: 'text-pink-600', bg: 'bg-pink-100' },
-                    { icon: Youtube, color: 'text-red-600', bg: 'bg-red-100' }
+                    { icon: Facebook, color: 'text-blue-600', bg: 'bg-blue-100', href: 'https://www.facebook.com/jitendra.kothari.121/' },
+                    { icon: Twitter, color: 'text-blue-400', bg: 'bg-blue-50', href: 'https://x.com/_nakodamobile_?t=yJpXFZwym_u7fbB_3ORckQ&s=08' },
+                    { icon: Instagram, color: 'text-pink-600', bg: 'bg-pink-100', href: 'https://www.instagram.com/v2m_nakoda_mobile/' },
+                    { icon: Youtube, color: 'text-red-600', bg: 'bg-red-100', href: 'https://www.youtube.com/@V2MNakodaMobile' },
                   ].map((social, index) => (
                     <a
                       key={index}
-                      href="#"
+                      href={social.href}
                       className={`${social.bg} ${social.color} p-3 rounded-lg hover:scale-110 transition-transform duration-200`}
+                      aria-label={`Visit us on ${social.icon.displayName || 'social'}`}
                     >
                       <social.icon className="h-6 w-6" />
                     </a>
@@ -404,9 +579,7 @@ const Contact: React.FC = () => {
               {/* Quick Contact */}
               <div className="bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-xl p-6">
                 <h3 className="text-xl font-semibold mb-4">Need Immediate Help?</h3>
-                <p className="mb-4">
-                  For urgent inquiries, call us directly or chat with our support team.
-                </p>
+                <p className="mb-4">For urgent inquiries, call us directly or chat with our support team.</p>
                 <div className="flex flex-col sm:flex-row gap-3">
                   <a
                     href="tel:+919876543210"
@@ -431,30 +604,26 @@ const Contact: React.FC = () => {
       <section className="py-16 bg-white">
         <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="text-center mb-12">
-            <h2 className="text-3xl font-bold text-gray-900 mb-4">
-              Frequently Asked Questions
-            </h2>
-            <p className="text-gray-600">
-              Quick answers to common questions
-            </p>
+            <h2 className="text-3xl font-bold text-gray-900 mb-4">Frequently Asked Questions</h2>
+            <p className="text-gray-600">Quick answers to common questions</p>
           </div>
 
           <div className="space-y-6">
             {faqs.map((faq, index) => (
-              <motion.div
-                key={index}
-                initial={{ opacity: 0, y: 20 }}
+              <motion.details
+                key={faq.question}
+                initial={{ opacity: 0, y: 12 }}
                 whileInView={{ opacity: 1, y: 0 }}
-                transition={{ delay: index * 0.1 }}
-                className="bg-gray-50 rounded-lg p-6"
+                viewport={{ once: true }}
+                transition={{ delay: index * 0.05 }}
+                className="bg-gray-50 rounded-lg p-6 group open:bg-gray-100"
               >
-                <h3 className="text-lg font-semibold text-gray-900 mb-3">
+                <summary className="cursor-pointer select-none text-lg font-semibold text-gray-900 mb-2 list-none flex items-center justify-between">
                   {faq.question}
-                </h3>
-                <p className="text-gray-600">
-                  {faq.answer}
-                </p>
-              </motion.div>
+                  <span className="ml-4 text-sm text-gray-500 group-open:rotate-180 transition-transform">▼</span>
+                </summary>
+                <p className="text-gray-700">{faq.answer}</p>
+              </motion.details>
             ))}
           </div>
         </div>

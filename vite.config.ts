@@ -20,7 +20,7 @@ export default defineConfig({
     host: true, // 👈 Enables access via network IP
     port: 5173, // 👈 Ensures consistent port
     proxy: {
-      '/api': 'http://localhost:5000',
+      '/api': 'https://nokodamobile.in',
     },
   },
   // ✅ Define global variables for browser compatibility

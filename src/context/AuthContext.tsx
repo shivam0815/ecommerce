@@ -15,17 +15,17 @@ type AuthContextType = {
   user: User | null;
   token: string | null;
   isAuthenticated: boolean;
-  isLoading: boolean;       // network/loading state for actions & bootstrap
-  isBootstrapped: boolean;  // true once the first auth check is finished
+  isLoading: boolean;
+  isBootstrapped: boolean;
 
   // actions
-  login: (data: LoginData) => Promise<any>;        // returns backend payload (supports 2FA)
+  login: (data: LoginData) => Promise<any>;
   signup: (data: RegisterData) => Promise<any>;
   updateProfile: (data: Partial<User>) => Promise<User>;
   loadUser: () => Promise<void>;
   logout: () => void;
 
-  // optional setters (useful for OAuth callback page)
+  // optional setters
   setUser: React.Dispatch<React.SetStateAction<User | null>>;
   setIsAuthenticated: React.Dispatch<React.SetStateAction<boolean>>;
   setToken: React.Dispatch<React.SetStateAction<string | null>>;
@@ -35,12 +35,16 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
-  const [token, setToken] = useState<string | null>(() => localStorage.getItem('nakoda-token'));
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(!!localStorage.getItem('nakoda-token'));
+  const [token, setToken] = useState<string | null>(() =>
+    localStorage.getItem('nakoda-token')
+  );
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(
+    !!localStorage.getItem('nakoda-token')
+  );
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [isBootstrapped, setIsBootstrapped] = useState<boolean>(false);
 
-  // Forward token to your API layer if supported (e.g., axios interceptor)
+  // forward token to axios/authService if supported
   const setAuthHeaderIfAvailable = useCallback((t: string | null) => {
     try {
       (authService as any)?.setToken?.(t);
@@ -49,29 +53,33 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, []);
 
-  // Keep localStorage + React state in sync
-  const storeAuth = useCallback((nextToken: string | null, nextUser: User | null) => {
-    if (nextToken) {
-      localStorage.setItem('nakoda-token', nextToken);
-      setToken(nextToken);
-      setAuthHeaderIfAvailable(nextToken);
-    } else {
-      localStorage.removeItem('nakoda-token');
-      setToken(null);
-      setAuthHeaderIfAvailable(null);
-    }
+  // store token + user in localStorage
+  const storeAuth = useCallback(
+    (nextToken: string | null, nextUser: User | null) => {
+      if (nextToken) {
+        localStorage.setItem('nakoda-token', nextToken);
+        setToken(nextToken);
+        setAuthHeaderIfAvailable(nextToken);
+      } else {
+        localStorage.removeItem('nakoda-token');
+        setToken(null);
+        setAuthHeaderIfAvailable(null);
+      }
 
-    if (nextUser) {
-      localStorage.setItem('nakoda-user', JSON.stringify(nextUser));
-      setUser(nextUser);
-    } else {
-      localStorage.removeItem('nakoda-user');
-      setUser(null);
-    }
+      if (nextUser) {
+        localStorage.setItem('nakoda-user', JSON.stringify(nextUser));
+        setUser(nextUser);
+      } else {
+        localStorage.removeItem('nakoda-user');
+        setUser(null);
+      }
 
-    setIsAuthenticated(!!nextToken);
-  }, [setAuthHeaderIfAvailable]);
+      setIsAuthenticated(!!nextToken);
+    },
+    [setAuthHeaderIfAvailable]
+  );
 
+  // load user profile (when token exists)
   const loadUser = useCallback(async () => {
     try {
       const t = localStorage.getItem('nakoda-token');
@@ -97,7 +105,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   }, [storeAuth, setAuthHeaderIfAvailable]);
 
-  // Bootstrap once
+  // bootstrap once
   useEffect(() => {
     (async () => {
       try {
@@ -108,7 +116,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
     })();
 
-    // Cross-tab sync
+    // cross-tab sync
     const onStorage = (e: StorageEvent) => {
       if (e.key === 'nakoda-token') {
         const t = localStorage.getItem('nakoda-token');
@@ -126,7 +134,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => window.removeEventListener('storage', onStorage);
   }, [loadUser, setAuthHeaderIfAvailable]);
 
+  // -------------------
   // Actions
+  // -------------------
   const login = useCallback(
     async (data: LoginData): Promise<any> => {
       setIsLoading(true);
@@ -134,7 +144,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const resp: any = await authService.login(data);
 
         if (resp?.requiresTwoFactor) {
-          return resp; // { requiresTwoFactor, tempUserId, ... }
+          return resp; // e.g. { requiresTwoFactor, tempUserId }
         }
 
         if (resp?.token) {
@@ -162,27 +172,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     async (data: RegisterData): Promise<any> => {
       setIsLoading(true);
       try {
+        // clear any existing auth state
+        storeAuth(null, null);
+
+        // Call backend register — backend should send OTP/email
         const resp: any = await authService.register(data);
 
-        if (resp?.token) {
-          storeAuth(resp.token, resp?.user ?? null);
-          if (!resp.user) await loadUser();
-          toast.success('Registration successful!');
-          return resp;
-        }
-
-        if (resp?.user) {
-          storeAuth(localStorage.getItem('nakoda-token'), resp.user);
-          toast.success('Registration successful!');
-          return resp;
-        }
-
-        throw new Error('Register: unexpected response from server');
+        // Do not set token/user here
+        toast.success('Account created! Please verify to continue.');
+        return resp;
       } finally {
         setIsLoading(false);
       }
     },
-    [loadUser, storeAuth]
+    [storeAuth]
   );
 
   const updateProfile = useCallback(
@@ -199,7 +202,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const logout = useCallback(() => {
     try {
       authService.logout?.();
-    } catch { /* ignore */ }
+    } catch {
+      /* ignore */
+    }
     storeAuth(null, null);
     toast.success('Logged out successfully');
   }, [storeAuth]);
@@ -245,5 +250,5 @@ export const useAuthContext = () => {
   return ctx;
 };
 
-// Optional alias: lets you `import { useAuth } from '.../context/AuthContext'`
+// alias
 export const useAuth = useAuthContext;

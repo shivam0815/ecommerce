@@ -165,7 +165,7 @@ const Home: React.FC = () => {
   return (
     <div className="min-h-screen">
       <SEO
-        title="Home"
+        title="Home "
         description="Shop OEM/wholesale mobile accessories—TWS, neckbands, chargers, cables, ICs & more."
         canonicalPath="/"
         jsonLd={{
@@ -753,13 +753,13 @@ const Home: React.FC = () => {
               </p>
 
               <div className="flex justify-center space-x-4 mt-8">
-                <motion.a href="#" whileHover={{ scale: 1.1 }} className="text-gray-400 hover:text-white" rel="noreferrer" aria-label="Facebook">
+                <motion.a href="https://www.facebook.com/jitendra.kothari.121/" whileHover={{ scale: 1.1 }} className="text-gray-400 hover:text-white" rel="noreferrer" aria-label="Facebook">
                   <Facebook className="h-6 w-6" />
                 </motion.a>
-                <motion.a href="#" whileHover={{ scale: 1.1 }} className="text-gray-400 hover:text-white" rel="noreferrer" aria-label="Twitter">
+                <motion.a href="https://x.com/_nakodamobile_?t=yJpXFZwym_u7fbB_3ORckQ&s=08" whileHover={{ scale: 1.1 }} className="text-gray-400 hover:text-white" rel="noreferrer" aria-label="Twitter">
                   <Twitter className="h-6 w-6" />
                 </motion.a>
-                <motion.a href="#" whileHover={{ scale: 1.1 }} className="text-gray-400 hover:text-white" rel="noreferrer" aria-label="Instagram">
+                <motion.a href="https://www.instagram.com/v2m_nakoda_mobile/" whileHover={{ scale: 1.1 }} className="text-gray-400 hover:text-white" rel="noreferrer" aria-label="Instagram">
                   <Instagram className="h-6 w-6" />
                 </motion.a>
               </div>
