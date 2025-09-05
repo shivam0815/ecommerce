@@ -564,30 +564,33 @@ process.on('unhandledRejection', (reason, promise) => {
 });
 
 // Start
-server.listen(PORT, (): void => {
+server.listen(PORT, '0.0.0.0', () => {
+  const base = isProd ? 'https://nakodamobile.in' : `http://localhost:${PORT}`;
+
   console.log('🚀 ================================');
   console.log('🚀 Nakoda Mobile API Server Started');
   console.log('🚀 ================================');
-  console.log(`📡 Server running on port: ${PORT}`);
+  console.log(`📡 Server bind: 0.0.0.0:${PORT}`);
   console.log(`🌍 Environment: ${NODE_ENV}`);
   console.log(`⏰ Started at: ${new Date().toISOString()}`);
-  console.log(`🔗 Local URL: https://nakodamobile.in:${PORT}`);
-  console.log(`❤️  Health Check: https://nakodamobile.in:${PORT}/api/health`);
-  console.log(`🛒 Cart API: https://nakodamobile.in:${PORT}/api/cart`);
-  console.log(`📦 Products API: https://nakodamobile.in:${PORT}/api/products`);
-  console.log(`🔐 Auth API: https://nakodamobile.int:${PORT}/api/auth`);
-  console.log(`💳 Payment API: https://nakodamobile.in:${PORT}/api/payment`);
-  console.log(`👨‍💼 Admin API: https://nakodamobile.in:${PORT}/api/admin`);
-  console.log(`🔌 Socket.IO: Enabled and Running`);
-  console.log(`📊 Rate Limit: ${isProd ? 1000 : 10000} requests per 15 minutes`);
+
+  // ✅ Public URLs (no :5000 when behind Nginx)
+  console.log(`🔗 Public Base: ${base}`);
+  console.log(`❤️  Health Check: ${base}/api/health`);
+  console.log(`🛒 Cart API: ${base}/api/cart`);
+  console.log(`📦 Products API: ${base}/api/products`);
+  console.log(`🔐 Auth API: ${base}/api/auth`); // fixed .int -> .in
+  console.log(`💳 Payment API: ${base}/api/payment`);
+  console.log(`👨‍💼 Admin API: ${base}/api/admin`);
+  console.log(`🔌 Socket.IO: ${base}/socket.io`);
+  console.log(`📊 Rate Limit: ${isProd ? 1000 : 10000}/15m`);
   console.log(`☁️  Cloudinary: ${process.env.CLOUDINARY_CLOUD_NAME ? 'Configured' : 'Not Configured'}`);
-  console.log(`✅ Static files served from /uploads`);
   if (!isProd) {
     console.log('🧪 Test Endpoints:');
-    console.log('   - GET  /api/test/cloudinary (Connection test)');
-    console.log('   - POST /api/test/upload (Upload test)');
-    console.log('   - GET  /api/test/uploads (Local files test)');
-    console.log('   - GET  /api/test/razorpay (Razorpay order test)');
+    console.log('   - GET  /api/test/cloudinary');
+    console.log('   - POST /api/test/upload');
+    console.log('   - GET  /api/test/uploads');
+    console.log('   - GET  /api/test/razorpay');
   }
   console.log('🚀 ================================');
 });

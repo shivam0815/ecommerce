@@ -224,7 +224,7 @@ const Contact: React.FC = () => {
       '@context': 'https://schema.org',
       '@type': 'LocalBusiness',
       name: 'Nakoda Mobile',
-      image: 'https://www.your-domain.com/favicon-512.png',
+      image: 'https://www.nakodamobile.in/favicon-512.png',
       address: {
         '@type': 'PostalAddress',
         streetAddress: 'Near Church Gali No. 2, Electronics Market, Karol Bagh',

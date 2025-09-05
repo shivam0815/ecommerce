@@ -90,7 +90,7 @@ const Login: React.FC = () => {
       return;
     }
     setSocialLoading(provider);
-    const apiBase = (import.meta as any).env?.VITE_API_URL || 'http://localhost:5000/api';
+    const apiBase = (import.meta as any).env?.VITE_API_URL || 'https://nakodamobile.in/api';
     const backendOrigin = apiBase.replace(/\/?api\/?$/, '');
     window.location.href = `${backendOrigin}/api/auth/${provider}`;
   };
