@@ -83,21 +83,7 @@ const prodOrigins = [
 const allowedOrigins = isProd ? prodOrigins : devOrigins;
 
 // ✅ Socket.IO
-const io = new Server(server, {
-  path: '/socket.io',
-  cors: {
-    origin(origin, cb) {
-      if (!origin) return cb(null, true); // SSR / curl
-      if (allowedOrigins.includes(origin)) return cb(null, true);
-      if (!isProd) return cb(null, true);
-      console.warn('❌ Socket.IO CORS blocked:', origin);
-      cb(new Error('Not allowed by Socket.IO CORS'));
-    },
-    credentials: true,
-    methods: ['GET', 'POST']
-  },
-  transports: ['websocket', 'polling']
-});
+
 
 // Connect DB
 connectDatabase();
@@ -157,33 +143,38 @@ const limiter = rateLimit({
 app.use('/api', limiter);
 
 // CORS
-app.use(
-  cors({
-    origin(origin, callback) {
-      if (!origin) return callback(null, true);
-      if (allowedOrigins.includes(origin)) return callback(null, true);
-      if (!isProd) return callback(null, true);
-      console.warn(`❌ CORS blocked origin: ${origin}`);
-      callback(new Error('Not allowed by CORS'));
-    },
+const originCheck = (origin: string | undefined, cb: any) => {
+  if (!origin) return cb(null, true);
+  let hostname = '';
+  try {
+    hostname = new URL(origin).hostname;
+  } catch {
+    return cb(new Error('Invalid Origin'));
+  }
+  if (/(\.|^)nakodamobile\.in$/i.test(hostname)) return cb(null, true);
+  if (!isProd) return cb(null, true);
+  console.warn(`❌ CORS blocked origin: ${origin}`);
+  return cb(new Error('Not allowed by CORS'));
+};
+
+// Express
+app.use(cors({
+  origin: originCheck,
+  credentials: true,
+  methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'x-auth-token', 'Authorization', 'x-requested-with'],
+  optionsSuccessStatus: 200
+}));
+
+const io = new Server(server, {
+  path: '/socket.io',
+  cors: {
+    origin: originCheck,
     credentials: true,
-    methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'x-auth-token', 'Authorization', 'x-requested-with'],
-    optionsSuccessStatus: 200
-  })
-);
-
-// Preflight
-app.options('*', (req, res) => {
-  const origin = req.get('Origin') || '*';
-  res.header('Access-Control-Allow-Origin', origin);
-  res.header('Vary', 'Origin');
-  res.header('Access-Control-Allow-Credentials', 'true');
-  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, PATCH, DELETE, OPTIONS');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, x-auth-token, Authorization, x-requested-with');
-  res.sendStatus(204);
+    methods: ['GET', 'POST']
+  },
+  transports: ['websocket', 'polling']
 });
-
 // Root
 app.get('/', (_req, res): void => {
   res.json({
