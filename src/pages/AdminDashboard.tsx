@@ -151,7 +151,7 @@ const CloudinaryImageUpload = memo<{
 };
 
 
-const socket = io("http://localhost:5000", { withCredentials: true });
+const socket = io("https://nakodamobile.in", { withCredentials: true });
 
 useEffect(() => {
   socket.emit("join", { role: "admin" });

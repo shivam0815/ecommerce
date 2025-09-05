@@ -17,7 +17,7 @@ import { generateResponsiveImageUrl } from '../utils/cloudinaryBrowser';
 import { useTranslation } from 'react-i18next';
 
 const isValidEmail = (e: string) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/i.test(e.trim());
-const API_BASE = (import.meta as any).env?.VITE_API_URL || 'http://localhost:5000/api';
+const API_BASE = (import.meta as any).env?.VITE_API_URL || 'https://nakodamobile.in/api';
 
 
 type Product = {
@@ -172,8 +172,8 @@ const Home: React.FC = () => {
           '@context': 'https://schema.org',
           '@type': 'Organization',
           name: 'Nakoda Mobile',
-          url: 'https://www.your-domain.com',
-          logo: 'https://www.your-domain.com/favicon-512.png'
+          url: 'https://www.nakodamobile.in',
+          logo: 'https://nakodamobile.in/favicon-512.png'
         }}
       />
 
