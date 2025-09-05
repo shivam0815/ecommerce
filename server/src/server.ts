@@ -76,8 +76,8 @@ const devOrigins = [
 ];
 const runtimeFrontend = process.env.FRONTEND_URL?.trim();
 const prodOrigins = [
-  'https://nokodamobile.in',
-  'https://www.nokodamobile.in',
+  'https://nakodamobile.in',
+  'https://www.nakodamobile.in',
   ...(runtimeFrontend ? [runtimeFrontend] : [])
 ];
 const allowedOrigins = isProd ? prodOrigins : devOrigins;
@@ -363,7 +363,7 @@ if (!isProd) {
         exists,
         fileCount: files.length,
         sampleFiles: files.slice(0, 10),
-        testUrls: files.slice(0, 3).map((f) => `https://nokodamobile.in/uploads/${f}`)
+        testUrls: files.slice(0, 3).map((f) => `https://nakodamobile.in/uploads/${f}`)
       });
     } catch (error: any) {
       res.status(500).json({ success: false, error: error.message, uploadsDirectory: uploadsDir });
@@ -571,13 +571,13 @@ server.listen(PORT, (): void => {
   console.log(`📡 Server running on port: ${PORT}`);
   console.log(`🌍 Environment: ${NODE_ENV}`);
   console.log(`⏰ Started at: ${new Date().toISOString()}`);
-  console.log(`🔗 Local URL: http://localhost:${PORT}`);
-  console.log(`❤️  Health Check: http://localhost:${PORT}/api/health`);
-  console.log(`🛒 Cart API: http://localhost:${PORT}/api/cart`);
-  console.log(`📦 Products API: http://localhost:${PORT}/api/products`);
-  console.log(`🔐 Auth API: http://localhost:${PORT}/api/auth`);
-  console.log(`💳 Payment API: http://localhost:${PORT}/api/payment`);
-  console.log(`👨‍💼 Admin API: http://localhost:${PORT}/api/admin`);
+  console.log(`🔗 Local URL: https://nakodamobile.in:${PORT}`);
+  console.log(`❤️  Health Check: https://nakodamobile.in:${PORT}/api/health`);
+  console.log(`🛒 Cart API: https://nakodamobile.in:${PORT}/api/cart`);
+  console.log(`📦 Products API: https://nakodamobile.in:${PORT}/api/products`);
+  console.log(`🔐 Auth API: https://nakodamobile.int:${PORT}/api/auth`);
+  console.log(`💳 Payment API: https://nakodamobile.in:${PORT}/api/payment`);
+  console.log(`👨‍💼 Admin API: https://nakodamobile.in:${PORT}/api/admin`);
   console.log(`🔌 Socket.IO: Enabled and Running`);
   console.log(`📊 Rate Limit: ${isProd ? 1000 : 10000} requests per 15 minutes`);
   console.log(`☁️  Cloudinary: ${process.env.CLOUDINARY_CLOUD_NAME ? 'Configured' : 'Not Configured'}`);

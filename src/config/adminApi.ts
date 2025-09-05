@@ -1,7 +1,7 @@
 import axios, { AxiosInstance, AxiosResponse } from 'axios';
 
 // Vite Environment Variables (import.meta.env instead of process.env)
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://nokodamobile.in/api';
+const API_BASE_URL = import.meta.env.VITE_API_URL || 'https://nakodamobile.in/api';
 const APP_NAME = import.meta.env.VITE_APP_NAME || 'Nakoda Mobile';
 const API_TIMEOUT = 30000;
 const IS_DEVELOPMENT = import.meta.env.DEV;
