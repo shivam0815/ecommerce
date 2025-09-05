@@ -44,7 +44,7 @@ import Blog from './pages/Blog';
 import BlogPost from './pages/BlogPost';
 import Privacy from './pages/Privacy';
 import Terms from './pages/Terms';
-import Video from "./pages/video";
+import Video from "./pages/Video";
 
 
 // ✅ Use the auth context directly; no new files are added
