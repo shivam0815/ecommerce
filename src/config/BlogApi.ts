@@ -28,23 +28,23 @@ export interface BlogPost {
 
 export const blogApi = {
   list: async (params?: { page?: number; limit?: number; q?: string; status?: string }) => {
-    const { data } = await api.get('/api/blog', { params });
+    const { data } = await api.get('/blog', { params });
     return data; // { success, posts, total, totalPages, currentPage }
   },
   getBySlug: async (slug: string) => {
-    const { data } = await api.get(`/api/blog/${slug}`);
+    const { data } = await api.get(`/blog/${slug}`);
     return data; // { success, post }
   },
   create: async (payload: BlogPost) => {
-    const { data } = await api.post('/api/blog', payload);
+    const { data } = await api.post('/blog', payload);
     return data; // { success, post }
   },
   update: async (id: string, payload: Partial<BlogPost>) => {
-    const { data } = await api.put(`/api/blog/${id}`, payload);
+    const { data } = await api.put(`/blog/${id}`, payload);
     return data; // { success, post }
   },
   remove: async (id: string) => {
-    const { data } = await api.delete(`/api/blog/${id}`);
+    const { data } = await api.delete(`/blog/${id}`);
     return data; // { success }
   },
 };

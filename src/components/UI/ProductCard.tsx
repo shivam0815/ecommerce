@@ -276,8 +276,8 @@ const ProductCard: React.FC<ProductCardProps> = ({
         whileHover={{ y: -5 }}
         className={
           (isList
-            ? 'bg-white rounded-lg shadow-lg overflow-hidden hover:shadow-xl transition-all duration-300 flex gap-4 p-4'
-            : 'bg-white rounded-lg shadow-lg overflow-hidden hover:shadow-xl transition-all duration-300') +
+            ? 'bg-plaine-white rounded-lg shadow-lg overflow-hidden hover:shadow-xl transition-all duration-300 flex gap-4 p-4'
+            : 'bg-plaine-white rounded-lg shadow-lg overflow-hidden hover:shadow-xl transition-all duration-300') +
           (className ? ` ${className}` : '')
         }
       >
