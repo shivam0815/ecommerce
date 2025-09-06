@@ -6,7 +6,8 @@ import {
   ArrowRight, Star, ShoppingBag, Users, Award,
   Play, Shield, Truck, Headphones,
   ChevronLeft, ChevronRight, Quote,
-  Instagram, Twitter, Facebook, Sparkles, Flame, Clock
+  Instagram, Twitter, Facebook, Sparkles, Flame, Clock,
+  Factory, Package, BadgeCheck, Boxes, Wrench, Globe, Phone, DollarSign
 } from 'lucide-react';
 import HeroSlider from '../components/Layout/HeroSlider';
 import PromoSlider from '../components/Layout/PromoSlider';
@@ -18,7 +19,6 @@ import { useTranslation } from 'react-i18next';
 
 const isValidEmail = (e: string) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/i.test(e.trim());
 const API_BASE = (import.meta as any).env?.VITE_API_URL || 'https://nakodamobile.in/api';
-
 
 type Product = {
   _id: string;
@@ -180,7 +180,7 @@ const Home: React.FC = () => {
       {/* 🔥 Top Promotional Banner Section */}
       <HeroSlider />
 
-     {/* Enhanced Stats Section */}
+      {/* Enhanced Stats Section */}
       <section className="py-16 bg-gradient-to-r from-gray-50 to-gray-100">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
@@ -204,12 +204,142 @@ const Home: React.FC = () => {
         </div>
       </section>
 
-{/* Create about page of nakoda mobile */}
+      {/* ===================== About Nakoda Mobile + Shop Photos ===================== */}
+<section className="py-16 bg-gradient-to-br from-gray-900 via-blue-900 to-gray-900 text-white">
+  <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <div className="mb-10 flex items-center justify-between">
+      <div className="flex items-center gap-3">
+        <div className="h-10 w-10 rounded-lg bg-white/10 border border-white/20 flex items-center justify-center">
+          <Sparkles className="h-5 w-5 text-blue-200" />
+        </div>
+        <div>
+          <h2 className="text-2xl md:text-3xl font-bold">About Nakoda Mobile</h2>
+          <p className="text-blue-100">Built for repair pros. Trusted by businesses.</p>
+        </div>
+      </div>
+      <Link
+        to="/about"
+        className="text-blue-200 hover:text-white font-semibold"
+      >
+        Learn more →
+      </Link>
+    </div>
 
-  
+    {/* Content + Gallery */}
+    <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 items-start">
+      {/* Left: Copy */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        whileInView={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5 }}
+      >
+        <div className="space-y-4 text-blue-100 leading-relaxed">
+          <p className="text-lg">
+            <span className="font-semibold text-white">Welcome to Nakoda Mobile</span>, where we’re passionate about helping
+            mobile repair professionals do what they do best – fix devices with precision and confidence.
+            We understand that every tool in your kit plays a crucial role in bringing life back to smartphones and tablets,
+            and that’s why we’re here – to provide tools that you can count on, every single time.
+          </p>
+          <p>
+            Our journey started with a simple belief: mobile repair technicians deserve tools that match their skill,
+            dedication, and hard work. From basic hand tools to advanced diagnostic equipment, every product we create is
+            designed with you in mind. We combine innovation, practicality, and durability so you always have the best
+            tools at your fingertips.
+          </p>
+          <p>
+            At Nakoda Mobile, we don’t just manufacture tools – <span className="font-semibold text-white">we build trust</span>.
+            Each tool goes through meticulous testing to meet our high standards and your expectations. For us, it’s not just
+            about selling tools; it’s about becoming a part of your success story.
+          </p>
+        </div>
+
+        {/* Quick highlights */}
+        <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {[
+            { title: 'Designed for Pros', desc: 'Real-world tested by technicians' },
+            { title: 'Durable & Reliable', desc: 'Batch QA + performance checks' },
+            { title: 'Fast Availability', desc: 'Consistent stock & quick dispatch' },
+            { title: 'B2B Friendly', desc: 'OEM, branding & bulk pricing' },
+          ].map((item) => (
+            <div key={item.title} className="rounded-xl border border-white/10 bg-white/5 p-4">
+              <h4 className="font-semibold text-white">{item.title}</h4>
+              <p className="text-sm text-blue-100">{item.desc}</p>
+            </div>
+          ))}
+        </div>
+
+        {/* CTAs */}
+        <div className="mt-8 flex flex-col sm:flex-row gap-4">
+          <Link
+            to="/contact"
+            className="inline-flex items-center rounded-lg bg-white text-gray-900 px-5 py-3 font-semibold hover:bg-gray-100"
+          >
+            Contact Us <ArrowRight className="ml-2 w-4 h-4" />
+          </Link>
+          <Link
+            to="/oem"
+            className="inline-flex items-center rounded-lg border border-white/30 px-5 py-3 font-semibold hover:bg-white/10 text-white"
+          >
+            Explore OEM Services
+          </Link>
+        </div>
+      </motion.div>
+
+      {/* Right: Shop Photo Grid */}
+      <motion.div
+        initial={{ opacity: 0, y: 20 }}
+        whileInView={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.5 }}
+      >
+       
+        {(() => {
+          const rawPhotos = [
+            // TODO: replace these with your real shop images
+            'https://res.cloudinary.com/dt7xwlswy/image/upload/v1757156418/mt9by1kt31odrb8a8f6n.jpg',
+            'https://res.cloudinary.com/dt7xwlswy/image/upload/v1757156418/np2btbi9faiktkr9kegy.jpg',
+            'https://res.cloudinary.com/dt7xwlswy/image/upload/v1757156422/yexojn2fnpa582ikgntp.jpg',
+            'https://res.cloudinary.com/dt7xwlswy/image/upload/v1757156418/chyuw0pubq1nadzyz3lx.jpg',
+            'https://res.cloudinary.com/dt7xwlswy/image/upload/v1757156418/hbalmt0icrc8qvpyiody.jpg',
+          ];
+
+          const toImg = (url: string) => {
+            try {
+              return generateResponsiveImageUrl(url, { width: 800, height: 600, crop: 'fill' });
+            } catch {
+              return url;
+            }
+          };
+
+          return (
+            <div className="grid grid-cols-2 gap-3">
+              {rawPhotos.map((src, i) => (
+                <div
+                  key={i}
+                  className={`relative overflow-hidden rounded-xl border border-white/10 bg-white/5 ${
+                    i === 0 ? 'col-span-2 aspect-[16/9]' : 'aspect-[4/3]'
+                  }`}
+                >
+                  <img
+                    loading="lazy"
+                    src={toImg(src)}
+                    alt={`Nakoda Mobile shop photo ${i + 1}`}
+                    className="h-full w-full object-cover transition-transform duration-500 hover:scale-105"
+                  />
+                  <div className="absolute inset-0 bg-gradient-to-t from-black/30 via-transparent to-transparent" />
+                </div>
+              ))}
+            </div>
+          );
+        })()}
+        <p className="mt-3 text-xs text-blue-200">
+          Want a visit or virtual tour? <Link to="/contact" className="underline decoration-blue-300 hover:text-white">Get in touch</Link>.
+        </p>
+      </motion.div>
+    </div>
+  </div>
+</section>
 
 
-  {/* services we offer */}
 
       {/* 💸 Budget Bestsellers (≤ ₹599) — distinct dark glass UI */}
       <section className="py-14 bg-gradient-to-br from-gray-900 via-blue-900 to-gray-900 text-white">
@@ -295,7 +425,7 @@ const Home: React.FC = () => {
         </div>
       </section>
 
-      {/* 🆕 New Arrivals (minimal, airy) */}
+      {/* 🆕 New Arrivals */}
       <section className="py-14 bg-white">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="mb-8 flex items-center justify-between">
@@ -385,6 +515,63 @@ const Home: React.FC = () => {
           )}
         </div>
       </section>
+
+      {/* ===================== Services We Offer ===================== */}
+      <section className="py-16 bg-gradient-to-br from-gray-900 via-blue-900 to-gray-900 text-white">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <motion.div className="text-center mb-12" initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }}>
+            <h2 className="text-3xl md:text-4xl font-bold mb-3">Services We Offer</h2>
+            <p className="text-blue-100 max-w-2xl mx-auto">
+              End-to-end OEM solutions—from sourcing to branding, packaging, QC and last-mile delivery.
+            </p>
+          </motion.div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+            {[
+              { icon: Factory, title: 'OEM & Private Label', desc: 'Custom molds, finishes, and brand identity across SKUs.' },
+              { icon: Boxes, title: 'Bulk Procurement', desc: 'Direct factory sourcing, negotiated MOQs, and predictable lead times.' },
+              { icon: Package, title: 'Custom Packaging', desc: 'Retail-ready boxes, inserts, stickers, and compliance barcodes.' },
+              { icon: Shield, title: 'Quality & Compliance', desc: 'AQL checks, burn-in tests, BIS/IS standards guidance.' },
+              { icon: Truck, title: 'Fulfilment & Logistics', desc: 'Pan-India shipping, tracking, and B2B dispatch workflows.' },
+              { icon: Wrench, title: 'After-Sales & RMA', desc: 'Warranty flows, spares, and structured returns handling.' },
+              { icon: Globe, title: 'Sourcing in China', desc: 'Factory vetting, sample runs, and price benchmarking.' },
+              { icon: DollarSign, title: 'B2B Pricing & Credit', desc: 'Tiered wholesale pricing and eligible credit terms.' },
+              { icon: Phone, title: 'Dedicated Support', desc: 'Account manager + technical support for your brand.' },
+            ].map((svc, i) => (
+              <motion.div
+                key={svc.title}
+                initial={{ opacity: 0, y: 20 }}
+                whileInView={{ opacity: 1, y: 0 }}
+                transition={{ delay: i * 0.05 }}
+                className="group rounded-2xl border border-white/10 bg-white/5 p-6 backdrop-blur hover:bg-white/10 hover:border-white/20 transition"
+              >
+                <div className="flex items-start gap-4">
+                  <div className="rounded-xl bg-white/10 p-3">
+                    <svc.icon className="w-6 h-6 text-white" />
+                  </div>
+                  <div>
+                    <h3 className="text-lg font-semibold">{svc.title}</h3>
+                    <p className="text-sm text-blue-100 mt-1">{svc.desc}</p>
+                  </div>
+                </div>
+              </motion.div>
+            ))}
+          </div>
+
+          <div className="text-center mt-10">
+            <div className="inline-flex flex-col sm:flex-row gap-3">
+              <Link to="/oem" className="rounded-lg bg-white text-gray-900 px-6 py-3 font-semibold hover:bg-gray-100 inline-flex items-center justify-center">
+                Explore OEM <ArrowRight className="ml-2 w-4 h-4" />
+              </Link>
+              <Link to="/contact" className="rounded-lg border border-white/30 px-6 py-3 font-semibold hover:bg-white/10 inline-flex items-center justify-center text-white">
+                Contact Sales
+              </Link>
+            </div>
+          </div>
+        </div>
+      </section>
+      {/* ===================== /Services ===================== */}
+
       {/* Categories */}
       <section className="py-16 bg-white">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -439,9 +626,6 @@ const Home: React.FC = () => {
       </section>
 
       <PromoSlider />
-
-      {/* 🔥 Hot Picks (distinct glossy UI) */}
-    
 
       {/* Why Choose Us */}
       <section className="py-16 bg-gradient-to-br from-gray-900 via-blue-900 to-gray-900 text-white">

@@ -292,10 +292,9 @@ app.use('/api/chat', chatRoutes);
 app.use('/api/newsletter', newsletterRoutes);
 app.use('/api/contact', contactRoutes);
 app.use('/api/blog', blogRoutes);
-app.use('/api/reviews', reviewsPublic);
-// Reviews router — mount once under /api
-app.use('/api/reviews-public', reviewsPublic);
 
+// Reviews router — mount once under /api
+app.use('/api', reviewsPublic);
 // Support/Help/Notifications/Returns
 app.use('/api/help', helpRoutes);
 app.use('/api/support', supportRouter);
