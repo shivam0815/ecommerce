@@ -180,70 +180,7 @@ const Home: React.FC = () => {
       {/* 🔥 Top Promotional Banner Section */}
       <HeroSlider />
 
-      {/* Enhanced Hero Section */}
-      <section className="relative bg-gradient-to-br from-blue-600 via-purple-600 to-blue-800 text-white overflow-hidden">
-        <div className="absolute inset-0">
-          {[...Array(20)].map((_, i) => (
-            <motion.div
-              key={i}
-              className="absolute w-2 h-2 bg-white rounded-full opacity-20"
-              style={{ left: `${Math.random() * 100}%`, top: `${Math.random() * 100}%` }}
-              animate={{ y: [-20, -100, -20], opacity: [0.2, 0.5, 0.2] }}
-              transition={{ duration: 3 + Math.random() * 2, repeat: Infinity, delay: Math.random() * 2 }}
-            />
-          ))}
-        </div>
-
-        <div className="absolute inset-0 bg-black opacity-20"></div>
-        <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-20">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-12 items-center">
-            <motion.div initial={{ opacity: 0, x: -50 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.8 }}>
-              <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }} className="inline-block bg-yellow-400 text-gray-900 px-4 py-2 rounded-full text-sm font-semibold mb-6">
-                ✨ Trusted by 100000+ Customers
-              </motion.div>
-
-              <h1 className="text-4xl md:text-6xl font-bold mb-6">
-                Premium Mobile
-                <span className="block text-yellow-400">Accessories</span>
-              </h1>
-              <p className="text-xl mb-8 text-gray-200">
-                Discover our extensive range of high-quality mobile accessories,
-                from TWS earbuds to professional repair tools. Quality guaranteed,
-                prices unmatched.
-              </p>
-
-              <div className="flex flex-col sm:flex-row gap-4 mb-8">
-                <Link to="/products" className="bg-yellow-400 text-gray-900 px-8 py-3 rounded-lg font-semibold hover:bg-yellow-300 transition-colors duration-200 text-center flex items-center justify-center">
-                  <ShoppingBag className="mr-2 h-5 w-5" />
-                  Shop Now
-                </Link>
-                <Link to="/oem" className="border-2 border-white text-white px-8 py-3 rounded-lg font-semibold hover:bg-white hover:text-gray-900 transition-colors duration-200 text-center">
-                  OEM Services
-                </Link>
-              </div>
-
-              <div className="flex items-center space-x-6 text-sm">
-                <div className="flex items-center">
-                  <div className="flex -space-x-2 mr-2">
-                    {[1, 2, 3, 4].map(i => (<div key={i} className="w-8 h-8 rounded-full bg-yellow-400 border-2 border-white"></div>))}
-                  </div>
-                  <span>Join 50000+ Happy Customers</span>
-                </div>
-              </div>
-            </motion.div>
-
-            <motion.div initial={{ opacity: 0, x: 50 }} animate={{ opacity: 1, x: 0 }} transition={{ duration: 0.8, delay: 0.2 }} className="relative">
-              <div className="relative z-10">
-                <img src="/ban4.webp" alt="Mobile Accessories" className="rounded-lg shadow-2xl" />
-               
-              </div>
-              <div className="absolute inset-0 bg-gradient-to-t from-blue-600 to-transparent rounded-lg transform rotate-3"></div>
-            </motion.div>
-          </div>
-        </div>
-      </section>
-
-      {/* Enhanced Stats Section */}
+     {/* Enhanced Stats Section */}
       <section className="py-16 bg-gradient-to-r from-gray-50 to-gray-100">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
@@ -266,103 +203,13 @@ const Home: React.FC = () => {
           </div>
         </div>
       </section>
-  <section className="py-14 bg-gradient-to-b from-white to-gray-50">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="mb-8 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="h-10 w-10 rounded-lg bg-red-50 flex items-center justify-center">
-                <Flame className="h-5 w-5 text-red-600" />
-              </div>
-              <div>
-                <h2 className="text-2xl md:text-3xl font-bold text-gray-900">Hot Picks</h2>
-                <p className="text-gray-600">Trending now—selling fast</p>
-              </div>
-            </div>
-            <Link to="/products?sort=trending" className="text-blue-600 hover:text-blue-700 font-semibold">
-              View all →
-            </Link>
-          </div>
 
-          {loadingHot ? (
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-              {Array.from({ length: 8 }).map((_, i) => (
-                <div key={i} className="rounded-2xl bg-white border border-gray-200 p-4">
-                  <div className="h-44 w-full rounded-lg bg-gray-100 animate-pulse" />
-                  <div className="mt-4 h-5 w-3/4 bg-gray-100 rounded animate-pulse" />
-                  <div className="mt-2 h-4 w-1/2 bg-gray-100 rounded animate-pulse" />
-                </div>
-              ))}
-            </div>
-          ) : errHot ? (
-            <div className="text-sm text-red-600">{errHot}</div>
-          ) : hot.length === 0 ? (
-            <div className="text-sm text-gray-600">No products yet.</div>
-          ) : (
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-              {hot.slice(0, 8).map((p) => {
-                const img = productImage(p);
-                const off = priceOffPct(p.price, p.originalPrice);
-                return (
-                  <article
-                    key={p._id}
-                    className="group rounded-2xl bg-white/90 border border-gray-200 p-4 shadow-sm hover:shadow-md transition"
-                  >
-                    <button
-                      onClick={() => goToProduct(p)}
-                      className="relative block w-full overflow-hidden rounded-xl bg-gray-50"
-                      aria-label={p.name}
-                    >
-                      {img ? (
-                        <img
-                          src={img}
-                          alt={p.name}
-                          className="h-48 w-full object-cover transition-transform duration-500 group-hover:scale-105"
-                          loading="lazy"
-                        />
-                      ) : (
-                        <div className="h-48 w-full bg-gray-100" />
-                      )}
-                      {off > 0 && (
-                        <span className="absolute left-3 top-3 rounded-full bg-red-600 text-white px-2 py-0.5 text-xs font-bold">
-                          {off}% OFF
-                        </span>
-                      )}
-                    </button>
-                    <div className="mt-3">
-                      <h3 className="line-clamp-2 font-semibold text-gray-900">{p.name}</h3>
-                      <div className="mt-1 flex items-center gap-2">
-                        <div className="text-blue-700 font-bold">₹{p.price?.toLocaleString()}</div>
-                        {p.originalPrice && p.originalPrice > p.price && (
-                          <div className="text-gray-400 line-through">₹{p.originalPrice.toLocaleString()}</div>
-                        )}
-                      </div>
-                      <div className="mt-2 flex items-center gap-1 text-yellow-500">
-                        {Array.from({ length: 5 }).map((_, i) => (
-                          <Star key={i} className={`h-4 w-4 ${((p.rating ?? 4.5) - i) >= 1 ? 'fill-yellow-400' : ''}`} />
-                        ))}
-                      </div>
-                      <div className="mt-3 flex gap-2">
-                        <button
-                          onClick={() => goToProduct(p)}
-                          className="flex-1 rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700"
-                        >
-                          Buy Now
-                        </button>
-                        <Link
-                          to={`/product/${p.slug || p._id}`}
-                          className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 text-center"
-                        >
-                          View
-                        </Link>
-                      </div>
-                    </div>
-                  </article>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      </section>
+{/* Create about page of nakoda mobile */}
+
+  
+
+
+  {/* services we offer */}
 
       {/* 💸 Budget Bestsellers (≤ ₹599) — distinct dark glass UI */}
       <section className="py-14 bg-gradient-to-br from-gray-900 via-blue-900 to-gray-900 text-white">

@@ -15,7 +15,7 @@ const Terms: React.FC = () => {
           '@context': 'https://schema.org',
           '@type': 'WebPage',
           name: 'Terms & Conditions',
-          url: 'https://your-frontend-domain.com/terms'
+          url: 'https://nakodamobile.in/terms'
         }}
       />
 

@@ -3,7 +3,7 @@ import {
   adminOnly, 
   secureAdminOnly,
   auditLog,
-  rateLimitSensitive
+  rateLimitSensitive,authenticate
 } from '../middleware/auth';
 import { upload, handleMulterError } from '../middleware/upload';
 import {
@@ -83,7 +83,7 @@ router.post('/login', rateLimitSensitive, adminLogin);
 // 📊 ADMIN STATS & DASHBOARD
 // ===============================
 
-router.get('/stats', 
+router.get('/stats', authenticate,
   ...adminOnly, 
   getAdminStats as express.RequestHandler
 );
@@ -93,7 +93,7 @@ router.get('/stats',
 // ===============================
 
 // Upload single/multiple products
-router.post('/products/upload',
+router.post('/products/upload',authenticate,
   ...secureAdminOnly,
   upload.fields([
     { name: 'productImage', maxCount: 10 },
@@ -106,21 +106,21 @@ router.post('/products/upload',
 );
 
 // Update product status
-router.put('/products/:id/status',
+router.put('/products/:id/status',authenticate,
   ...adminOnly,
   auditLog('product-status-update'),
   updateProductStatus as express.RequestHandler
 );
 
 // ✅ Also expose PATCH to match adminApi (keeps original PUT intact)
-router.patch('/products/:id/status',
+router.patch('/products/:id/status',authenticate,
   ...adminOnly,
   auditLog('product-status-update'),
   updateProductStatus as express.RequestHandler
 );
 
 // Get products with pagination and filters (for inventory management)
-router.get('/products', 
+router.get('/products', authenticate,
   ...adminOnly,
   async (req: express.Request, res: express.Response) => {
     try {
@@ -215,7 +215,7 @@ router.get('/products',
 );
 
 // Update single product
-router.put('/products/:id',
+router.put('/products/:id',authenticate,
   ...adminOnly,
   auditLog('product-update'),
   async (req: express.Request, res: express.Response) => {
@@ -290,7 +290,7 @@ router.put('/products/:id',
 );
 
 // ✅ Stock-only endpoint (matches adminApi.updateProductStock)
-router.patch('/products/:id/stock',
+router.patch('/products/:id/stock',authenticate,
   ...adminOnly,
   auditLog('product-stock-update'),
   updateProductStock as express.RequestHandler
@@ -332,7 +332,7 @@ router.delete('/products/:id',
 );
 
 // Bulk update products
-router.put('/products/bulk-update',
+router.put('/products/bulk-update',authenticate,
   ...secureAdminOnly,
   auditLog('products-bulk-update'),
   async (req: express.Request, res: express.Response) => {

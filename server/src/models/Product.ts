@@ -49,18 +49,18 @@ export interface IProduct extends Document {
 
 /** 🆕 single source of truth for category-wise MOQ */
 export const CATEGORY_MOQ: Record<string, number> = {
-  'Car Chargers': 2,
-  'Bluetooth Neckbands': 5,
-  'TWS': 3,
-  'Data Cables': 5,
-  'Mobile Chargers': 2,
-  'Mobile ICs': 1,
-  'Mobile Repairing Tools': 1,
-  'Electronics': 1,
-  'Accessories': 1,
-  'Bluetooth Speakers': 2,
-  'Power Banks': 2,
-  'Others': 1,
+  'Car Chargers': 10,
+  'Bluetooth Neckbands': 10,
+  'TWS': 10,
+  'Data Cables': 10,
+  'Mobile Chargers': 10,
+  'Mobile ICs': 10,
+  'Mobile Repairing Tools': 10,
+  'Electronics': 10,
+  'Accessories': 10,
+  'Bluetooth Speakers': 10,
+  'Power Banks': 10,
+  'Others': 10,
 };
 
 const productSchema = new Schema<IProduct>(

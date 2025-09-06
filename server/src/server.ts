@@ -278,7 +278,7 @@ app.use(
 
 // API Routes (public first)
 app.use('/api/auth', authRoutes);
-app.use('/api/phone', phoneAuthRoutes);
+app.use('/api', phoneAuthRoutes)
 
 app.use('/api/products', productRoutes);
 app.use('/api/cart', cartRoutes);
@@ -292,7 +292,7 @@ app.use('/api/chat', chatRoutes);
 app.use('/api/newsletter', newsletterRoutes);
 app.use('/api/contact', contactRoutes);
 app.use('/api/blog', blogRoutes);
-
+app.use('/api/reviews', reviewsPublic);
 // Reviews router — mount once under /api
 app.use('/api/reviews-public', reviewsPublic);
 
@@ -303,7 +303,7 @@ app.use('/api', notificationRoutes);
 app.use('/api', returnRoutes);
 
 // Admin protected
-app.use('/api/admin', authenticate, adminOnly, adminRoutes);
+app.use('/api/admin',  adminRoutes);
 
 // Shiprocket protected (single mount; no unprotected duplicate)
 app.use('/api/shiprocket', authenticate, adminOnly, shiprocketRoutes);

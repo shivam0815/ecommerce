@@ -41,7 +41,7 @@ async function recomputeProductStats(productId: string) {
 /* 📌 GET list reviews (approved, paginated)                                   */
 /* -------------------------------------------------------------------------- */
 r.get(
-  "/api/products/:productId/reviews",
+  "/products/:productId/reviews",
   param("productId").isMongoId(),
   query("page").optional().isInt({ min: 1 }),
   query("limit").optional().isInt({ min: 1, max: 50 }),
@@ -85,7 +85,7 @@ r.get(
 /* 📌 POST create review                                                       */
 /* -------------------------------------------------------------------------- */
 r.post(
-  "/api/products/:productId/reviews",
+  "/products/:productId/reviews",
   param("productId").isMongoId(),
   body("rating").isInt({ min: 1, max: 5 }),
   body("comment").isString().isLength({ min: 5 }),
@@ -141,7 +141,7 @@ r.post(
 /* 📌 PATCH approve review                                                     */
 /* -------------------------------------------------------------------------- */
 r.patch(
-  "/api/reviews/:id/approve",
+  "/reviews/:id/approve",
   param("id").isMongoId(),
   async (req: Request, res: Response) => {
     const errors = validationResult(req);
@@ -171,7 +171,7 @@ r.patch(
 /* 📌 POST mark review helpful                                                 */
 /* -------------------------------------------------------------------------- */
 r.post(
-  "/api/reviews/:id/helpful",
+  "/reviews/:id/helpful",
   param("id").isMongoId(),
   async (req: Request, res: Response) => {
     const errors = validationResult(req);
@@ -193,7 +193,7 @@ r.post(
 /* 📌 GET Review Summary (Optimized with Cache)                                */
 /* -------------------------------------------------------------------------- */
 r.get(
-  "/api/reviews/summary",
+  "/reviews/summary",
   query("productId").custom(isMongoId as any),
   async (req: Request, res: Response) => {
     const errors = validationResult(req);
@@ -239,7 +239,7 @@ r.get(
 /* -------------------------------------------------------------------------- */
 /* 📌 BULK Review Summaries (NEW ENDPOINT)                                    */
 /* -------------------------------------------------------------------------- */
-r.post("/api/reviews/bulk-summary", async (req: Request, res: Response) => {
+r.post("/reviews/bulk-summary", async (req: Request, res: Response) => {
   try {
     const { productIds } = req.body as { productIds: string[] };
     if (!Array.isArray(productIds) || productIds.length === 0) {

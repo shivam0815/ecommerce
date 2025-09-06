@@ -24,12 +24,19 @@ const Products: React.FC = () => {
 
   // Categories: try API, fall back to static
   const [categories, setCategories] = useState<string[]>([
-    'TWS',
-    'Bluetooth Neckbands',
-    'Data Cables',
-    'Mobile Chargers',
-    'Mobile ICs',
-    'Mobile Repairing Tools',
+    'Car Chargers',
+  'Bluetooth Neckbands',
+  'TWS',
+  'Data Cables',
+  'Mobile Chargers',
+  'Bluetooth Speakers',
+  'Power Banks',
+  'Mobile ICs',
+  'Mobile Repairing Tools',
+  'Electronics',
+  'Accessories',
+  'Others'
+
   ]);
 
   // Fetch categories (non-blocking, best-effort)
@@ -218,7 +225,7 @@ const Products: React.FC = () => {
     '@context': 'https://schema.org',
     '@type': 'CollectionPage',
     name: 'Products',
-    url: 'https://www.your-domain.com/products'
+    url: 'https://nakodamobile.in/products'
   }}
 />
 
