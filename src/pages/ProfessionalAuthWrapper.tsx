@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import AdminDashboard from './AdminDashboard';
-// Fixed import based on the previous error - using default import
 import { adminSendOtp, adminVerifyOtp } from '../config/adminApi';
 import './ProfessionalAuth.css';
 
@@ -22,25 +21,28 @@ type ViewType = 'login' | 'otp' | 'dashboard';
 const AdminAuthWrapper: React.FC = () => {
   const [currentView, setCurrentView] = useState<ViewType>('login');
   const [isLoading, setIsLoading] = useState(false);
-  const [loginForm, setLoginForm] = useState<LoginForm>({
-    email: '',
-    otp: ''
-  });
+  const [loginForm, setLoginForm] = useState<LoginForm>({ email: '', otp: '' });
   const [otpTimer, setOtpTimer] = useState(0);
   const [canResend, setCanResend] = useState(true);
   const [error, setError] = useState<string>('');
 
+  // ✅ Log the base URL once (remove after verifying in prod)
+  useEffect(() => {
+    // @ts-ignore
+    const apiBase = import.meta?.env?.VITE_API_URL ?? '(default /api)';
+    // eslint-disable-next-line no-console
+    console.log('[AdminAuth] API base =', apiBase);
+  }, []);
+
   // Check for existing session on mount
   useEffect(() => {
     const token = localStorage.getItem('adminToken');
-    if (token) {
-      setCurrentView('dashboard');
-    }
+    if (token) setCurrentView('dashboard');
   }, []);
 
   // Timer effect with cleanup
   useEffect(() => {
-    let interval: NodeJS.Timeout;
+    let interval: ReturnType<typeof setInterval> | undefined;
     if (otpTimer > 0) {
       interval = setInterval(() => {
         setOtpTimer(prev => {
@@ -53,9 +55,7 @@ const AdminAuthWrapper: React.FC = () => {
       }, 1000);
     }
     return () => {
-      if (interval) {
-        clearInterval(interval);
-      }
+      if (interval) clearInterval(interval);
     };
   }, [otpTimer]);
 
@@ -65,50 +65,36 @@ const AdminAuthWrapper: React.FC = () => {
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   }, []);
 
-  const validateEmail = (email: string): boolean => {
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    return emailRegex.test(email);
-  };
+  const validateEmail = (email: string): boolean =>
+    /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
 
-  const validateOtp = (otp: string): boolean => {
-    return /^\d{6}$/.test(otp);
-  };
+  const validateOtp = (otp: string): boolean => /^\d{6}$/.test(otp);
 
   const showError = (message: string) => {
     setError(message);
-    setTimeout(() => setError(''), 5000); // Clear error after 5 seconds
+    setTimeout(() => setError(''), 5000);
   };
 
-  const handleSendOtp = async (e: React.FormEvent) => {
-    e.preventDefault();
+  // ❗ Converted to click handler (no native form submit)
+  const handleSendOtp = async (_?: React.SyntheticEvent) => {
     setError('');
 
-    if (!loginForm.email.trim()) {
-      showError('Please enter your email address');
-      return;
-    }
-
-    if (!validateEmail(loginForm.email)) {
-      showError('Please enter a valid email address');
-      return;
-    }
+    if (!loginForm.email.trim()) return showError('Please enter your email address');
+    if (!validateEmail(loginForm.email)) return showError('Please enter a valid email address');
 
     setIsLoading(true);
     try {
       const response: ApiResponse = await adminSendOtp({ email: loginForm.email.trim() });
-      
       if (response.expiresIn) {
         setCurrentView('otp');
         setOtpTimer(response.expiresIn);
         setCanResend(false);
-        setLoginForm(prev => ({ ...prev, otp: '' })); // Clear previous OTP
+        setLoginForm(prev => ({ ...prev, otp: '' }));
       } else {
         showError('Failed to send OTP. Please try again.');
       }
     } catch (error: any) {
       const data = error.response?.data;
-      
-      // Handle rate limiting
       if (error.response?.status === 429 && data?.expiresIn) {
         setCurrentView('otp');
         setOtpTimer(data.expiresIn);
@@ -126,14 +112,10 @@ const AdminAuthWrapper: React.FC = () => {
     }
   };
 
-  const handleVerifyOtp = async (e: React.FormEvent) => {
-    e.preventDefault();
+  // ❗ Converted to click handler (no native form submit)
+  const handleVerifyOtp = async (_?: React.SyntheticEvent) => {
     setError('');
-
-    if (!validateOtp(loginForm.otp)) {
-      showError('Please enter a valid 6-digit OTP');
-      return;
-    }
+    if (!validateOtp(loginForm.otp)) return showError('Please enter a valid 6-digit OTP');
 
     setIsLoading(true);
     try {
@@ -141,11 +123,10 @@ const AdminAuthWrapper: React.FC = () => {
         email: loginForm.email.trim(),
         otp: loginForm.otp.trim()
       });
-      
+
       if (response.success && response.sessionToken) {
         localStorage.setItem('adminToken', response.sessionToken);
         setCurrentView('dashboard');
-        // Clear form data for security
         setLoginForm({ email: '', otp: '' });
         setOtpTimer(0);
       } else {
@@ -154,7 +135,6 @@ const AdminAuthWrapper: React.FC = () => {
       }
     } catch (error: any) {
       const data = error.response?.data;
-      
       if (error.response?.status === 400) {
         showError('Invalid OTP. Please try again.');
       } else if (error.response?.status === 410) {
@@ -166,7 +146,6 @@ const AdminAuthWrapper: React.FC = () => {
       } else {
         showError(data?.message || error.message || 'Verification failed. Please try again.');
       }
-      
       setLoginForm(prev => ({ ...prev, otp: '' }));
     } finally {
       setIsLoading(false);
@@ -175,13 +154,10 @@ const AdminAuthWrapper: React.FC = () => {
 
   const handleResendOtp = async () => {
     if (!canResend || isLoading) return;
-    
     setError('');
     setIsLoading(true);
-    
     try {
       const response: ApiResponse = await adminSendOtp({ email: loginForm.email.trim() });
-      
       if (response.expiresIn) {
         setOtpTimer(response.expiresIn);
         setCanResend(false);
@@ -209,13 +185,13 @@ const AdminAuthWrapper: React.FC = () => {
 
   const handleEmailChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     setLoginForm(prev => ({ ...prev, email: e.target.value }));
-    setError(''); // Clear error when user starts typing
+    setError('');
   };
 
   const handleOtpChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = e.target.value.replace(/\D/g, '').slice(0, 6); // Only digits, max 6
+    const value = e.target.value.replace(/\D/g, '').slice(0, 6);
     setLoginForm(prev => ({ ...prev, otp: value }));
-    setError(''); // Clear error when user starts typing
+    setError('');
   };
 
   const handleBackToLogin = () => {
@@ -226,7 +202,6 @@ const AdminAuthWrapper: React.FC = () => {
     setError('');
   };
 
-  // Render dashboard if authenticated
   if (currentView === 'dashboard') {
     return <AdminDashboard onLogout={handleLogout} />;
   }
@@ -234,22 +209,17 @@ const AdminAuthWrapper: React.FC = () => {
   return (
     <div className="auth-container">
       <div className="auth-card">
-        {/* Error Display */}
-        {error && (
-          <div className="error-message" role="alert">
-            {error}
-          </div>
-        )}
+        {error && <div className="error-message" role="alert">{error}</div>}
 
-        {/* Login Form */}
         {currentView === 'login' && (
           <div className="auth-form">
             <div className="form-header">
               <h2>Admin Login</h2>
               <p>Enter your email to receive OTP</p>
             </div>
-            
-            <form onSubmit={handleSendOtp} noValidate>
+
+            {/* ⛔ No <form> — avoids native submit */}
+            <div>
               <div className="form-group">
                 <input
                   type="email"
@@ -263,25 +233,25 @@ const AdminAuthWrapper: React.FC = () => {
                   aria-label="Admin Email"
                 />
               </div>
-              
-              <button 
-                type="submit" 
-                className="auth-button" 
+
+              <button
+                type="button"
+                className="auth-button"
+                onClick={handleSendOtp}
                 disabled={isLoading || !loginForm.email.trim()}
               >
                 {isLoading ? 'Sending...' : 'Send OTP'}
               </button>
-            </form>
+            </div>
           </div>
         )}
 
-        {/* OTP Verification Form */}
         {currentView === 'otp' && (
           <div className="auth-form">
             <div className="form-header">
               <h2>Enter OTP</h2>
               <p>Check your email: <strong>{loginForm.email}</strong></p>
-              <button 
+              <button
                 type="button"
                 className="change-email-btn"
                 onClick={handleBackToLogin}
@@ -296,8 +266,9 @@ const AdminAuthWrapper: React.FC = () => {
                 ⏰ Expires in: <strong>{formatTimer(otpTimer)}</strong>
               </div>
             )}
-            
-            <form onSubmit={handleVerifyOtp} noValidate>
+
+            {/* ⛔ No <form> — avoids native submit */}
+            <div>
               <div className="form-group">
                 <input
                   type="text"
@@ -315,16 +286,17 @@ const AdminAuthWrapper: React.FC = () => {
                   pattern="[0-9]{6}"
                 />
               </div>
-              
+
               <div className="otp-actions">
-                <button 
-                  type="submit" 
-                  className="auth-button" 
+                <button
+                  type="button"
+                  className="auth-button"
+                  onClick={handleVerifyOtp}
                   disabled={isLoading || loginForm.otp.length !== 6}
                 >
                   {isLoading ? 'Verifying...' : 'Verify OTP'}
                 </button>
-                
+
                 <button
                   type="button"
                   className={`resend-otp-btn ${!canResend ? 'disabled' : ''}`}
@@ -335,7 +307,7 @@ const AdminAuthWrapper: React.FC = () => {
                   {isLoading ? 'Sending...' : canResend ? 'Resend OTP' : `Wait ${formatTimer(otpTimer)}`}
                 </button>
               </div>
-            </form>
+            </div>
           </div>
         )}
       </div>
