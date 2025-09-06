@@ -256,10 +256,10 @@ const Home: React.FC = () => {
         {/* Quick highlights */}
         <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-4">
           {[
-            { title: 'Designed for Pros', desc: 'Real-world tested by technicians' },
-            { title: 'Durable & Reliable', desc: 'Batch QA + performance checks' },
-            { title: 'Fast Availability', desc: 'Consistent stock & quick dispatch' },
-            { title: 'B2B Friendly', desc: 'OEM, branding & bulk pricing' },
+            { title: 'Best Quality', desc: 'Real-world tested by technicians' },
+            { title: 'Best price', desc: 'Batch QA + performance checks' },
+            { title: 'Fast Delivery', desc: 'Consistent stock & quick dispatch' },
+            { title: 'Execellent Support', desc: 'Providing the pre and post support' },
           ].map((item) => (
             <div key={item.title} className="rounded-xl border border-white/10 bg-white/5 p-4">
               <h4 className="font-semibold text-white">{item.title}</h4>
@@ -341,180 +341,9 @@ const Home: React.FC = () => {
 
 
 
-      {/* 💸 Budget Bestsellers (≤ ₹599) — distinct dark glass UI */}
-      <section className="py-14 bg-gradient-to-br from-gray-900 via-blue-900 to-gray-900 text-white">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="mb-8 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="h-10 w-10 rounded-lg bg-white/10 border border-white/20 flex items-center justify-center">
-                <Sparkles className="h-5 w-5 text-blue-200" />
-              </div>
-              <div>
-                <h2 className="text-2xl md:text-3xl font-bold">Budget Bestsellers</h2>
-                <p className="text-blue-100">Great picks under ₹599—perfect for first purchase</p>
-              </div>
-            </div>
-            <Link to="/products?maxPrice=599&sort=popular" className="text-blue-200 hover:text-white font-semibold">
-              View all →
-            </Link>
-          </div>
+     
 
-          {(loadingHot && hot.length === 0) ? (
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-              {Array.from({ length: 8 }).map((_, i) => (
-                <div key={i} className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                  <div className="h-44 w-full rounded-lg bg-white/10 animate-pulse" />
-                  <div className="mt-4 h-5 w-3/4 bg-white/10 rounded animate-pulse" />
-                  <div className="mt-2 h-4 w-1/2 bg-white/10 rounded animate-pulse" />
-                </div>
-              ))}
-            </div>
-          ) : (
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-              {(budget.length ? budget : fallbackBudget).map((p) => {
-                const img = productImage(p);
-                return (
-                  <article key={p._id} className="group rounded-2xl border border-white/10 bg-white/5 p-4 backdrop-blur hover:bg-white/10 transition">
-                    <button
-                      onClick={() => goToProduct(p)}
-                      className="block w-full rounded-lg overflow-hidden bg-white/10"
-                      aria-label={p.name}
-                    >
-                      {img ? (
-                        <img
-                          src={img}
-                          alt={p.name}
-                          className="h-44 w-full object-cover transition-transform duration-500 group-hover:scale-105"
-                          loading="lazy"
-                        />
-                      ) : (
-                        <div className="h-44 w-full bg-white/10" />
-                      )}
-                    </button>
-                    <div className="mt-3">
-                      <h3 className="line-clamp-2 font-semibold">{p.name}</h3>
-                      <div className="mt-1 text-blue-200 font-bold">₹{p.price?.toLocaleString()}</div>
-                      <div className="mt-3 flex gap-2">
-                        <button
-                          onClick={() => goToProduct(p)}
-                          className="flex-1 rounded-lg bg-white text-gray-900 px-3 py-2 text-sm font-semibold hover:bg-gray-100"
-                        >
-                          Try Now
-                        </button>
-                        <Link
-                          to={`/product/${p.slug || p._id}`}
-                          className="flex-1 rounded-lg border border-white/30 px-3 py-2 text-sm font-semibold text-white hover:bg-white/10 text-center"
-                        >
-                          Details
-                        </Link>
-                      </div>
-                    </div>
-                  </article>
-                );
-              })}
-            </div>
-          )}
-
-          <p className="mt-6 text-center text-xs text-blue-200">
-            Love it? Upgrade to bulk with{' '}
-            <Link to="/oem" className="underline decoration-blue-300 hover:text-white">
-              OEM services
-            </Link>
-            .
-          </p>
-        </div>
-      </section>
-
-      {/* 🆕 New Arrivals */}
-      <section className="py-14 bg-white">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="mb-8 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="h-10 w-10 rounded-lg bg-indigo-50 flex items-center justify-center">
-                <Clock className="h-5 w-5 text-indigo-600" />
-              </div>
-              <div>
-                <h2 className="text-2xl md:text-3xl font-bold text-gray-900">New Arrivals</h2>
-                <p className="text-gray-600">Fresh picks just landed</p>
-              </div>
-            </div>
-            <Link to="/products?sort=new" className="text-blue-600 hover:text-blue-700 font-semibold">
-              View all →
-            </Link>
-          </div>
-
-          {loadingNew ? (
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-              {Array.from({ length: 8 }).map((_, i) => (
-                <div key={i} className="rounded-2xl bg-white border border-gray-200 p-4">
-                  <div className="h-44 w-full rounded-lg bg-gray-100 animate-pulse" />
-                  <div className="mt-4 h-5 w-3/4 bg-gray-100 rounded animate-pulse" />
-                  <div className="mt-2 h-4 w-1/2 bg-gray-100 rounded animate-pulse" />
-                </div>
-              ))}
-            </div>
-          ) : errNew ? (
-            <div className="text-sm text-red-600">{errNew}</div>
-          ) : newArrivals.length === 0 ? (
-            <div className="text-sm text-gray-600">No new arrivals yet.</div>
-          ) : (
-            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
-              {newArrivals.slice(0, 8).map((p) => {
-                const img = productImage(p);
-                const off = priceOffPct(p.price, p.originalPrice);
-                return (
-                  <article key={p._id} className="group rounded-2xl border border-gray-200 bg-white p-4 hover:shadow-md transition">
-                    <button
-                      onClick={() => goToProduct(p)}
-                      className="relative block w-full overflow-hidden rounded-xl bg-gray-50"
-                      aria-label={p.name}
-                    >
-                      {img ? (
-                        <img
-                          src={img}
-                          alt={p.name}
-                          className="h-48 w-full object-cover transition-transform duration-500 group-hover:scale-105"
-                          loading="lazy"
-                        />
-                      ) : (
-                        <div className="h-48 w-full bg-gray-100" />
-                      )}
-                      {off > 0 && (
-                        <span className="absolute left-3 top-3 rounded-full bg-emerald-600 text-white px-2 py-0.5 text-xs font-bold">
-                          Save {off}%
-                        </span>
-                      )}
-                    </button>
-                    <div className="mt-3">
-                      <h3 className="line-clamp-2 font-semibold text-gray-900">{p.name}</h3>
-                      <div className="mt-1 flex items-center gap-2">
-                        <div className="text-blue-700 font-bold">₹{p.price?.toLocaleString()}</div>
-                        {p.originalPrice && p.originalPrice > p.price && (
-                          <div className="text-gray-400 line-through">₹{p.originalPrice.toLocaleString()}</div>
-                        )}
-                      </div>
-                      <div className="mt-3 flex gap-2">
-                        <button
-                          onClick={() => goToProduct(p)}
-                          className="flex-1 rounded-lg bg-gray-900 px-3 py-2 text-sm font-semibold text-white hover:bg-black"
-                        >
-                          Buy Now
-                        </button>
-                        <Link
-                          to={`/product/${p.slug || p._id}`}
-                          className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 text-center"
-                        >
-                          View
-                        </Link>
-                      </div>
-                    </div>
-                  </article>
-                );
-              })}
-            </div>
-          )}
-        </div>
-      </section>
+    
 
       {/* ===================== Services We Offer ===================== */}
       <section className="py-16 bg-gradient-to-br from-gray-900 via-blue-900 to-gray-900 text-white">
@@ -529,13 +358,14 @@ const Home: React.FC = () => {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
             {[
               { icon: Factory, title: 'OEM & Private Label', desc: 'Custom molds, finishes, and brand identity across SKUs.' },
-              { icon: Boxes, title: 'Bulk Procurement', desc: 'Direct factory sourcing, negotiated MOQs, and predictable lead times.' },
               { icon: Package, title: 'Custom Packaging', desc: 'Retail-ready boxes, inserts, stickers, and compliance barcodes.' },
+              { icon: Boxes, title: 'Universal Packaging', desc: 'Providing the universal packaging of the product ' },
+              
               { icon: Shield, title: 'Quality & Compliance', desc: 'AQL checks, burn-in tests, BIS/IS standards guidance.' },
               { icon: Truck, title: 'Fulfilment & Logistics', desc: 'Pan-India shipping, tracking, and B2B dispatch workflows.' },
-              { icon: Wrench, title: 'After-Sales & RMA', desc: 'Warranty flows, spares, and structured returns handling.' },
-              { icon: Globe, title: 'Sourcing in China', desc: 'Factory vetting, sample runs, and price benchmarking.' },
-              { icon: DollarSign, title: 'B2B Pricing & Credit', desc: 'Tiered wholesale pricing and eligible credit terms.' },
+              { icon: Wrench, title: 'After-Sales & Support', desc: 'Warranty flows, spares, and structured returns handling.' },
+              { icon: Globe, title: 'Imported in China', desc: 'Factory vetting, sample runs, and price benchmarking.' },
+              { icon: DollarSign, title: 'B2B Pricing ', desc: 'Tiered wholesale pricing and eligible credit terms.' },
               { icon: Phone, title: 'Dedicated Support', desc: 'Account manager + technical support for your brand.' },
             ].map((svc, i) => (
               <motion.div
