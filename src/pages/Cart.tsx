@@ -24,7 +24,7 @@ const CATEGORY_MOQ: Record<string, number> = {
   'Others': 50,
 };
 
-const MAX_PER_LINE = 50;
+const MAX_PER_LINE = 500;
 const clampCartQty = (q: number) => Math.max(1, Math.min(Math.floor(q || 1), MAX_PER_LINE));
 
 const getMOQFromItem = (item: any): number => {
