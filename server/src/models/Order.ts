@@ -104,6 +104,7 @@ export interface IOrder extends Document {
   // Auto timestamps
   createdAt: Date;
   updatedAt: Date;
+  inventoryCommitted: { type: Boolean, default: false };
 
   // Virtuals (ts won’t see them, but we document)
   // displayOrderNumber?: string;
@@ -302,6 +303,7 @@ OrderSchema.index({ "shippingAddress.pincode": 1 });
 OrderSchema.index({ "shippingAddress.city": 1 });
 OrderSchema.index({ paymentMethod: 1, createdAt: -1 });
 OrderSchema.index({ total: -1 });
+
 // Shiprocket-specific:
 OrderSchema.index({ shipmentId: 1 });
 OrderSchema.index({ awbCode: 1 });

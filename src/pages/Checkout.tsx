@@ -61,7 +61,7 @@ const emptyAddress: Address = {
 const SHIPPING_FREE_THRESHOLD = 999;
 const BASE_SHIPPING_FEE = 0; // ✅ used when threshold/coupon doesn't make shipping free
 const COD_FEE = 25;
-const GIFT_WRAP_FEE = 49;
+const GIFT_WRAP_FEE = 0;
 const FIRST_ORDER_RATE = 0.1; // 10%
 const FIRST_ORDER_CAP = 300;
 

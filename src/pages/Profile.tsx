@@ -24,7 +24,6 @@ import {
   DocumentTextIcon,
 } from '@heroicons/react/24/solid';
 
-
 import NotificationCenter from '../components/Layout/NotificationCenter';
 import HelpSupport from '../components/Layout/HelpSupport';
 import FAQs from '../components/Layout/FAQs';
@@ -40,6 +39,19 @@ const SOCKET_URL =
   (VITE_API_URL?.replace(/\/+$/, '')) ||
   ((api as any).defaults?.baseURL?.replace(/\/+$/, '')) ||
   window.location.origin;
+
+// ---- Shiprocket Post-Ship widget constants ----
+const SHIPROCKET_CSS =
+  'https://kr-shipmultichannel-mum.s3-ap-south-1.amazonaws.com/shiprocket-fronted/shiprocket_post_ship.css';
+const SHIPROCKET_JS =
+  'https://kr-shipmultichannel-mum.s3-ap-south-1.amazonaws.com/shiprocket-fronted/shiprocket_post_ship.js';
+
+// Brand colors (change as you like). If you want a stronger blue than #7382bb, #2F54C9 is a good pick.
+const BRAND_BTN_BG = '#2F54C9'; // button background
+const BRAND_BTN_FG = '#ffffff'; // button text
+const BOX_BG       = '#ECECEC';
+const BOX_TEXT     = '#f5eeff';
+const BOX_H1       = '#000000';
 
 interface User {
   _id: string;
@@ -207,8 +219,6 @@ const Profile: React.FC = () => {
     }
   };
 
-  
-
   useEffect(() => { fetchProfileData(); }, [fetchProfileData]);
 
   useEffect(() => {
@@ -252,6 +262,78 @@ const Profile: React.FC = () => {
     };
   }, [user?._id]);
 
+  // ---- Shiprocket widget injector: run when Orders tab is active ----
+  useEffect(() => {
+    if (activeTab !== 'orders') return;
+
+    const cssId = 'shiprocket-postship-css';
+    const jsId  = 'shiprocket-postship-js';
+
+    const applyStyles = () => {
+      const btn = document.querySelector<HTMLElement>('.post-ship-btn');
+      if (btn) {
+        btn.style.backgroundColor = BRAND_BTN_BG;
+        btn.style.color = BRAND_BTN_FG;
+      }
+
+      const wrap = document.querySelector<HTMLElement>('.post-ship-box-wrp');
+      if (wrap) {
+        wrap.style.backgroundColor = BOX_BG;
+
+        const anyDiv = wrap.querySelector<HTMLElement>('div');
+        if (anyDiv) anyDiv.style.color = BOX_TEXT;
+
+        const h1 = wrap.querySelector<HTMLElement>('h1');
+        if (h1) h1.style.color = BOX_H1;
+
+        const innerBtn = wrap.querySelector<HTMLElement>('button');
+        if (innerBtn) {
+          innerBtn.style.backgroundColor = BRAND_BTN_BG;
+          innerBtn.style.color = BRAND_BTN_FG;
+        }
+      }
+    };
+
+    // Retry because the widget may render after script onload
+    const retryApplyStyles = () => {
+      applyStyles();
+      setTimeout(applyStyles, 300);
+      setTimeout(applyStyles, 900);
+    };
+
+    // Add CSS (once)
+    let cssEl = document.getElementById(cssId) as HTMLLinkElement | null;
+    if (!cssEl) {
+      cssEl = document.createElement('link');
+      cssEl.id = cssId;
+      cssEl.rel = 'stylesheet';
+      cssEl.href = SHIPROCKET_CSS;
+      document.body.appendChild(cssEl);
+    }
+
+    // Add JS (once)
+    let jsEl = document.getElementById(jsId) as HTMLScriptElement | null;
+    if (!jsEl) {
+      jsEl = document.createElement('script');
+      jsEl.id = jsId;
+      jsEl.src = SHIPROCKET_JS;
+      jsEl.async = true;
+      jsEl.onload = retryApplyStyles;
+      document.body.appendChild(jsEl);
+    } else {
+      // Already present → attempt styling immediately
+      retryApplyStyles();
+    }
+
+    // Observe DOM changes to re-apply styles if widget re-renders
+    const mo = new MutationObserver(() => applyStyles());
+    mo.observe(document.body, { childList: true, subtree: true });
+
+    return () => {
+      mo.disconnect();
+    };
+  }, [activeTab]);
+
   const filteredOrders = Array.isArray(orders)
     ? orders.filter(o => (orderFilter === 'pending'
         ? ['pending', 'confirmed', 'processing', 'shipped'].includes(o.status)
@@ -293,7 +375,6 @@ const Profile: React.FC = () => {
               <div className="w-28 h-28 rounded-full bg-gray-100 ring-1 ring-gray-200 overflow-hidden flex items-center justify-center">
                 {user.avatar ? <img src={user.avatar} alt="" className="w-full h-full object-cover" /> : <UserIcon className="w-12 h-12 text-gray-400" />}
               </div>
-             
             </div>
 
             <div className="flex-1 text-center md:text-left">
@@ -338,7 +419,6 @@ const Profile: React.FC = () => {
                   { id: 'orders', label: 'Orders', icon: <ShoppingBagIcon className="w-4 h-4" /> },
                   { id: 'returns', label: 'Returns', icon: <ArrowPathIcon className="w-4 h-4" /> }, // NEW
                   { id: 'notifications', label: 'Notifications', icon: <BellIcon className="w-4 h-4" /> },
-                 
                   { id: 'support', label: 'Help & Support', icon: <LifebuoyIcon className="w-4 h-4" /> },
                   { id: 'faqs', label: 'FAQs', icon: <QuestionMarkCircleIcon className="w-4 h-4" /> },
                   { id: 'terms', label: 'Terms', icon: <DocumentTextIcon className="w-4 h-4" /> },
@@ -401,8 +481,6 @@ const Profile: React.FC = () => {
                     <NotificationCenter />
                   </motion.div>
                 )}
-
-               
 
                 {activeTab === 'support' && (
                   <motion.div key="support" variants={fade} initial="hidden" animate="visible" exit="exit">

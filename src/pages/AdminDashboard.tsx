@@ -206,7 +206,15 @@ useEffect(() => {
   const removePreview = (id: string) => {
     setPreviews(prev => prev.filter(p => p.id !== id));
   };
+useEffect(() => {
+  const refresh = () => getProducts();
+  window.addEventListener('orders:changed', refresh);
+  return () => window.removeEventListener('orders:changed', refresh);
+}, [getProducts]);
 
+// in your socket setup on the admin side
+socket.on("orderCreated", () => window.dispatchEvent(new Event('orders:changed')));
+socket.on("orderStatusUpdated", () => window.dispatchEvent(new Event('orders:changed')));
   return (
     <div className="cloudinary-upload-container">
       {/* Upload Area */}
