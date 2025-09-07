@@ -31,7 +31,7 @@ const Products: React.FC = () => {
   'Mobile Chargers',
   'Bluetooth Speakers',
   'Power Banks',
-  'Mobile ICs',
+  'Integrated Circuits & Chips',
   'Mobile Repairing Tools',
   'Electronics',
   'Accessories',

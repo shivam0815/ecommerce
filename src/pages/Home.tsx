@@ -490,6 +490,127 @@ const Home: React.FC = () => {
         </div>
       </section>
 
+      {/* ===================== Try Samples ===================== */}
+<section className="py-16 bg-white">
+  <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <div className="mb-8 flex items-center justify-between">
+      <div className="flex items-center gap-3">
+        <div className="h-10 w-10 rounded-lg bg-indigo-50 flex items-center justify-center">
+          <Sparkles className="h-5 w-5 text-indigo-600" />
+        </div>
+        <div>
+          <h2 className="text-2xl md:text-3xl font-bold text-gray-900">Try Samples</h2>
+          <p className="text-gray-600">Test quality before bulk—quick dispatch for verified B2B buyers</p>
+        </div>
+      </div>
+      <Link
+        to="/oem#contact-form"
+        className="text-indigo-600 hover:text-indigo-700 font-semibold"
+      >
+        Request custom sample →
+      </Link>
+    </div>
+
+    {(() => {
+      // Build a 4–5 product sample set (prefer cheapest first)
+      const merged: Product[] = Array.from(
+        new Map(
+          [...newArrivals, ...hot].map((p) => [p._id, p]) // de-dup
+        ).values()
+      );
+
+      const pick = merged
+        .filter((p) => typeof p.price === 'number' && (p.status ?? 'active') === 'active')
+        .sort((a, b) => (a.price ?? 0) - (b.price ?? 0))
+        .slice(0, 5);
+
+      const fallback = (hot.length ? hot : newArrivals).slice(0, 5);
+      const samples = pick.length ? pick : fallback;
+
+      if ((loadingHot || loadingNew) && samples.length === 0) {
+        // Skeletons
+        return (
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-6">
+            {Array.from({ length: 5 }).map((_, i) => (
+              <div key={i} className="rounded-2xl bg-white border border-gray-200 p-4">
+                <div className="h-40 w-full rounded-lg bg-gray-100 animate-pulse" />
+                <div className="mt-4 h-5 w-3/4 bg-gray-100 rounded animate-pulse" />
+                <div className="mt-2 h-4 w-1/2 bg-gray-100 rounded animate-pulse" />
+                <div className="mt-4 h-9 w-full bg-gray-100 rounded animate-pulse" />
+              </div>
+            ))}
+          </div>
+        );
+      }
+
+      if (!samples.length) {
+        return <div className="text-sm text-gray-600">Samples will appear here soon.</div>;
+      }
+
+      const sampleLink = (p: Product) =>
+        `/oem#contact-form?sample=${encodeURIComponent(p.slug || p._id)}`;
+
+      return (
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-6">
+          {samples.map((p) => {
+            const img = productImage(p);
+            return (
+              <article
+                key={p._id}
+                className="group rounded-2xl border border-gray-200 bg-white p-4 hover:shadow-md transition"
+              >
+                <button
+                  onClick={() => goToProduct(p)}
+                  className="block w-full overflow-hidden rounded-xl bg-gray-50"
+                  aria-label={p.name}
+                >
+                  {img ? (
+                    <img
+                      src={img}
+                      alt={p.name}
+                      className="h-40 w-full object-cover transition-transform duration-500 group-hover:scale-105"
+                      loading="lazy"
+                    />
+                  ) : (
+                    <div className="h-40 w-full bg-gray-100" />
+                  )}
+                </button>
+
+                <div className="mt-3">
+                  <h3 className="line-clamp-2 font-semibold text-gray-900">{p.name}</h3>
+                  <div className="mt-1 flex items-center gap-2">
+                    <div className="text-indigo-700 font-bold">₹{p.price?.toLocaleString()}</div>
+                    {p.originalPrice && p.originalPrice > p.price && (
+                      <div className="text-gray-400 line-through">₹{p.originalPrice.toLocaleString()}</div>
+                    )}
+                  </div>
+
+                  <div className="mt-3 grid grid-cols-1 gap-2">
+                    <Link
+                      to={sampleLink(p)}
+                      className="rounded-lg bg-gray-900 px-3 py-2 text-sm font-semibold text-white text-center hover:bg-black"
+                    >
+                      Request Sample
+                    </Link>
+                    <Link
+                      to={`/product/${p.slug || p._id}`}
+                      className="rounded-lg border border-gray-300 px-3 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 text-center"
+                    >
+                      View
+                    </Link>
+                  </div>
+                </div>
+              </article>
+            );
+          })}
+        </div>
+      );
+    })()}
+  </div>
+</section>
+{/* ===================== /Try Samples ===================== */}
+
+
       {/* Testimonials */}
       <section className="py-16 bg-gray-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">

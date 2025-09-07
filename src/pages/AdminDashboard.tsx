@@ -315,7 +315,7 @@ const InventoryManagement = memo<{
   // Categories for filtering
   const categories = [
     'TWS', 'Bluetooth Neckbands', 'Data Cables', 
-    'Mobile Chargers', 'Mobile ICs', 'Mobile Repairing Tools', 'Car Chargers','Bluetooth Speakers', 'Power Banks','Others'
+    'Mobile Chargers', 'Integrated Circuits & Chips', 'Mobile Repairing Tools', 'Car Chargers','Bluetooth Speakers', 'Power Banks','Others'
   ];
 
 
@@ -1560,7 +1560,7 @@ setSpecificationsError(null);
                   <option value="Bluetooth Neckbands">Bluetooth Neckband</option>
                   <option value="Data Cables">Data Cables</option>
                   <option value="Mobile Chargers">Mobile Chargers</option>
-                  <option value="Mobile ICs">Mobile ICs</option>
+                  <option value="Mobile ICs">Integrated Circuits & Chips</option>
                   <option value="Mobile Repairing Tools">Mobile Repairing Tools</option>
                   <option value="Car Chargers">Car Charger</option>
                   <option value="Bluetooth Speakers">Bluetooth Speaker</option>

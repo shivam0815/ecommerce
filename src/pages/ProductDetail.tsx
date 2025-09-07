@@ -38,7 +38,7 @@ const CATEGORY_MOQ: Record<string, number> = {
   'Mobile Chargers': 10,
   'Bluetooth Speakers': 10,
   'Power Banks': 10,
-  'Mobile ICs': 10,
+  'Integrated Circuits & Chips': 10,
   'Mobile Repairing Tools': 10,
   'Electronics': 10,
   'Accessories': 10,
