@@ -13,22 +13,22 @@ const cartCache = new NodeCache({ stdTTL: 10, checkperiod: 20 }); // cache per u
 /** ──────────────────────────────────────────────────────────────
  *  Global hard cap: no single cart line can exceed this quantity
  *  ────────────────────────────────────────────────────────────── */
-const MAX_ORDER_QTY = 50;
+const MAX_ORDER_QTY = 500;
 
 /** Category-wise Minimum Order Quantity (MOQ) */
 const CATEGORY_MOQ: Record<string, number> = {
-  "Car Chargers": 2,
-  "Bluetooth Neckbands": 5,
-  TWS: 3,
-  "Data Cables": 5,
-  "Mobile Chargers": 2,
-  "Bluetooth Speakers": 2,
-  "Power Banks": 2,
-  "Mobile ICs": 1,
-  "Mobile Repairing Tools": 1,
-  Electronics: 1,
-  Accessories: 1,
-  Others: 1,
+  "Car Chargers": 50,
+  "Bluetooth Neckbands": 50,
+  TWS: 30,
+  "Data Cables": 50,
+  "Mobile Chargers": 50,
+  "Bluetooth Speakers": 50,
+  "Power Banks": 50,
+  "Mobile ICs": 50,
+  "Mobile Repairing Tools": 50,
+  Electronics: 50,
+  Accessories: 50,
+  Others: 50,
 };
 
 /** Determine the effective MOQ for a product */

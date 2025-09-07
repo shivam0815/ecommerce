@@ -29,20 +29,20 @@ import { reviewsService } from '../services/reviewsService';
 import Breadcrumbs from './Breadcrumbs';
 
 /* ------------------------- MOQ + MAX helpers ------------------------- */
-const MAX_PER_LINE = 50;
+const MAX_PER_LINE = 500;
 const CATEGORY_MOQ: Record<string, number> = {
-  'Car Chargers': 10,
-  'Bluetooth Neckbands': 10,
-  'TWS': 10,
-  'Data Cables': 10,
-  'Mobile Chargers': 10,
-  'Bluetooth Speakers': 10,
-  'Power Banks': 10,
-  'Integrated Circuits & Chips': 10,
-  'Mobile Repairing Tools': 10,
-  'Electronics': 10,
-  'Accessories': 10,
-  'Others': 10,
+  'Car Chargers': 50,
+  'Bluetooth Neckbands': 50,
+  'TWS': 50,
+  'Data Cables': 50,
+  'Mobile Chargers': 50,
+  'Bluetooth Speakers': 50,
+  'Power Banks': 50,
+  'Integrated Circuits & Chips': 50,
+  'Mobile Repairing Tools': 50,
+  'Electronics': 50,
+  'Accessories': 50,
+  'Others': 50,
 };
 const getMOQ = (p: any): number => {
   if (typeof p?.minOrderQty === 'number' && p.minOrderQty >= 1) return p.minOrderQty;

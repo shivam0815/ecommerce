@@ -10,18 +10,18 @@ import type { CartItem } from '../types';
 
 /* -------- Category-wise MOQ fallback (used if product.minOrderQty is absent) -------- */
 const CATEGORY_MOQ: Record<string, number> = {
-  'Car Chargers': 2,
-  'Bluetooth Neckbands': 5,
-  'TWS': 3,
-  'Data Cables': 5,
-  'Mobile Chargers': 2,
-  'Bluetooth Speakers': 2,
-  'Power Banks': 2,
-  'Mobile ICs': 1,
-  'Mobile Repairing Tools': 1,
-  'Electronics': 1,
-  'Accessories': 1,
-  'Others': 1,
+  'Car Chargers': 50,
+  'Bluetooth Neckbands': 50,
+  'TWS': 50,
+  'Data Cables': 50,
+  'Mobile Chargers': 50,
+  'Bluetooth Speakers': 50,
+  'Power Banks': 50,
+  'Mobile ICs': 50,
+  'Mobile Repairing Tools': 50,
+  'Electronics': 50,
+  'Accessories': 50,
+  'Others': 50,
 };
 
 const MAX_PER_LINE = 50;
