@@ -292,7 +292,7 @@ app.use('/api/chat', chatRoutes);
 app.use('/api/newsletter', newsletterRoutes);
 app.use('/api/contact', contactRoutes);
 app.use('/api/blog', blogRoutes);
-
+app.use('/api', shiprocketRoutes);
 // Reviews router — mount once under /api
 app.use('/api', reviewsPublic);
 // Support/Help/Notifications/Returns
