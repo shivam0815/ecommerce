@@ -36,23 +36,24 @@ export function mapOrderToShiprocket(order: IOrder) {
   const fullName = String(addr.fullName || "").trim();
   const [first, ...lastParts] = fullName.split(/\s+/);
 
-  // amounts
-  const computedSubtotal = lineAmount(items);
-  const subtotal = Number(
-    order.subtotal ?? computedSubtotal ?? order.total ?? 0
-  ); // keep decimals
+  // 🔢 amounts — compute from items
+  const computedSubtotal = items.reduce(
+    (sum, it: any) => sum + Number(it?.price || 0) * Number(it?.quantity || 0),
+    0
+  );
+  const subtotal = Number(computedSubtotal.toFixed(2));                 // ✅ real line total
   const tax = Number(order.tax ?? 0);
   const shipping = Number(order.shipping ?? 0);
-  const total = Number(order.total ?? subtotal + tax + shipping);
+  const total = Number((Number(order.total ?? 0) || subtotal + tax + shipping).toFixed(2));
 
   const payment_method = order.paymentMethod === "cod" ? "COD" : "Prepaid";
-  const collectable_amount = payment_method === "COD" ? total : 0;          // ✅ FIX
-  const declared_value = total;                                            // ✅ FIX
+  const collectable_amount = payment_method === "COD" ? total : 0;      // ✅ full COD
+  const declared_value = total;                                         // ✅ insure full value
 
   const payload = {
     order_id: String(order.orderNumber || order._id),
     order_date: toISTDate(new Date(order.createdAt ?? Date.now())),
-    pickup_location: PICKUP_NICKNAME,
+    pickup_location: PICKUP_NICKNAME, // make sure this EXACTLY matches SR nickname
 
     billing_customer_name: first || "Customer",
     billing_last_name: lastParts.join(" "),
@@ -66,8 +67,7 @@ export function mapOrderToShiprocket(order: IOrder) {
     shipping_is_billing: true,
 
     order_items: items.map((it: any) => {
-      // SR rejects 0; keep >= 1 but do NOT force totals to 1
-      const selling_price = Math.max(1, Number(it?.price || 0));
+      const selling_price = Math.max(1, Number(it?.price || 0));       // keep item ≥ 1, not total
       const skuRaw = String(it?.sku ?? it?.productId ?? "").trim();
       const sku = skuRaw || `SKU-${String(it?.productId || "N/A")}`;
       return {
@@ -80,12 +80,11 @@ export function mapOrderToShiprocket(order: IOrder) {
       };
     }),
 
-    payment_method,                      // ✅ "COD" | "Prepaid"
-    sub_total: Math.max(1, +subtotal.toFixed(2)), // keep decimals, min ₹1 for SR validation
-    declared_value: +declared_value.toFixed(2),   // ✅ send full value
-    collectable_amount: +collectable_amount.toFixed(2), // ✅ send full COD amount or 0
+    payment_method,
+    sub_total: +subtotal.toFixed(2),                                    // ✅ NO Math.max(1,…)
+    declared_value: +declared_value.toFixed(2),
+    collectable_amount: +collectable_amount.toFixed(2),
 
-    // Package dimensions (cm) + weight (kg) — tweak as needed
     length: 12,
     breadth: 10,
     height: 4,
@@ -94,6 +93,7 @@ export function mapOrderToShiprocket(order: IOrder) {
 
   return payload;
 }
+
 
 /** Optional: quick validation so you can 400 before calling Shiprocket */
 export function validateShiprocketPayload(p: any): string[] {
