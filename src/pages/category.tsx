@@ -114,7 +114,7 @@ const CategoriesPage: React.FC = () => {
     '@context': 'https://schema.org',
     '@type': 'CollectionPage',
     name: 'Categories',
-    url: 'https://www.nakodamobile.in/categories'
+    url: 'https://nakodamobile.in/categories'
   }}
 />
         <motion.div initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} className="text-center">
