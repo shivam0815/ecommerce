@@ -228,20 +228,17 @@ export const createPaymentOrder = async (
 };
 
 // In your paymentController.ts - CRITICAL FIX
-export const verifyPayment = async (
-  req: Request,
-  res: Response
-): Promise<void> => {
+export const verifyPayment = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { paymentId, orderId, signature, paymentMethod } = req.body;
     const user = req.user as AuthenticatedUser;
+    const body = req.body || {};
+    const paymentId = body.paymentId ?? body.razorpay_payment_id;
+    const orderId   = body.orderId   ?? body.razorpay_order_id;
+    const signature = body.signature ?? body.razorpay_signature;
+    const paymentMethod = body.paymentMethod;
 
     console.log('🔍 Verifying payment:', {
-      paymentId,
-      orderId,
-      paymentMethod,
-      userId: user?.id,
-      timestamp: new Date().toISOString()
+      paymentId, orderId, paymentMethod, userId: user?.id, ts: new Date().toISOString()
     });
 
     if (!user) {
@@ -249,7 +246,6 @@ export const verifyPayment = async (
       return;
     }
 
-    // ✅ Validate required fields
     if (!paymentId || !orderId || !paymentMethod) {
       res.status(400).json({ success: false, message: 'Missing required payment verification data' });
       return;
@@ -258,20 +254,25 @@ export const verifyPayment = async (
     let paymentVerified = false;
 
     switch (paymentMethod) {
-      case 'razorpay':
+      case 'razorpay': {
         if (!signature) {
           res.status(400).json({ success: false, message: 'Payment signature is required for Razorpay' });
           return;
         }
-        const body = orderId + '|' + paymentId;
-        const expectedSignature = crypto
-          .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET!)
-          .update(body.toString())
+        if (!process.env.RAZORPAY_KEY_SECRET) {
+          console.error('❌ RAZORPAY_KEY_SECRET missing');
+          res.status(500).json({ success: false, message: 'Payment gateway misconfiguration' });
+          return;
+        }
+        const payload = `${orderId}|${paymentId}`;
+        const expected = crypto.createHmac('sha256', process.env.RAZORPAY_KEY_SECRET)
+          .update(payload)
           .digest('hex');
 
-        paymentVerified = expectedSignature === signature;
+        paymentVerified = expected === signature;
         console.log('🔐 Razorpay signature verification:', { verified: paymentVerified });
         break;
+      }
 
       case 'cod':
         paymentVerified = true;
@@ -283,81 +284,76 @@ export const verifyPayment = async (
         return;
     }
 
-    if (paymentVerified) {
-      // ✅ Find order by paymentOrderId
-      const order = await Order.findOne({ paymentOrderId: orderId });
-      if (!order) {
-        res.status(404).json({ success: false, message: 'Order not found' });
-        return;
-      }
-
-      // ✅ Check ownership
-      if (!order.userId.equals(user.id)) {
-        res.status(403).json({ success: false, message: 'Unauthorized access to order' });
-        return;
-      }
-
-      // ✅ Update order
-      order.paymentStatus = paymentMethod === 'cod' ? 'cod_pending' : 'paid';
-      order.orderStatus = 'confirmed';
-      order.status = 'confirmed';
-      order.paymentId = paymentId;
-      order.paymentSignature = signature;
-      order.paidAt = new Date();
-      order.updatedAt = new Date();
-      await order.save();
-
-      console.log('✅ Order updated:', { orderNumber: order.orderNumber });
-
-      // ✅ Create / update Payment record
-      await Payment.findOneAndUpdate(
-        { transactionId: paymentId },
-        {
-          userId: user.id,
-          userName: user.name || '',
-          userEmail: user.email || '',
-          amount: order.total,
-          paymentMethod,
-          status: 'completed',
-          transactionId: paymentId,
-          orderId: order.id.toString(),
-          paymentDate: new Date()
-        },
-        { upsert: true, new: true }
-      );
-    
-
-      // ✅ Clear cart
-      try {
-        await Cart.findOneAndDelete({ userId: user.id });
-        console.log('🛒 Cart cleared successfully');
-      } catch (cartError) {
-        console.error('⚠️ Cart clearing failed:', cartError);
-      }
-
-      // ✅ Response
-      const populatedOrder = await Order.findById(order._id).populate('items.productId');
-      res.json({
-        success: true,
-        message: 'Payment verified and order confirmed! 🎉',
-        order: populatedOrder,
-        paymentDetails: {
-          paymentId,
-          paymentMethod,
-          amount: order.total,
-          paidAt: order.paidAt
-        }
-      });
-
-    } else {
+    if (!paymentVerified) {
       res.status(400).json({ success: false, message: 'Payment verification failed. Please try again or contact support.' });
+      return;
     }
 
+    const order = await Order.findOne({ paymentOrderId: orderId });
+    if (!order) {
+      res.status(404).json({ success: false, message: 'Order not found' });
+      return;
+    }
+
+    // 🔒 Safe compare
+    const same = (v: any) => (v && v.toString ? v.toString() : String(v));
+    if (same(order.userId) !== same(user.id)) {
+      res.status(403).json({ success: false, message: 'Unauthorized access to order' });
+      return;
+    }
+
+    order.paymentStatus   = paymentMethod === 'cod' ? 'cod_pending' : 'paid';
+    order.orderStatus     = 'confirmed';
+    order.status          = 'confirmed';
+    order.paymentId       = paymentId;
+    order.paymentSignature= signature;
+    order.paidAt          = new Date();
+    order.updatedAt       = new Date();
+    await order.save();
+
+    console.log('✅ Order updated:', { orderNumber: order.orderNumber });
+
+    await Payment.findOneAndUpdate(
+      { transactionId: paymentId },
+      {
+        userId: user.id,
+        userName: user.name || '',
+        userEmail: user.email || '',
+        amount: order.total,
+        paymentMethod,
+        status: 'completed',
+        transactionId: paymentId,
+        orderId: order.id.toString(),
+        paymentDate: new Date()
+      },
+      { upsert: true, new: true }
+    );
+
+    try {
+      await Cart.findOneAndDelete({ userId: user.id });
+      console.log('🛒 Cart cleared successfully');
+    } catch (cartError) {
+      console.error('⚠️ Cart clearing failed:', cartError);
+    }
+
+    const populatedOrder = await Order.findById(order._id).populate('items.productId');
+    res.json({
+      success: true,
+      message: 'Payment verified and order confirmed! 🎉',
+      order: populatedOrder,
+      paymentDetails: {
+        paymentId,
+        paymentMethod,
+        amount: order.total,
+        paidAt: order.paidAt
+      }
+    });
   } catch (error: any) {
     console.error('❌ Payment verification error:', error);
-    res.status(500).json({ success: false, message: error.message || 'Payment verification failed' });
+    res.status(500).json({ success: false, error: error?.message || 'Payment verification failed' });
   }
 };
+
 
 
 export const getPaymentStatus = async (

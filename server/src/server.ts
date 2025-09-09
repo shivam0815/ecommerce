@@ -77,7 +77,7 @@ const devOrigins = [
 const runtimeFrontend = process.env.FRONTEND_URL?.trim();
 const prodOrigins = [
   'https://nakodamobile.in',
-  
+ 
   ...(runtimeFrontend ? [runtimeFrontend] : [])
 ];
 const allowedOrigins = isProd ? prodOrigins : devOrigins;
