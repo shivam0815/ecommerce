@@ -228,83 +228,88 @@ export const createPaymentOrder = async (
 };
 
 // In your paymentController.ts - CRITICAL FIX
-export const verifyPayment = async (req: Request, res: Response): Promise<void> => {
+export const verifyPayment = async (
+  req: Request,
+  res: Response
+): Promise<void> => {
   try {
     const { paymentId, orderId, signature, paymentMethod } = req.body;
     const user = req.user as AuthenticatedUser;
 
-    // Verify Razorpay payment signature
+    console.log('🔍 Verifying payment:', {
+      paymentId,
+      orderId,
+      paymentMethod,
+      userId: user?.id,
+      timestamp: new Date().toISOString()
+    });
+
+    if (!user) {
+      res.status(401).json({ success: false, message: 'User not authenticated' });
+      return;
+    }
+
+    // ✅ Validate required fields
+    if (!paymentId || !orderId || !paymentMethod) {
+      res.status(400).json({ success: false, message: 'Missing required payment verification data' });
+      return;
+    }
+
     let paymentVerified = false;
-    if (paymentMethod === 'razorpay') {
-      const body = orderId + "|" + paymentId;
-      const expectedSignature = crypto
-        .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET!)
-        .update(body.toString())
-        .digest('hex');
-      paymentVerified = expectedSignature === signature;
-    } else if (paymentMethod === 'cod') {
-      paymentVerified = true; // COD orders are auto-verified
+
+    switch (paymentMethod) {
+      case 'razorpay':
+        if (!signature) {
+          res.status(400).json({ success: false, message: 'Payment signature is required for Razorpay' });
+          return;
+        }
+        const body = orderId + '|' + paymentId;
+        const expectedSignature = crypto
+          .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET!)
+          .update(body.toString())
+          .digest('hex');
+
+        paymentVerified = expectedSignature === signature;
+        console.log('🔐 Razorpay signature verification:', { verified: paymentVerified });
+        break;
+
+      case 'cod':
+        paymentVerified = true;
+        console.log('💰 COD payment auto-verified');
+        break;
+
+      default:
+        res.status(400).json({ success: false, message: 'Invalid payment method for verification' });
+        return;
     }
 
     if (paymentVerified) {
-      // Find order by paymentOrderId (your existing logic)
-      const order = await Order.findOne({ paymentOrderId: orderId }).lean();
+      // ✅ Find order by paymentOrderId
+      const order = await Order.findOne({ paymentOrderId: orderId });
       if (!order) {
         res.status(404).json({ success: false, message: 'Order not found' });
         return;
       }
 
-      // Type assertion for order
-      type OrderDocument = {
-        _id: typeof Order.prototype._id;
-        userId: typeof Order.prototype.userId;
-        paymentStatus: string;
-        orderStatus: string;
-        status: string;
-        paymentId?: string;
-        paymentSignature?: string;
-        paidAt?: Date;
-        updatedAt: Date;
-        total: number;
-      };
-      const typedOrder = order as OrderDocument;
-
+      // ✅ Check ownership
       if (!order.userId.equals(user.id)) {
         res.status(403).json({ success: false, message: 'Unauthorized access to order' });
         return;
       }
 
-      // Update order as you already do
+      // ✅ Update order
       order.paymentStatus = paymentMethod === 'cod' ? 'cod_pending' : 'paid';
       order.orderStatus = 'confirmed';
       order.status = 'confirmed';
       order.paymentId = paymentId;
-          const inv = await decrementStockForOrder(typedOrder._id.toString());
+      order.paymentSignature = signature;
       order.paidAt = new Date();
       order.updatedAt = new Date();
       await order.save();
 
-      // ✅ NEW: Commit inventory (decrement stock) AFTER a successful payment.
-      // For COD: set this true if you want to hold stock immediately;
-      // otherwise you can move this call to "order shipped" or "cod confirmed".
-      const shouldDecrementNow =
-        paymentMethod !== 'cod' // prepaid: yes
-        ? true
-        : true;                // COD: choose true to hold stock now; false to wait
+      console.log('✅ Order updated:', { orderNumber: order.orderNumber });
 
-      if (shouldDecrementNow) {
-        try {
-          const inv = await decrementStockForOrder(order._id.toString());
-          console.log('🧮 Inventory commit:', inv);
-        } catch (invErr: any) {
-          // If inventory fails here, you may want to flag and alert,
-          // or set order back to pending and show an error. Logging for now:
-          console.error('❌ Inventory decrement failed:', invErr.message);
-          // You might also notify admins here.
-        }
-      }
-
-      // Payment record (your existing code) ...
+      // ✅ Create / update Payment record
       await Payment.findOneAndUpdate(
         { transactionId: paymentId },
         {
@@ -320,10 +325,17 @@ export const verifyPayment = async (req: Request, res: Response): Promise<void> 
         },
         { upsert: true, new: true }
       );
+    
 
-      // Clear cart (your existing code) ...
-      try { await Cart.findOneAndDelete({ userId: user.id }); } catch {}
+      // ✅ Clear cart
+      try {
+        await Cart.findOneAndDelete({ userId: user.id });
+        console.log('🛒 Cart cleared successfully');
+      } catch (cartError) {
+        console.error('⚠️ Cart clearing failed:', cartError);
+      }
 
+      // ✅ Response
       const populatedOrder = await Order.findById(order._id).populate('items.productId');
       res.json({
         success: true,
@@ -336,9 +348,11 @@ export const verifyPayment = async (req: Request, res: Response): Promise<void> 
           paidAt: order.paidAt
         }
       });
+
     } else {
       res.status(400).json({ success: false, message: 'Payment verification failed. Please try again or contact support.' });
     }
+
   } catch (error: any) {
     console.error('❌ Payment verification error:', error);
     res.status(500).json({ success: false, message: error.message || 'Payment verification failed' });
