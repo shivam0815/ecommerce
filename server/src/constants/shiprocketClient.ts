@@ -104,7 +104,9 @@ class SRClient {
       if (DEBUG) {
         // Clone headers w/o Authorization
         const headers = { ...(cfg.headers || {}) };
-        if (headers.Authorization) headers.Authorization = `Bearer ${maskToken(String(headers.Authorization).replace(/^Bearer\s+/i, ""))}`;
+        if (headers.Authorization) {
+          headers.Authorization = `Bearer ${maskToken(String(headers.Authorization).replace(/^Bearer\s+/i, ""))}`;
+        }
 
         log("REQ", {
           rid,
@@ -112,7 +114,16 @@ class SRClient {
           method: cfg.method?.toUpperCase(),
           url: `${cfg.baseURL ?? ""}${cfg.url}`,
           params: cfg.params,
-          data: cfg.data && JSON.parse(trimJSON(cfg.data)),
+          // best-effort preview; avoid throwing if not JSON
+          data: (() => {
+            try {
+              if (!cfg.data) return undefined;
+              const str = typeof cfg.data === "string" ? cfg.data : JSON.stringify(cfg.data);
+              return JSON.parse(trimJSON(JSON.parse(str)));
+            } catch {
+              return cfg.data;
+            }
+          })(),
           headers,
         });
       }
@@ -152,7 +163,13 @@ class SRClient {
           ms,
           url: `${cfg.baseURL ?? ""}${cfg.url ?? ""}`,
           message: err?.message,
-          body: typeof body === "object" ? JSON.parse(trimJSON(body)) : body,
+          body: (() => {
+            try {
+              return typeof body === "object" ? JSON.parse(trimJSON(body)) : body;
+            } catch {
+              return body;
+            }
+          })(),
         });
 
         return Promise.reject(err);
@@ -173,9 +190,9 @@ class SRClient {
       const token: string | undefined = data?.token || data?.access_token;
       if (!token) throw new Error("Shiprocket login response missing token");
 
-      // Shiprocket tokens are typically ~24h; use 22h to be safe
+      // Shiprocket tokens are typically long-lived; refresh early
       this.token = token;
-      this.tokenExpiry = Date.now() + 22 * 60 * 60 * 1000;
+      this.tokenExpiry = Date.now() + 22 * 60 * 60 * 1000; // ~22h
       this.http.defaults.headers.common.Authorization = `Bearer ${token}`;
 
       if (DEBUG) {
@@ -191,7 +208,13 @@ class SRClient {
         rid,
         status,
         msg,
-        body: typeof body === "object" ? JSON.parse(trimJSON(body)) : body,
+        body: (() => {
+          try {
+            return typeof body === "object" ? JSON.parse(trimJSON(body)) : body;
+          } catch {
+            return body;
+          }
+        })(),
         email: maskRight(EMAIL),
         pwdLen: PASSWORD.length,
       });
@@ -289,12 +312,18 @@ class SRClient {
     return this.request("POST", "/v1/external/orders/create/adhoc", { data: payload });
   }
 
-  assignAwb(opts: { shipment_id: number; courier_id?: number }) {
-    return this.request("POST", "/v1/external/courier/assign/awb", { data: opts });
+  /** NOTE: Shiprocket expects shipment_id as an ARRAY */
+  assignAwb(opts: { shipment_id: number | number[]; courier_id?: number }) {
+    const payload = {
+      shipment_id: Array.isArray(opts.shipment_id) ? opts.shipment_id : [opts.shipment_id],
+      ...(opts.courier_id != null ? { courier_id: Number(opts.courier_id) } : {}),
+    };
+    return this.request("POST", "/v1/external/courier/assign/awb", { data: payload });
   }
 
+  /** Correct endpoint: /shipments/generate/pickup */
   generatePickup(opts: { shipment_id: number[] }) {
-    return this.request("POST", "/v1/external/courier/generate/pickup", { data: opts });
+    return this.request("POST", "/v1/external/shipments/generate/pickup", { data: opts });
   }
 
   generateManifest(opts: { shipment_id: number[] }) {
@@ -315,6 +344,11 @@ class SRClient {
 
   trackByAwb(awb: string) {
     return this.request("GET", `/v1/external/courier/track/awb/${encodeURIComponent(awb)}`);
+  }
+
+  /** Useful for idempotency / “already assigned” cases */
+  getShipmentDetails(shipmentId: number) {
+    return this.request("GET", `/v1/external/shipments/${shipmentId}`);
   }
 }
 

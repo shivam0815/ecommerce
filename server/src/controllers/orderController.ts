@@ -20,21 +20,21 @@ interface AuthenticatedUser {
 
 /* ───────────────── Business Rules: MAX & MOQ ───────────────── */
 
-const MAX_ORDER_QTY = 50;
+const MAX_ORDER_QTY = 500;
 
 const CATEGORY_MOQ: Record<string, number> = {
-  "Car Chargers": 2,
-  "Bluetooth Neckbands": 5,
-  TWS: 3,
-  "Data Cables": 5,
-  "Mobile Chargers": 2,
-  "Bluetooth Speakers": 2,
-  "Power Banks": 2,
-  "Mobile ICs": 1,
-  "Mobile Repairing Tools": 1,
-  Electronics: 1,
-  Accessories: 1,
-  Others: 1,
+  "Car Chargers": 50,
+  "Bluetooth Neckbands": 50,
+  TWS: 30,
+  "Data Cables": 50,
+  "Mobile Chargers": 20,
+  "Bluetooth Speakers": 20,
+  "Power Banks": 20,
+  "Integrated Circuits & Chips": 50,
+  "Mobile Repairing Tools": 50,
+  Electronics: 50,
+  Accessories: 50,
+  Others: 50,
 };
 
 const getEffectiveMOQ = (product: any): number => {
