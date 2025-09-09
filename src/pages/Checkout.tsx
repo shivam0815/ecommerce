@@ -58,12 +58,18 @@ const emptyAddress: Address = {
   landmark: '',
 };
 
+// (Kept for reference; shipping is now added after packing, so not used here)
 const SHIPPING_FREE_THRESHOLD = 999;
-const BASE_SHIPPING_FEE = 0; // ✅ used when threshold/coupon doesn't make shipping free
+const BASE_SHIPPING_FEE = 100;
+
 const COD_FEE = 25;
 const GIFT_WRAP_FEE = 0;
 const FIRST_ORDER_RATE = 0.1; // 10%
 const FIRST_ORDER_CAP = 300;
+
+// Online payment fee & GST-on-fee
+const ONLINE_FEE_RATE = 0.02;      // 2% convenience fee (online methods only)
+const ONLINE_FEE_GST_RATE = 0.18;  // 18% GST on that convenience fee
 
 type CouponResult = {
   code: string;
@@ -130,7 +136,7 @@ const CheckoutPage: React.FC = () => {
       (user as any)?.ordersCount === 0 ||
       (user as any)?.isFirstOrder === true ||
       (user as any)?.firstOrderDone === false;
-    return !localFlag && (byBackend || true); // default to TRUE if unknown; adjust if you only trust backend
+    return !localFlag && (byBackend || true); // default TRUE if unknown
   }, [user]);
 
   // First order discount (if no better coupon is applied)
@@ -205,18 +211,39 @@ const CheckoutPage: React.FC = () => {
 
   const effectiveSubtotal = Math.max(0, rawSubtotal - monetaryDiscount);
 
-  const shippingFee = useMemo(() => {
-    // Free shipping via threshold or coupon
-    const free = effectiveSubtotal >= SHIPPING_FREE_THRESHOLD || appliedCoupon?.freeShipping;
-    return free ? 0 : BASE_SHIPPING_FEE; // ✅ fixed (was always 0)
-  }, [effectiveSubtotal, appliedCoupon]);
+  // 🔔 SHIPPING IS NOT CHARGED AT CHECKOUT ANYMORE
+  // Keep shippingFee = 0 and optionally send a flag to backend.
+  const shippingFee = 0;
+  const shippingAddedPostPack = true;
 
   const giftWrapFee = giftWrap ? GIFT_WRAP_FEE : 0;
   const codCharges = method === 'cod' ? COD_FEE : 0;
 
-  // Tax after discount, before shipping/cod/wrap
-  const tax = Math.round(effectiveSubtotal * 0.18);
-  const total = Math.max(0, effectiveSubtotal + tax + shippingFee + codCharges + giftWrapFee);
+  // Tax after discount, before shipping/cod/wrap (on goods/services)
+  const tax = useMemo(() => Math.round(effectiveSubtotal * 0.18), [effectiveSubtotal]);
+
+  // Convenience fee for online methods + GST on that fee.
+  // Base excludes shipping (since shipping is added later).
+  const convenienceFee = useMemo(() => {
+    if (method === 'cod') return 0;
+    const baseBeforeFee = effectiveSubtotal + tax + shippingFee + giftWrapFee;
+    return Math.round(baseBeforeFee * ONLINE_FEE_RATE);
+  }, [method, effectiveSubtotal, tax, shippingFee, giftWrapFee]);
+
+  const convenienceFeeGst = useMemo(() => {
+    if (method === 'cod') return 0;
+    return Math.round(convenienceFee * ONLINE_FEE_GST_RATE);
+  }, [method, convenienceFee]);
+
+  const total = Math.max(
+    0,
+    effectiveSubtotal +
+      tax +
+      shippingFee + // 0
+      codCharges +
+      giftWrapFee +
+      (method !== 'cod' ? convenienceFee + convenienceFeeGst : 0)
+  );
 
   // Prefill cardholder name on user data change
   useEffect(() => {
@@ -324,9 +351,9 @@ const CheckoutPage: React.FC = () => {
           quantity: (item as any).quantity,
           price: (item as any).price,
         })),
-      // @ts-ignore
+        // @ts-ignore
         shippingAddress: shipping,
-      // @ts-ignore
+        // @ts-ignore
         billingAddress: sameAsShipping ? shipping : billing,
         extras: {
           orderNotes: orderNotes.trim() || undefined,
@@ -342,9 +369,17 @@ const CheckoutPage: React.FC = () => {
           couponFreeShipping: appliedCoupon?.freeShipping || false,
           effectiveSubtotal,
           tax,
-          shippingFee,
+          shippingFee, // 0 at checkout
+          shippingAddedPostPack, // NEW flag to indicate shipping will be added later
           codCharges,
           giftWrapFee,
+
+          // Online fee details
+          convenienceFee,
+          convenienceFeeGst,
+          convenienceFeeRate: ONLINE_FEE_RATE,
+          convenienceFeeGstRate: ONLINE_FEE_GST_RATE,
+
           total,
         },
       };
@@ -379,7 +414,7 @@ const CheckoutPage: React.FC = () => {
         // Persist fallback so refresh on success still works
         localStorage.setItem('lastOrderSuccess', JSON.stringify(successState));
 
-        // ✅ Navigate to success page
+        // Navigate to success page
         navigate('/order-success', {
           state: successState,
           replace: true,
@@ -566,11 +601,9 @@ const CheckoutPage: React.FC = () => {
                 <span className="font-semibold">{formatINR(tax)}</span>
               </div>
 
-              <div className="flex justify-between">
-                <span className="text-gray-600">Shipping</span>
-                <span className={`font-semibold ${shippingFee === 0 ? 'text-green-600' : ''}`}>
-                  {shippingFee === 0 ? 'Free' : formatINR(shippingFee)}
-                </span>
+              {/* 🚚 Shipping note instead of amount */}
+              <div className="p-3 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-xs sm:text-sm">
+                <strong>Note:</strong> Shipping fees will be added after your order is packed.
               </div>
 
               {method === 'cod' && (
@@ -585,6 +618,20 @@ const CheckoutPage: React.FC = () => {
                   <span className="text-gray-600">Gift Wrap</span>
                   <span className="font-semibold">{formatINR(giftWrapFee)}</span>
                 </div>
+              )}
+
+              {/* Online payment fee lines */}
+              {method !== 'cod' && (
+                <>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Payment Processing Fee (2%)</span>
+                    <span className="font-semibold">{formatINR(convenienceFee)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">GST on Processing Fee (18%)</span>
+                    <span className="font-semibold">{formatINR(convenienceFeeGst)}</span>
+                  </div>
+                </>
               )}
 
               <div className="flex justify-between font-bold text-base sm:text-lg pt-3 sm:pt-4 border-t border-gray-200">
@@ -636,6 +683,9 @@ const CheckoutPage: React.FC = () => {
                     half
                     errors={errors}
                   />
+                </div>
+
+                <div className="flex flex-col sm:flex-row gap-4">
                   <Input
                     field="phoneNumber"
                     label="Phone Number *"
@@ -648,18 +698,19 @@ const CheckoutPage: React.FC = () => {
                     half
                     errors={errors}
                   />
-                </div>
 
-                <Input
-                  field="email"
-                  label="Email Address *"
-                  type="email"
-                  value={shipping.email}
-                  onChange={(v) => handleAddr(setShipping)('email', v)}
-                  placeholder="Enter your email"
-                  icon={Mail}
-                  errors={errors}
-                />
+                  <Input
+                    field="email"
+                    label="Email Address *"
+                    type="email"
+                    value={shipping.email}
+                    onChange={(v) => handleAddr(setShipping)('email', v)}
+                    placeholder="Enter your email"
+                    icon={Mail}
+                    half
+                    errors={errors}
+                  />
+                </div>
 
                 <Input
                   field="addressLine1"
