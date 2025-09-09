@@ -158,7 +158,7 @@ const Contact: React.FC = () => {
       title: 'Email Us',
       details: [
         { text: 'nakodamobile150579@gmail.com', href: 'mailto:nakodamobile150579@gmail.com' },
-        { text: 'support@nakodamobile.com', href: 'mailto:info@nakodamobile.com' },
+        { text: 'support@nakodamobile.in', href: 'mailto:info@nakodamobile.in' },
         { text: 'oem@nakodamobile.com', href: 'mailto:nakodaoem@gmail.com' },
       ],
     },
@@ -224,7 +224,7 @@ const Contact: React.FC = () => {
       '@context': 'https://schema.org',
       '@type': 'LocalBusiness',
       name: 'Nakoda Mobile',
-      image: 'https://www.nakodamobile.in/favicon-512.png',
+      image: 'https://nakodamobile.in/favicon-512.png',
       address: {
         '@type': 'PostalAddress',
         streetAddress: 'Near Church Gali No. 2, Electronics Market, Karol Bagh',

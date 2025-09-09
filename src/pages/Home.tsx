@@ -173,7 +173,7 @@ const Home: React.FC = () => {
           '@context': 'https://schema.org',
           '@type': 'Organization',
           name: 'Nakoda Mobile',
-          url: 'https://www.nakodamobile.in',
+          url: 'https://nakodamobile.in',
           logo: 'https://nakodamobile.in/favicon-512.png'
         }}
       />
