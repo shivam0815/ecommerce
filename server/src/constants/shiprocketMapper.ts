@@ -19,7 +19,6 @@ const normalizePhone10 = (raw: unknown) => {
 
 const safeEmail = (e: unknown) => {
   const s = String(e || "").trim();
-  // SR requires a non-empty email; provide a harmless fallback if blank
   return s || "no-reply@example.com";
 };
 
@@ -37,34 +36,38 @@ export function mapOrderToShiprocket(order: IOrder) {
   const fullName = String(addr.fullName || "").trim();
   const [first, ...lastParts] = fullName.split(/\s+/);
 
-  // compute a safe subtotal if order.subtotal is 0 or missing
+  // amounts
   const computedSubtotal = lineAmount(items);
-  const safeSubtotal = Number(order.subtotal ?? computedSubtotal ?? order.total ?? 0);
-  // SR doesn’t accept 0 subtotal; force at least ₹1
-  const sub_total = Math.max(1, safeSubtotal | 0);
+  const subtotal = Number(
+    order.subtotal ?? computedSubtotal ?? order.total ?? 0
+  ); // keep decimals
+  const tax = Number(order.tax ?? 0);
+  const shipping = Number(order.shipping ?? 0);
+  const total = Number(order.total ?? subtotal + tax + shipping);
+
+  const payment_method = order.paymentMethod === "cod" ? "COD" : "Prepaid";
+  const collectable_amount = payment_method === "COD" ? total : 0;          // ✅ FIX
+  const declared_value = total;                                            // ✅ FIX
 
   const payload = {
     order_id: String(order.orderNumber || order._id),
     order_date: toISTDate(new Date(order.createdAt ?? Date.now())),
-    pickup_location: PICKUP_NICKNAME, // must equal SR “Pickup Address Nickname”
+    pickup_location: PICKUP_NICKNAME,
 
     billing_customer_name: first || "Customer",
     billing_last_name: lastParts.join(" "),
-    billing_address: [addr.addressLine1 || "", addr.addressLine2 || ""]
-      .filter(Boolean)
-      .join(", "),
+    billing_address: [addr.addressLine1 || "", addr.addressLine2 || ""].filter(Boolean).join(", "),
     billing_city: String(addr.city || ""),
-    billing_pincode: digits(addr.pincode), // 6-digit string
+    billing_pincode: digits(addr.pincode),
     billing_state: String(addr.state || ""),
     billing_country: "India",
     billing_email: safeEmail(addr.email),
-    billing_phone: normalizePhone10(addr.phoneNumber), // strict 10 digits
+    billing_phone: normalizePhone10(addr.phoneNumber),
     shipping_is_billing: true,
 
     order_items: items.map((it: any) => {
-      // SR rejects selling_price = 0; clamp to at least ₹1
+      // SR rejects 0; keep >= 1 but do NOT force totals to 1
       const selling_price = Math.max(1, Number(it?.price || 0));
-      // SR requires non-empty sku; fall back to productId string
       const skuRaw = String(it?.sku ?? it?.productId ?? "").trim();
       const sku = skuRaw || `SKU-${String(it?.productId || "N/A")}`;
       return {
@@ -77,10 +80,12 @@ export function mapOrderToShiprocket(order: IOrder) {
       };
     }),
 
-    payment_method: order.paymentMethod === "cod" ? "COD" : "Prepaid",
-    sub_total,
+    payment_method,                      // ✅ "COD" | "Prepaid"
+    sub_total: Math.max(1, +subtotal.toFixed(2)), // keep decimals, min ₹1 for SR validation
+    declared_value: +declared_value.toFixed(2),   // ✅ send full value
+    collectable_amount: +collectable_amount.toFixed(2), // ✅ send full COD amount or 0
 
-    // Default package dimensions (cm) + weight (kg)
+    // Package dimensions (cm) + weight (kg) — tweak as needed
     length: 12,
     breadth: 10,
     height: 4,
@@ -107,6 +112,8 @@ export function validateShiprocketPayload(p: any): string[] {
     "billing_pincode",
     "payment_method",
     "sub_total",
+    "declared_value",        // ✅ ensure present
+    "collectable_amount",    // ✅ ensure present
     "length",
     "breadth",
     "height",
@@ -114,7 +121,7 @@ export function validateShiprocketPayload(p: any): string[] {
   ];
   req.forEach((k) => {
     const v = p?.[k];
-    if (v === undefined || v === null || String(v).trim() === "") {
+    if (v === undefined || v === null || String(v).trim?.() === "") {
       errs.push(`Missing/empty: ${k}`);
     }
   });
@@ -126,10 +133,11 @@ export function validateShiprocketPayload(p: any): string[] {
   if (!["COD", "Prepaid"].includes(p?.payment_method))
     errs.push("Invalid payment_method");
 
-  (["sub_total", "length", "breadth", "height", "weight"] as const).forEach((k) => {
-    const v = p?.[k];
-    if (!(typeof v === "number" && isFinite(v) && v >= 0)) errs.push(`Invalid ${k}`);
-  });
+  (["sub_total", "declared_value", "collectable_amount", "length", "breadth", "height", "weight"] as const)
+    .forEach((k) => {
+      const v = p?.[k];
+      if (!(typeof v === "number" && isFinite(v) && v >= 0)) errs.push(`Invalid ${k}`);
+    });
 
   if (!Array.isArray(p?.order_items) || p.order_items.length === 0) {
     errs.push("order_items must be non-empty");
@@ -141,6 +149,11 @@ export function validateShiprocketPayload(p: any): string[] {
       if (!(typeof it?.selling_price === "number" && it.selling_price > 0))
         errs.push(`order_items[${i}].selling_price must be > 0`);
     });
+  }
+
+  // Extra sanity for COD
+  if (p.payment_method === "COD" && !(p.collectable_amount > 0)) {
+    errs.push("collectable_amount must be > 0 for COD");
   }
 
   return errs;
