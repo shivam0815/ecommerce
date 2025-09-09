@@ -1,16 +1,72 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <urlset
-      xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
-      xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-      xsi:schemaLocation="http://www.sitemaps.org/schemas/sitemap/0.9
-            http://www.sitemaps.org/schemas/sitemap/0.9/sitemap.xsd">
-<!-- created with Free Online Sitemap Generator www.xml-sitemaps.com -->
+  xmlns="http://www.sitemaps.org/schemas/sitemap/0.9"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xsi:schemaLocation="http://www.sitemaps.org/schemas/sitemap/0.9
+        http://www.sitemaps.org/schemas/sitemap/0.9/sitemap.xsd">
 
+  <!-- Homepage -->
+  <url>
+    <loc>https://nakodamobile.in/</loc>
+    <lastmod>2025-09-05T21:09:20+00:00</lastmod>
+    <changefreq>daily</changefreq>
+    <priority>1.0</priority>
+  </url>
 
-<url>
-  <loc>https://nakodamobile.in/</loc>
-  <lastmod>2025-09-05T21:09:20+00:00</lastmod>
-</url>
+  <!-- Products listing -->
+  <url>
+    <loc>https://nakodamobile.in/products</loc>
+    <lastmod>2025-09-05T21:09:20+00:00</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.8</priority>
+  </url>
 
+  <!-- About page -->
+  <url>
+    <loc>https://nakodamobile.in/about</loc>
+    <lastmod>2025-09-05T21:09:20+00:00</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.5</priority>
+  </url>
+
+  <!-- Contact page -->
+  <url>
+    <loc>https://nakodamobile.in/contact</loc>
+    <lastmod>2025-09-05T21:09:20+00:00</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.5</priority>
+  </url>
+
+  <!-- OEM / B2B info -->
+  <url>
+    <loc>https://nakodamobile.in/oem</loc>
+    <lastmod>2025-09-05T21:09:20+00:00</lastmod>
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+  </url>
+
+  <!-- Blog -->
+  <url>
+    <loc>https://nakodamobile.in/blog</loc>
+    <lastmod>2025-09-05T21:09:20+00:00</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.6</priority>
+  </url>
+
+  <!-- Terms & Conditions -->
+  <url>
+    <loc>https://nakodamobile.in/terms</loc>
+    <lastmod>2025-09-05T21:09:20+00:00</lastmod>
+    <changefreq>yearly</changefreq>
+    <priority>0.3</priority>
+  </url>
+
+  <!-- Privacy Policy -->
+  <url>
+    <loc>https://nakodamobile.in/privacy</loc>
+    <lastmod>2025-09-05T21:09:20+00:00</lastmod>
+    <changefreq>yearly</changefreq>
+    <priority>0.3</priority>
+  </url>
 
 </urlset>
