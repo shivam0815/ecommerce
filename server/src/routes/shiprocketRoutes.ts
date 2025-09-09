@@ -6,6 +6,44 @@ import { mapOrderToShiprocket, validateShiprocketPayload } from "../constants/sh
 import { authenticate } from "../middleware/auth";
 
 const SHIPROCKET_PICKUP_NICKNAME = (process.env.SHIPROCKET_PICKUP_NICKNAME || "").trim();
+// put this near the other helpers (after pickSRerr)
+
+// return the first non-empty value; if an array is passed, return its first item (if any)
+function firstNonEmpty<T = any>(...vals: any[]): T | undefined {
+  for (const v of vals) {
+    if (Array.isArray(v)) {
+      if (v.length) return v[0] as T;
+    } else if (v !== undefined && v !== null && (typeof v !== 'string' || v.trim() !== '')) {
+      return v as T;
+    }
+  }
+  return undefined;
+}
+
+// Shiprocket responses vary (string vs array; nested under response/data/awb_data[0])
+function extractAwbAndCourier(sr: any): { awb?: string; courier?: string } {
+  const awb = firstNonEmpty<string>(
+    sr?.awb_code,
+    sr?.response?.awb_code,
+    sr?.response?.data?.awb_code,
+    sr?.data?.awb_code,
+    sr?.awb_data?.[0]?.awb_code,
+    sr?.response?.data?.awb_data?.[0]?.awb_code,
+    sr?.data?.response?.awb_data?.[0]?.awb_code
+  );
+
+  const courier = firstNonEmpty<string>(
+    sr?.courier_name,
+    sr?.response?.courier_name,
+    sr?.response?.data?.courier_name,
+    sr?.data?.courier_name,
+    sr?.awb_data?.[0]?.courier_name,
+    sr?.response?.data?.awb_data?.[0]?.courier_name,
+    sr?.data?.response?.awb_data?.[0]?.courier_name
+  );
+
+  return { awb, courier };
+}
 
 /** ───────────────── Helpers ───────────────── **/
 function isAdmin(req: Request) {
@@ -150,26 +188,66 @@ r.post("/orders/:id/shiprocket/assign-awb", authenticate, requireAdmin, async (r
     if (!(order as any).shipmentId) return res.status(400).json({ ok: false, error: "No shipmentId on order. Create Shiprocket order first." });
     if (order.orderStatus === "cancelled") return res.status(400).json({ ok: false, error: "Order is cancelled" });
 
-    const { courier_id } = req.body || {};
+    let { courier_id } = req.body || {};
     if (courier_id != null && Number.isNaN(Number(courier_id))) {
       return res.status(400).json({ ok: false, error: "courier_id must be a number" });
     }
 
-    const sr = await ShiprocketAPI.assignAwb({ shipment_id: (order as any).shipmentId, courier_id });
-    const awb = sr?.awb_code ?? sr?.response?.data?.awb_code ?? sr?.data?.awb_code;
-    const courier = sr?.courier_name ?? sr?.response?.data?.courier_name ?? sr?.data?.courier_name;
+    let sr;
+    try {
+      sr = await ShiprocketAPI.assignAwb({ shipment_id: (order as any).shipmentId, courier_id });
+    } catch (e: any) {
+      // If Shiprocket demands a courier_id, try to auto-pick a recommended one
+      const msg = e?.message || e?.response?.data?.message || "";
+      if (!courier_id && /courier/i.test(msg)) {
+        // call serviceability using the order’s pincode + a lightweight weight
+        const s = order.shippingAddress as any;
+        const data = await ShiprocketAPI.serviceability({
+          pickup_postcode: process.env.SHIPROCKET_PICKUP_PINCODE || "",
+          delivery_postcode: String(s?.pincode || ""),
+          weight: 0.5,
+          cod: order.paymentMethod === "cod" ? 1 : 0,
+          declared_value: Math.max(1, Number(order.total || 0)),
+          mode: "Surface",
+        });
+        const recId =
+          data?.data?.recommended_courier_company_id ||
+          data?.recommended_courier_company_id ||
+          data?.courier_company_id;
+        const firstAvailable =
+          data?.data?.available_courier_companies?.[0]?.courier_company_id ||
+          data?.available_courier_companies?.[0]?.courier_company_id ||
+          recId;
 
-    if (!awb) return res.status(400).json({ ok: false, error: "AWB not returned by Shiprocket", shiprocket: sr });
+        if (firstAvailable) {
+          sr = await ShiprocketAPI.assignAwb({
+            shipment_id: (order as any).shipmentId,
+            courier_id: Number(firstAvailable),
+          });
+        } else {
+          throw e; // no fallback possible
+        }
+      } else {
+        throw e;
+      }
+    }
 
-    (order as any).awbCode = awb;
+    const { awb, courier } = extractAwbAndCourier(sr);
+    if (!awb) {
+      return res.status(400).json({ ok: false, error: "AWB not returned by Shiprocket", shiprocket: sr });
+    }
+
+    (order as any).awbCode = awb.toUpperCase();
     if (courier) (order as any).courierName = courier;
+    (order as any).shiprocketStatus = "AWB_ASSIGNED";
     await order.save();
 
-    res.json({ ok: true, awbCode: awb, courierName: courier || null, shiprocket: sr });
+    res.json({ ok: true, awbCode: order.awbCode, courierName: order.courierName || null, shiprocket: sr });
   } catch (e: any) {
     res.status(400).json({ ok: false, error: pickSRerr(e) });
   }
 });
+
 
 /** POST /api/orders/:id/shiprocket/pickup */
 r.post("/orders/:id/shiprocket/pickup", authenticate, requireAdmin, async (req, res) => {
