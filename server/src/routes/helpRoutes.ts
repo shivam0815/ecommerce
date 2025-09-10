@@ -17,7 +17,7 @@ router.get('/config', async (req, res) => {
         chat: false,
       },
       email: {
-        address: process.env.SUPPORT_EMAIL || 'support@nakodamobile.com',
+        address: process.env.SUPPORT_EMAIL || 'support@nakodamobile.in',
         responseTimeHours: Number(process.env.SUPPORT_RESP_HOURS || 24),
       },
       phone: {
@@ -32,7 +32,7 @@ router.get('/config', async (req, res) => {
       },
       faq: {
         enabled: true,
-        url: process.env.SUPPORT_FAQ_URL || 'https://nakodamobile.com/faq',
+        url: process.env.SUPPORT_FAQ_URL || 'https://nakodamobile.in/faq',
       },
       lastUpdated: new Date().toISOString(),
     };
