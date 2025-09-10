@@ -227,7 +227,7 @@ const toNum = (v: any) => {
 };
 
 function getGstView(o?: IOrderFull) {
-  const g = o?.gst || {};
+  const g = o?.gst || {} as GstDetails;
   const subtotal = toNum(o?.subtotal ?? 0);
   const tax = toNum(o?.tax ?? 0);
 
