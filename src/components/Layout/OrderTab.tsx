@@ -57,6 +57,22 @@ interface IOrder {
   createdAt: string;
 }
 
+/** GST details as stored on the Order (optional) */
+type GstDetails = {
+  wantInvoice: boolean;
+  gstin?: string;
+  legalName?: string;
+  placeOfSupply?: string;
+  taxPercent?: number;  // e.g. 18
+  taxBase?: number;     // taxable value
+  taxAmount?: number;   // total GST
+  cgst?: number;
+  sgst?: number;
+  igst?: number;
+  invoiceNumber?: string;
+  invoiceUrl?: string;
+};
+
 /** Full order (drawer fetch) – fields optional to be resilient */
 interface IOrderFull extends IOrder {
   shippingAddress?: {
@@ -84,7 +100,7 @@ interface IOrderFull extends IOrder {
   paymentId?: string;
   paymentSignature?: string;
 
-  /* ---- Shiprocket fields (added) ---- */
+  /* ---- Shiprocket fields ---- */
   shipmentId?: number;
   awbCode?: string;
   courierName?: string;
@@ -99,6 +115,9 @@ interface IOrderFull extends IOrder {
     | 'INVOICE_READY'
     | 'MANIFEST_READY'
     | 'TRACKING_UPDATED';
+
+  /* ---- GST ---- */
+  gst?: GstDetails;
 }
 
 /* =========================
@@ -109,6 +128,13 @@ const currency = (n: number) =>
     style: 'currency',
     currency: 'INR',
     maximumFractionDigits: 0,
+  }).format(n);
+
+const money = (n: number) =>
+  new Intl.NumberFormat('en-IN', {
+    style: 'currency',
+    currency: 'INR',
+    maximumFractionDigits: 2,
   }).format(n);
 
 const dt = (iso?: string) =>
@@ -190,6 +216,36 @@ const iconFor = (s: string) => {
       return <ClockIcon className="w-4 h-4" />;
   }
 };
+
+const toNum = (v: any) => {
+  if (typeof v === 'number') return Number.isFinite(v) ? v : 0;
+  if (typeof v === 'string') {
+    const n = Number(v.replace(/[^\d.-]/g, ''));
+    return Number.isFinite(n) ? n : 0;
+  }
+  return 0;
+};
+
+function getGstView(o?: IOrderFull) {
+  const g = o?.gst || {};
+  const subtotal = toNum(o?.subtotal ?? 0);
+  const tax = toNum(o?.tax ?? 0);
+
+  return {
+    wantInvoice: !!g.wantInvoice,
+    gstin: g.gstin || '',
+    legalName: g.legalName || '',
+    pos: g.placeOfSupply || '',
+    taxPercent: typeof g.taxPercent === 'number' ? g.taxPercent : (tax ? 18 : 0),
+    taxBase: typeof g.taxBase === 'number' ? g.taxBase : subtotal,
+    taxAmount: typeof g.taxAmount === 'number' ? g.taxAmount : tax,
+    cgst: typeof g.cgst === 'number' ? g.cgst : undefined,
+    sgst: typeof g.sgst === 'number' ? g.sgst : undefined,
+    igst: typeof g.igst === 'number' ? g.igst : undefined,
+    invoiceNumber: g.invoiceNumber || '',
+    invoiceUrl: g.invoiceUrl || '',
+  };
+}
 
 /* =========================
    Small UI helpers
@@ -515,6 +571,9 @@ const OrdersTab: React.FC = () => {
       'PaymentMethod',
       'PaymentStatus',
       'CreatedAt',
+      'GSTIN',       // NEW
+      'GST_%',       // NEW
+      'GST_Amount',  // NEW
     ];
     const lines = filtered.map(o =>
       [
@@ -531,6 +590,9 @@ const OrdersTab: React.FC = () => {
         o.paymentMethod,
         o.paymentStatus || '',
         dt(o.createdAt),
+        (o as any).gst?.gstin || '',
+        (o as any).gst?.taxPercent ?? '',
+        (o as any).gst?.taxAmount ?? o.tax ?? '',
       ].join(',')
     );
     const csv = [headers.join(','), ...lines].join('\n');
@@ -590,30 +652,27 @@ const OrdersTab: React.FC = () => {
     Authorization: `Bearer ${getAdminToken()}`,
   });
 
-
-
-
-const srCreate = async (id: string) => {
-  setBusyId(id);
-  try {
-    const res = await fetch(`${API_SHIPROCKET_BASE}/orders/${id}/shiprocket/create`, {
-      method: 'POST',
-      headers: {
-        ...authHeaders(),
-        'Content-Type': 'application/json',
-      },
-      credentials: 'include',
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data?.error?.message || data?.error || 'Failed to create Shiprocket order');
-    alert(`Shiprocket order created. shipmentId = ${data.shipmentId}`);
-    if (selectedId === id) fetchOrderDetails(id);
-  } catch (e: any) {
-    alert(e.message || 'Shiprocket error');
-  } finally {
-    setBusyId(null);
-  }
-};
+  const srCreate = async (id: string) => {
+    setBusyId(id);
+    try {
+      const res = await fetch(`${API_SHIPROCKET_BASE}/orders/${id}/shiprocket/create`, {
+        method: 'POST',
+        headers: {
+          ...authHeaders(),
+          'Content-Type': 'application/json',
+        },
+        credentials: 'include',
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data?.error?.message || data?.error || 'Failed to create Shiprocket order');
+      alert(`Shiprocket order created. shipmentId = ${data.shipmentId}`);
+      if (selectedId === id) fetchOrderDetails(id);
+    } catch (e: any) {
+      alert(e.message || 'Shiprocket error');
+    } finally {
+      setBusyId(null);
+    }
+  };
 
   const srAssignAwb = async (id: string) => {
     setBusyId(id);
@@ -716,29 +775,25 @@ const srCreate = async (id: string) => {
     }
   };
 
+  // put this near other helpers in OrdersTab.tsx
+  function trackingHref(o: IOrderFull): string {
+    const url = (o.trackingUrl || '').trim();
+    if (url) return url;
 
+    const awb = (o.awbCode || o.trackingNumber || '').trim();
+    if (!awb) return '';
 
-// put this near other helpers in OrdersTab.tsx
-function trackingHref(o: IOrderFull): string {
-  const url = (o.trackingUrl || '').trim();
-  if (url) return url;
-
-  const awb = (o.awbCode || o.trackingNumber || '').trim();
-  if (!awb) return '';
-
-  const courier = (o.courierName || o.carrierName || '').toLowerCase();
-  if (courier.includes('delhivery'))   return `https://www.delhivery.com/track/package/${awb}`;
-  if (courier.includes('bluedart'))    return `https://bluedart.com/tracking?awb=${awb}`;
-  if (courier.includes('dtdc'))        return `https://www.dtdc.in/tracking/default.aspx?awb=${awb}`;
-  if (courier.includes('xpressbees'))  return `https://www.xpressbees.com/track?awb=${awb}`;
-  if (courier.includes('ecom'))        return `https://ecomexpress.in/tracking/?awb=${awb}`;
-  if (courier.includes('india post') || courier.includes('speed post'))
-                                       return `https://www.indiapost.gov.in/_layouts/15/dop.portal.tracking/trackconsignment.aspx?awb=${awb}`;
-  // generic Shiprocket fallback
-  return `https://track.shiprocket.in/?awb=${awb}`;
-}
-
-
+    const courier = (o.courierName || o.carrierName || '').toLowerCase();
+    if (courier.includes('delhivery'))   return `https://www.delhivery.com/track/package/${awb}`;
+    if (courier.includes('bluedart'))    return `https://bluedart.com/tracking?awb=${awb}`;
+    if (courier.includes('dtdc'))        return `https://www.dtdc.in/tracking/default.aspx?awb=${awb}`;
+    if (courier.includes('xpressbees'))  return `https://www.xpressbees.com/track?awb=${awb}`;
+    if (courier.includes('ecom'))        return `https://ecomexpress.in/tracking/?awb=${awb}`;
+    if (courier.includes('india post') || courier.includes('speed post'))
+                                         return `https://www.indiapost.gov.in/_layouts/15/dop.portal.tracking/trackconsignment.aspx?awb=${awb}`;
+    // generic Shiprocket fallback
+    return `https://track.shiprocket.in/?awb=${awb}`;
+  }
 
   /* =========================
      Render
@@ -989,6 +1044,7 @@ function trackingHref(o: IOrderFull): string {
                       </div>
                       <div className="text-[12px] text-gray-500 mt-0.5 uppercase tracking-wide">
                         {o.paymentMethod} • {o.paymentStatus || '-'}
+                        {(o as any).gst?.wantInvoice ? ' • GST' : ''}
                       </div>
                     </td>
                     <td className="p-3 align-top">
@@ -1204,7 +1260,7 @@ function trackingHref(o: IOrderFull): string {
                 </div>
 
                 <div className="mt-3 flex items-center justify-between gap-2 text-xs text-gray-600">
-                  <div className="uppercase">{o.paymentMethod} • {o.paymentStatus || '-'}</div>
+                  <div className="uppercase">{o.paymentMethod} • {o.paymentStatus || '-'}{(o as any).gst?.wantInvoice ? ' • GST' : ''}</div>
                   <button
                     className="inline-flex items-center gap-1 rounded-xl border px-2.5 py-1.5 hover:bg-gray-50"
                     onClick={e => {
@@ -1402,19 +1458,22 @@ function trackingHref(o: IOrderFull): string {
                   <div className="mt-3 space-y-1 text-sm">
                     <div className="flex justify-between text-gray-600">
                       <span>Subtotal</span>
-                      <span>{currency(selected.subtotal)}</span>
+                      <span>{money(selected.subtotal)}</span>
                     </div>
                     <div className="flex justify-between text-gray-600">
-                      <span>Tax</span>
-                      <span>{currency(selected.tax)}</span>
+                      <span>
+                        GST
+                        {selected.gst?.taxPercent ? ` (${selected.gst.taxPercent}%)` : ''}
+                      </span>
+                      <span>{money(toNum(selected.gst?.taxAmount ?? selected.tax))}</span>
                     </div>
                     <div className="flex justify-between text-gray-600">
                       <span>Shipping</span>
-                      <span>{currency(selected.shipping)}</span>
+                      <span>{money(selected.shipping)}</span>
                     </div>
                     <div className="flex justify-between font-semibold border-t pt-2">
                       <span>Total</span>
-                      <span>{currency(selected.total)}</span>
+                      <span>{money(selected.total)}</span>
                     </div>
                   </div>
                 </div>
@@ -1521,28 +1580,84 @@ function trackingHref(o: IOrderFull): string {
                         </div>
                       )}
                       {(selected?.trackingUrl || selected?.trackingNumber || selected?.awbCode) && (
-  <div className="pt-1">
-    <button
-      type="button"
-      className="inline-flex items-center gap-2 px-3 py-1.5 border rounded-xl hover:bg-gray-50"
-      onClick={() => {
-        const url = trackingHref(selected!);
-        if (url) {
-          window.open(url, '_blank', 'noopener,noreferrer');
-        } else {
-          alert('No tracking details available yet.');
-        }
-      }}
-    >
-      <TruckIcon className="w-4 h-4" />
-      Track package
-    </button>
-  </div>
-)}
-
+                        <div className="pt-1">
+                          <button
+                            type="button"
+                            className="inline-flex items-center gap-2 px-3 py-1.5 border rounded-xl hover:bg-gray-50"
+                            onClick={() => {
+                              const url = trackingHref(selected!);
+                              if (url) {
+                                window.open(url, '_blank', 'noopener,noreferrer');
+                              } else {
+                                alert('No tracking details available yet.');
+                              }
+                            }}
+                          >
+                            <TruckIcon className="w-4 h-4" />
+                            Track package
+                          </button>
+                        </div>
+                      )}
                     </div>
                   </div>
                 </div>
+
+                {/* GST / Tax Details */}
+                {(() => {
+                  const g = getGstView(selected);
+                  const hasSplit = g.cgst != null || g.sgst != null || g.igst != null;
+                  return (
+                    <div className="border rounded-2xl p-3">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="font-semibold text-gray-900">GST / Tax Details</div>
+                        {g.invoiceUrl ? (
+                          <a
+                            href={g.invoiceUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-gray-900 text-white hover:bg-black text-sm"
+                          >
+                            View GST Invoice
+                          </a>
+                        ) : (
+                          <span className="text-xs text-gray-500">
+                            {g.wantInvoice ? 'Invoice not generated yet' : 'Customer did not request GST invoice'}
+                          </span>
+                        )}
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
+                        <div className="space-y-1">
+                          <div className="flex justify-between"><span className="text-gray-600">Requested</span><span className={g.wantInvoice ? 'text-emerald-700 font-medium' : 'text-gray-500'}>{g.wantInvoice ? 'Yes' : 'No'}</span></div>
+                          <div className="flex justify-between"><span className="text-gray-600">GSTIN</span><span className="font-mono text-xs">{g.gstin || '—'}</span></div>
+                          <div className="flex justify-between"><span className="text-gray-600">Legal Name</span><span className="font-medium truncate">{g.legalName || '—'}</span></div>
+                          <div className="flex justify-between"><span className="text-gray-600">Place of Supply</span><span className="font-medium">{g.pos || '—'}</span></div>
+                        </div>
+
+                        <div className="space-y-1">
+                          <div className="flex justify-between"><span className="text-gray-600">Taxable Value</span><span className="font-medium">{money(toNum(g.taxBase))}</span></div>
+                          <div className="flex justify-between"><span className="text-gray-600">GST %</span><span className="font-medium">{g.taxPercent || 0}%</span></div>
+                          <div className="flex justify-between"><span className="text-gray-600">GST Amount</span><span className="font-semibold text-gray-900">{money(toNum(g.taxAmount))}</span></div>
+
+                          {hasSplit && (
+                            <>
+                              {g.cgst != null && <div className="flex justify-between"><span className="text-gray-600">CGST</span><span>{money(toNum(g.cgst))}</span></div>}
+                              {g.sgst != null && <div className="flex justify-between"><span className="text-gray-600">SGST</span><span>{money(toNum(g.sgst))}</span></div>}
+                              {g.igst != null && <div className="flex justify-between"><span className="text-gray-600">IGST</span><span>{money(toNum(g.igst))}</span></div>}
+                            </>
+                          )}
+
+                          {g.invoiceNumber && (
+                            <div className="flex justify-between">
+                              <span className="text-gray-600">Invoice #</span>
+                              <span className="font-mono text-xs">{g.invoiceNumber}</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 {/* Actions */}
                 <div className="flex flex-wrap gap-2 pt-1">
