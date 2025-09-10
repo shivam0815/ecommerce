@@ -2,7 +2,7 @@
 import mongoose, { Document, Model, Schema, Types } from "mongoose";
 
 /* ------------------------------------------------------------------ */
-/* Interfaces                                                          */
+/* Types & interfaces                                                  */
 /* ------------------------------------------------------------------ */
 
 export type OrderStatus =
@@ -21,32 +21,6 @@ export type PaymentStatus =
   | "cod_pending"
   | "cod_paid";
 
-/** NEW: GST details kept inside the order */
-export interface IGstDetails {
-  /** Did customer request a GST invoice at checkout? */
-  wantInvoice: boolean;
-  /** Customer’s GSTIN (15 chars, uppercase) */
-  gstin?: string;
-  /** Legal/Registered name on invoice */
-  legalName?: string;
-  /** Place of supply (state code or name) */
-  placeOfSupply?: string;
-
-  /** Percent applied, e.g. 18 for 18% */
-  taxPercent?: number;
-
-  /** Computed fields */
-  taxBase?: number;   // value on which GST is computed
-  taxAmount?: number; // total GST amount applied
-  cgst?: number;      // split (optional)
-  sgst?: number;      // split (optional)
-  igst?: number;      // split (optional)
-
-  /** Invoice artifacts (if/when generated) */
-  invoiceNumber?: string;
-  invoiceUrl?: string;
-}
-
 export type ShiprocketState =
   | "ORDER_CREATED"
   | "AWB_ASSIGNED"
@@ -55,6 +29,29 @@ export type ShiprocketState =
   | "INVOICE_READY"
   | "MANIFEST_READY"
   | "TRACKING_UPDATED";
+
+export type ShippingPaymentStatus =
+  | "pending"
+  | "paid"
+  | "partial"
+  | "expired"
+  | "cancelled";
+
+/** GST sub-object stored on the order */
+export interface IGstDetails {
+  wantInvoice: boolean;
+  gstin?: string;
+  legalName?: string;
+  placeOfSupply?: string;
+  taxPercent?: number;
+  taxBase?: number;
+  taxAmount?: number;
+  cgst?: number;
+  sgst?: number;
+  igst?: number;
+  invoiceNumber?: string;
+  invoiceUrl?: string;
+}
 
 export interface IOrderItem {
   productId: Types.ObjectId;
@@ -76,6 +73,28 @@ export interface IAddress {
   landmark?: string;
 }
 
+/** New: packaging info & photos */
+export interface IShippingPackage {
+  lengthCm?: number;
+  breadthCm?: number;
+  heightCm?: number;
+  weightKg?: number;
+  notes?: string;
+  images?: string[]; // S3 URLs (max 5)
+  packedAt?: Date;
+}
+
+/** New: shipping payment via Razorpay Payment Links */
+export interface IShippingPayment {
+  linkId?: string;
+  shortUrl?: string;
+  status?: ShippingPaymentStatus;
+  currency?: string;
+  amount?: number;
+  amountPaid?: number;
+  paymentIds?: string[];
+  paidAt?: Date;
+}
 
 export interface IOrder extends Document {
   userId: Types.ObjectId;
@@ -97,13 +116,9 @@ export interface IOrder extends Document {
   total: number;
   discount?: number;
 
-  /** NEW: nested GST block */
   gst?: IGstDetails;
 
-  // Legacy/top-level status (kept for UI compatibility)
   status: OrderStatus;
-
-  // Canonical order status (mirrors status)
   orderStatus: OrderStatus;
 
   // Tracking
@@ -116,7 +131,7 @@ export interface IOrder extends Document {
   paymentStatus: PaymentStatus;
   paidAt?: Date;
 
-  // Order lifecycle dates
+  // Lifecycle
   shippedAt?: Date;
   deliveredAt?: Date;
   cancelledAt?: Date;
@@ -127,7 +142,7 @@ export interface IOrder extends Document {
   refundAmount?: number;
   refundReason?: string;
 
-  // Shiprocket integration
+  // Shiprocket
   shipmentId?: number;
   awbCode?: string;
   courierName?: string;
@@ -136,10 +151,15 @@ export interface IOrder extends Document {
   manifestUrl?: string;
   shiprocketStatus?: ShiprocketState;
 
+  // NEW
+  shippingPackage?: IShippingPackage;
+  shippingPayment?: IShippingPayment;
+
   // Auto timestamps
   createdAt: Date;
   updatedAt: Date;
-  inventoryCommitted: { type: Boolean; default: false };
+
+  inventoryCommitted?: boolean;
 }
 
 /** Instance methods */
@@ -199,22 +219,18 @@ const AddressSchema = new Schema<IAddress>(
   { _id: false }
 );
 
-/** NEW: GST sub-schema */
 const GstSchema = new Schema<IGstDetails>(
   {
     wantInvoice: { type: Boolean, default: false },
     gstin: { type: String, trim: true, uppercase: true },
     legalName: { type: String, trim: true },
     placeOfSupply: { type: String, trim: true },
-
     taxPercent: { type: Number, min: 0, max: 100 },
-
     taxBase: { type: Number, min: 0 },
     taxAmount: { type: Number, min: 0 },
     cgst: { type: Number, min: 0 },
     sgst: { type: Number, min: 0 },
     igst: { type: Number, min: 0 },
-
     invoiceNumber: { type: String, trim: true },
     invoiceUrl: { type: String, trim: true },
   },
@@ -229,24 +245,14 @@ const OrderSchema = new Schema<IOrder, IOrderModel, IOrderMethods>(
   {
     userId: { type: Schema.Types.ObjectId, ref: "User", required: true },
 
-    orderNumber: {
-      type: String,
-      required: true,
-      unique: true,
-      trim: true,
-      uppercase: true,
-    },
+    orderNumber: { type: String, required: true, unique: true, trim: true, uppercase: true },
 
     items: { type: [OrderItemSchema], required: true },
 
     shippingAddress: { type: AddressSchema, required: true },
     billingAddress: { type: AddressSchema, required: true },
 
-    paymentMethod: {
-      type: String,
-      enum: ["razorpay", "cod"],
-      required: true,
-    },
+    paymentMethod: { type: String, enum: ["razorpay", "cod"], required: true },
     paymentOrderId: { type: String, required: true, trim: true },
     paymentId: { type: String, trim: true },
     paymentSignature: { type: String, trim: true },
@@ -257,30 +263,17 @@ const OrderSchema = new Schema<IOrder, IOrderModel, IOrderMethods>(
     total: { type: Number, required: true, min: 0 },
     discount: { type: Number, min: 0, default: 0 },
 
-    /** NEW: attach GST details */
     gst: { type: GstSchema, required: false },
 
-    status: {
-      type: String,
-      enum: ["pending", "confirmed", "processing", "shipped", "delivered", "cancelled"],
-      default: "pending",
-    },
-    orderStatus: {
-      type: String,
-      enum: ["pending", "confirmed", "processing", "shipped", "delivered", "cancelled"],
-      default: "pending",
-    },
+    status: { type: String, enum: ["pending", "confirmed", "processing", "shipped", "delivered", "cancelled"], default: "pending" },
+    orderStatus: { type: String, enum: ["pending", "confirmed", "processing", "shipped", "delivered", "cancelled"], default: "pending" },
 
     trackingNumber: { type: String, trim: true, uppercase: true },
     trackingUrl: { type: String, trim: true },
     carrierName: { type: String, trim: true },
     estimatedDelivery: { type: Date },
 
-    paymentStatus: {
-      type: String,
-      enum: ["awaiting_payment", "paid", "failed", "cod_pending", "cod_paid"],
-      default: "awaiting_payment",
-    },
+    paymentStatus: { type: String, enum: ["awaiting_payment", "paid", "failed", "cod_pending", "cod_paid"], default: "awaiting_payment" },
     paidAt: { type: Date },
 
     shippedAt: { type: Date },
@@ -301,16 +294,40 @@ const OrderSchema = new Schema<IOrder, IOrderModel, IOrderMethods>(
     manifestUrl: { type: String, trim: true },
     shiprocketStatus: {
       type: String,
-      enum: [
-        "ORDER_CREATED",
-        "AWB_ASSIGNED",
-        "PICKUP_GENERATED",
-        "LABEL_READY",
-        "INVOICE_READY",
-        "MANIFEST_READY",
-        "TRACKING_UPDATED",
-      ],
+      enum: ["ORDER_CREATED","AWB_ASSIGNED","PICKUP_GENERATED","LABEL_READY","INVOICE_READY","MANIFEST_READY","TRACKING_UPDATED"],
     },
+
+    // NEW: package & shipping payment
+    shippingPackage: {
+      lengthCm: { type: Number, min: 0 },
+      breadthCm: { type: Number, min: 0 },
+      heightCm: { type: Number, min: 0 },
+      weightKg: { type: Number, min: 0 },
+      notes: { type: String, trim: true },
+      images: {
+        type: [String],
+        validate: {
+          validator: (arr: string[]) => !arr || arr.length <= 5,
+          message: "Max 5 images allowed",
+        },
+        default: [],
+      },
+      packedAt: { type: Date },
+    },
+
+    shippingPayment: {
+      linkId: { type: String, index: true },
+      shortUrl: { type: String },
+      status: { type: String, enum: ["pending","paid","partial","expired","cancelled"], default: "pending" },
+      currency: { type: String, default: "INR" },
+      amount: { type: Number, min: 0 },
+      amountPaid: { type: Number, min: 0 },
+      paymentIds: { type: [String], default: [] },
+      paidAt: { type: Date },
+    },
+
+    // flag you had in the interface
+    inventoryCommitted: { type: Boolean, default: false },
   },
   {
     timestamps: true,
@@ -360,39 +377,33 @@ OrderSchema.index({ "shippingAddress.pincode": 1 });
 OrderSchema.index({ "shippingAddress.city": 1 });
 OrderSchema.index({ paymentMethod: 1, createdAt: -1 });
 OrderSchema.index({ total: -1 });
-
-/** NEW: helpful search by GSTIN */
 OrderSchema.index({ "gst.gstin": 1 });
-
-// Shiprocket-specific:
 OrderSchema.index({ shipmentId: 1 });
 OrderSchema.index({ awbCode: 1 });
+// NEW
+OrderSchema.index({ "shippingPayment.linkId": 1 });
 
 /* ------------------------------------------------------------------ */
 /* Middleware                                                          */
 /* ------------------------------------------------------------------ */
 
 OrderSchema.pre<IOrder>("save", function (next) {
-  // Auto-generate order number if not provided
   if (!this.orderNumber) {
-    const timestamp = Date.now();
-    const random = Math.floor(Math.random() * 1000).toString().padStart(3, "0");
-    this.orderNumber = `ORD${timestamp}${random}`.toUpperCase();
+    const ts = Date.now();
+    const rnd = Math.floor(Math.random() * 1000).toString().padStart(3, "0");
+    this.orderNumber = `ORD${ts}${rnd}`.toUpperCase();
   }
 
-  // Ensure billing defaults to shipping if missing
   if (!this.billingAddress || Object.keys(this.billingAddress as any).length === 0) {
     this.billingAddress = this.shippingAddress;
   }
 
-  // If GST % is present and order.tax = 0, compute GST on (subtotal - discount)
   if (this.gst?.taxPercent && (!this.tax || this.tax === 0)) {
     const base = Math.max(0, (this.subtotal || 0) - (this.discount || 0));
     const amt = +(base * (this.gst.taxPercent / 100)).toFixed(2);
     this.tax = amt;
     this.gst.taxBase = base;
     this.gst.taxAmount = amt;
-    // (Optional split can be filled later depending on inter/intra state)
   }
 
   this.updatedAt = new Date();
@@ -432,7 +443,10 @@ OrderSchema.methods.updateStatus = function (
   return this.save();
 };
 
-OrderSchema.methods.updatePaymentStatus = function (this: IOrder, newPaymentStatus: PaymentStatus) {
+OrderSchema.methods.updatePaymentStatus = function (
+  this: IOrder,
+  newPaymentStatus: PaymentStatus
+) {
   this.paymentStatus = newPaymentStatus;
 
   if (newPaymentStatus === "paid" || newPaymentStatus === "cod_paid") {
@@ -447,7 +461,7 @@ OrderSchema.methods.updatePaymentStatus = function (this: IOrder, newPaymentStat
   return this.save();
 };
 
-// --- Shiprocket helpers ---
+// Shiprocket helpers
 OrderSchema.methods.attachShiprocketOrder = function (this: IOrder, shipmentId: number) {
   this.shipmentId = shipmentId;
   this.shiprocketStatus = "ORDER_CREATED";
@@ -455,10 +469,7 @@ OrderSchema.methods.attachShiprocketOrder = function (this: IOrder, shipmentId: 
   return this.save();
 };
 
-OrderSchema.methods.setAwb = function (
-  this: IOrder,
-  opts: { awbCode: string; courierName?: string }
-) {
+OrderSchema.methods.setAwb = function (this: IOrder, opts: { awbCode: string; courierName?: string }) {
   this.awbCode = (opts.awbCode || "").toUpperCase();
   if (opts.courierName) this.courierName = opts.courierName;
   this.trackingNumber = this.awbCode;
@@ -511,25 +522,15 @@ OrderSchema.methods.updateTrackingFromAwb = function (
 /* Statics                                                             */
 /* ------------------------------------------------------------------ */
 
-OrderSchema.statics.findByOrderNumber = function (
-  this: IOrderModel,
-  orderNumber: string
-) {
+OrderSchema.statics.findByOrderNumber = function (this: IOrderModel, orderNumber: string) {
   return this.findOne({ orderNumber: orderNumber.toUpperCase() });
 };
 
-OrderSchema.statics.findByTrackingNumber = function (
-  this: IOrderModel,
-  trackingNumber: string
-) {
+OrderSchema.statics.findByTrackingNumber = function (this: IOrderModel, trackingNumber: string) {
   return this.findOne({ trackingNumber: trackingNumber.toUpperCase() });
 };
 
-OrderSchema.statics.getUserOrders = function (
-  this: IOrderModel,
-  userId: string,
-  limit: number = 20
-) {
+OrderSchema.statics.getUserOrders = function (this: IOrderModel, userId: string, limit: number = 20) {
   return this.find({ userId })
     .sort({ createdAt: -1 })
     .limit(limit)
@@ -537,7 +538,7 @@ OrderSchema.statics.getUserOrders = function (
 };
 
 /* ------------------------------------------------------------------ */
-/* Model export                                                        */
+/* Export                                                              */
 /* ------------------------------------------------------------------ */
 
 const Order =

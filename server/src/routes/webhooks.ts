@@ -1,7 +1,9 @@
+// src/routes/webhooks.ts
 import crypto from 'crypto';
 import express, { Router, Request, Response } from 'express';
 import ReturnRequest from '../models/ReturnRequest';
-import Order from '../models/Order';
+import Order, { IOrder } from '../models/Order';
+import email from '../config/emailService'; // ⬅️ NEW
 
 const router = Router();
 const secret = process.env.RAZORPAY_WEBHOOK_SECRET ?? '';
@@ -10,9 +12,8 @@ const secret = process.env.RAZORPAY_WEBHOOK_SECRET ?? '';
 function verifySignature(sig: string | undefined, bodyBuf: Buffer): boolean {
   if (!sig || !secret) return false;
   const digest = crypto.createHmac('sha256', secret).update(bodyBuf).digest('hex');
-  // timingSafeEqual requires equal length
-  if (digest.length !== sig.length) return false;
-  return crypto.timingSafeEqual(Buffer.from(digest), Buffer.from(sig));
+  if (digest.length !== (sig?.length ?? 0)) return false;
+  return crypto.timingSafeEqual(Buffer.from(digest), Buffer.from(sig!));
 }
 
 const tsFrom = (unix?: number) => (unix ? new Date(unix * 1000) : new Date());
@@ -38,7 +39,7 @@ router.post(
 
     try {
       switch (evt.event) {
-        // You’ll see created → processed/failed. Handle all three idempotently.
+        /* ───────────────────── refunds (already present) ───────────────────── */
         case 'refund.created':
         case 'refund.processed':
         case 'refund.failed': {
@@ -50,7 +51,6 @@ router.post(
           const status: 'created' | 'processed' | 'failed' = r.status;
           const orderId: string | undefined = r?.notes?.orderId;
 
-          // 1) Update ReturnRequest (your existing model), guard duplicates
           const rr = await ReturnRequest.findOne({ 'refund.reference': refundId });
           if (rr) {
             const already = rr.history?.some(
@@ -63,7 +63,6 @@ router.post(
             }
           }
 
-          // 2) Also update Order if you stored notes.orderId when creating the refund
           if (orderId) {
             await Order.findByIdAndUpdate(orderId, {
               $set: {
@@ -77,7 +76,7 @@ router.post(
           break;
         }
 
-        // Optional: mark order paid when Razorpay confirms capture
+        /* ───────────────────── capture (already present) ───────────────────── */
         case 'payment.captured': {
           const p = evt?.payload?.payment?.entity;
           if (!p) break;
@@ -96,6 +95,51 @@ router.post(
           break;
         }
 
+        /* ───────────────────── NEW: payment link lifecycle ─────────────────── */
+        case 'payment_link.paid':
+        case 'payment_link.partially_paid':
+        case 'payment_link.expired':
+        case 'payment_link.cancelled': {
+          const pl = evt?.payload?.payment_link?.entity;
+          if (!pl) break;
+
+          const linkId: string = pl.id;
+          const statusMap: Record<string, 'pending' | 'paid' | 'partial' | 'expired' | 'cancelled'> = {
+            paid: 'paid',
+            partially_paid: 'partial',
+            expired: 'expired',
+            cancelled: 'cancelled',
+          };
+          const newStatus = statusMap[pl.status] ?? 'pending';
+
+          // Find the order that carries this payment link
+          const order = (await Order.findOne({ 'shippingPayment.linkId': linkId })) as IOrder | null;
+          if (!order) break;
+
+          order.shippingPayment = {
+            ...(order.shippingPayment || {}),
+            linkId,
+            shortUrl: pl.short_url,
+            status: newStatus,
+            currency: pl.currency || order.shippingPayment?.currency || 'INR',
+            amount: (pl.amount || 0) / 100,
+            amountPaid: (pl.amount_paid || 0) / 100,
+            paymentIds: Array.isArray(pl.payments) ? pl.payments.map((p: any) => p.id) : (order.shippingPayment?.paymentIds || []),
+            paidAt: ['paid', 'partially_paid'].includes(pl.status) ? tsFrom(evt.created_at) : order.shippingPayment?.paidAt,
+          };
+
+          await order.save();
+
+          // Notify customer about the outcome (receipt / partial / expired / cancelled)
+          await email.sendShippingPaymentReceipt(order, {
+            status: newStatus,
+            amount: (pl.amount_paid || 0) / 100,
+            shortUrl: pl.short_url,
+          });
+
+          break;
+        }
+
         default:
           // Ignore other events
           break;
@@ -105,6 +149,7 @@ router.post(
       return res.json({ status: 'ok' });
     } catch (e) {
       // Log internally if you want, but still ACK to avoid repeated retries
+      console.error('Webhook handler error:', e);
       return res.json({ status: 'ok' });
     }
   }

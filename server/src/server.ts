@@ -38,6 +38,8 @@ import returnRoutes from './routes/return.routes';
 import shiprocketRoutes from './routes/shiprocketRoutes';
 import { authenticate, adminOnly } from './middleware/auth';
 import phoneAuthRoutes from './routes/auth.phone';
+import webhookRouter from './routes/webhooks';
+
 
 const app = express();
 const server = http.createServer(app);
@@ -300,9 +302,14 @@ app.use('/api/help', helpRoutes);
 app.use('/api/support', supportRouter);
 app.use('/api', notificationRoutes);
 app.use('/api', returnRoutes);
-
+app.use('/api/webhooks', webhookRouter); 
 // Admin protected
 app.use('/api/admin',  adminRoutes);
+import shippingRoutes from './routes/shipping';
+app.use('/api/shipping', shippingRoutes);
+// src/index.ts (or your app bootstrap)
+import uploadsRoutes from './routes/uploads';
+app.use('/api/uploads', uploadsRoutes);
 
 // Shiprocket protected (single mount; no unprotected duplicate)
 app.use('/api/shiprocket', authenticate, adminOnly, shiprocketRoutes);
