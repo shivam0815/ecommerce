@@ -4,7 +4,7 @@ import nodemailer from 'nodemailer';
 /** Minimal shape we actually use inside emails (decoupled from Mongoose types) */
 type EmailOrderLike = {
   _id: any;
-  orderNumber: string;
+  orderNumber?: string; // ← made optional
   total?: number | null;
   createdAt: Date | string | number;
   paymentMethod: string;
@@ -49,6 +49,7 @@ interface SMSConfig {
 /** helpers */
 const toId = (v: any) => (typeof v === 'string' ? v : v?.toString?.() ?? '');
 const money = (n?: number | null) => (Number(n ?? 0)).toFixed(2);
+const orderNo = (o: EmailOrderLike) => (o.orderNumber && String(o.orderNumber)) || toId(o._id);
 
 class EmailAutomationService {
   private transporter: nodemailer.Transporter;
@@ -102,10 +103,10 @@ class EmailAutomationService {
 
       await this.sendSMS(
         order.shippingAddress.phoneNumber,
-        `🎉 Order confirmed! Order #${order.orderNumber} for ₹${money(order.total)}. Track: ${process.env.APP_BASE_URL || 'https://nakodamobile.com'}/track/${toId(order._id)}`
+        `🎉 Order confirmed! Order #${orderNo(order)} for ₹${money(order.total)}. Track: ${process.env.APP_BASE_URL || 'https://nakodamobile.com'}/track/${toId(order._id)}`
       );
 
-      console.log('✅ Order confirmation sent:', order.orderNumber);
+      console.log('✅ Order confirmation sent:', orderNo(order));
       return true;
     } catch (error) {
       console.error('❌ Email/SMS failed:', error);
@@ -127,7 +128,7 @@ class EmailAutomationService {
           })
         )
       );
-      console.log('✅ Admin notifications sent for order:', order.orderNumber);
+      console.log('✅ Admin notifications sent for order:', orderNo(order));
       return true;
     } catch (error) {
       console.error('❌ Admin notification failed:', error);
@@ -150,7 +151,7 @@ class EmailAutomationService {
         await this.sendSMS(order.shippingAddress.phoneNumber, smsMessage);
       }
 
-      console.log('✅ Status update sent:', order.orderNumber, order.orderStatus);
+      console.log('✅ Status update sent:', orderNo(order), order.orderStatus);
       return true;
     } catch (error) {
       console.error('❌ Status update failed:', error);
@@ -198,7 +199,7 @@ class EmailAutomationService {
 
     const payload = typeof arg === 'string' ? { ...fallback, shortUrl: arg } : { ...fallback, ...arg };
 
-    const subject = `Pay Shipping Charges for Order #${order.orderNumber}`;
+    const subject = `Pay Shipping Charges for Order #${orderNo(order)}`;
     const photoStrip =
       (payload.images || [])
         .slice(0, 5)
@@ -216,7 +217,7 @@ class EmailAutomationService {
     const html = `
       <div style="font-family:Arial,sans-serif">
         <h2>📦 Shipping Payment Requested</h2>
-        <p>Order <b>#${order.orderNumber}</b></p>
+        <p>Order <b>#${orderNo(order)}</b></p>
         <p><b>Amount:</b> ${payload.currency || 'INR'} ${money(payload.amount)}</p>
         <p><b>Package:</b> ${dims}, ${payload.weightKg ?? '-'} kg</p>
         ${payload.notes ? `<p><i>${payload.notes}</i></p>` : ''}
@@ -241,17 +242,18 @@ class EmailAutomationService {
       // Optional SMS
       await this.sendSMS(
         order.shippingAddress.phoneNumber,
-        `Pay shipping for order #${order.orderNumber}: ${payload.shortUrl}`
+        `Pay shipping for order #${orderNo(order)}: ${payload.shortUrl}`
       );
 
-      console.log('✅ Shipping payment email sent:', order.orderNumber, payload.linkId || payload.shortUrl);
+      console.log('✅ Shipping payment email sent:', orderNo(order), payload.linkId || payload.shortUrl);
       return true;
     } catch (e) {
       console.error('❌ sendShippingPaymentLink failed', e);
       return false;
     }
   }
-    /**
+
+  /**
    * Email/SMS summary after the shipping payment link changes state
    * (paid / partially paid / expired / cancelled).
    */
@@ -260,11 +262,11 @@ class EmailAutomationService {
     payload: { status: 'pending' | 'paid' | 'partial' | 'expired' | 'cancelled'; amount?: number; shortUrl?: string }
   ): Promise<boolean> {
     const labels: Record<typeof payload.status, { title: string; body: string }> = {
-      paid:    { title: '✅ Shipping Payment Received', body: `We’ve received your shipping payment of ₹${money(payload.amount)} for order #${order.orderNumber}.` },
-      partial: { title: '🟡 Shipping Payment Partially Paid', body: `We’ve received a partial shipping payment of ₹${money(payload.amount)} for order #${order.orderNumber}. Please complete the remaining amount.` },
-      expired: { title: '⌛ Shipping Payment Link Expired', body: `Your shipping payment link for order #${order.orderNumber} has expired. Please contact support to get a new link.` },
-      cancelled: { title: '❌ Shipping Payment Cancelled', body: `The shipping payment link for order #${order.orderNumber} was cancelled.` },
-      pending: { title: '🔔 Shipping Payment Pending', body: `Your shipping payment for order #${order.orderNumber} is pending.` },
+      paid:    { title: '✅ Shipping Payment Received', body: `We’ve received your shipping payment of ₹${money(payload.amount)} for order #${orderNo(order)}.` },
+      partial: { title: '🟡 Shipping Payment Partially Paid', body: `We’ve received a partial shipping payment of ₹${money(payload.amount)} for order #${orderNo(order)}. Please complete the remaining amount.` },
+      expired: { title: '⌛ Shipping Payment Link Expired', body: `Your shipping payment link for order #${orderNo(order)} has expired. Please contact support to get a new link.` },
+      cancelled: { title: '❌ Shipping Payment Cancelled', body: `The shipping payment link for order #${orderNo(order)} was cancelled.` },
+      pending: { title: '🔔 Shipping Payment Pending', body: `Your shipping payment for order #${orderNo(order)} is pending.` },
     };
 
     const { title, body } = labels[payload.status];
@@ -284,7 +286,7 @@ class EmailAutomationService {
       await this.transporter.sendMail({
         from: `"${process.env.COMPANY_NAME || 'Nakoda Mobile'}" <${process.env.SMTP_USER}>`,
         to: order.shippingAddress.email,
-        subject: `${title} • #${order.orderNumber}`,
+        subject: `${title} • #${orderNo(order)}`,
         html,
       });
 
@@ -292,7 +294,7 @@ class EmailAutomationService {
       const smsMsgBase = title.replace(/✅|🟡|⌛|❌|🔔/g, '').trim();
       await this.sendSMS(
         order.shippingAddress.phoneNumber,
-        `${smsMsgBase} for #${order.orderNumber}${payload.shortUrl ? `: ${payload.shortUrl}` : ''}`
+        `${smsMsgBase} for #${orderNo(order)}${payload.shortUrl ? `: ${payload.shortUrl}` : ''}`
       );
 
       return true;
@@ -301,7 +303,6 @@ class EmailAutomationService {
       return false;
     }
   }
-
 
   /* ==================== PRIVATE ==================== */
 
@@ -331,7 +332,7 @@ class EmailAutomationService {
 
   private getOrderConfirmationTemplate(order: EmailOrderLike): EmailTemplate {
     return {
-      subject: `Order Confirmed - #${order.orderNumber} | ${process.env.COMPANY_NAME || 'Nakoda Mobile'}`,
+      subject: `Order Confirmed - #${orderNo(order)} | ${process.env.COMPANY_NAME || 'Nakoda Mobile'}`,
       html: `
         <!DOCTYPE html>
         <html>
@@ -345,7 +346,7 @@ class EmailAutomationService {
             <div style="padding: 30px;">
               <div style="background: #e8f5e8; padding: 20px; border-radius: 8px; margin-bottom: 30px;">
                 <h2 style="color: #27ae60; margin: 0 0 10px 0;">Order Details</h2>
-                <p><strong>Order Number:</strong> #${order.orderNumber}</p>
+                <p><strong>Order Number:</strong> #${orderNo(order)}</p>
                 <p><strong>Order Date:</strong> ${new Date(order.createdAt).toLocaleDateString('en-IN')}</p>
                 <p><strong>Payment Method:</strong> ${String(order.paymentMethod || '').toUpperCase()}</p>
                 <p><strong>Total Amount:</strong> ₹${money(order.total)}</p>
@@ -376,11 +377,11 @@ class EmailAutomationService {
         </html>
       `,
     };
-    }
+  }
 
   private getAdminOrderNotificationTemplate(order: EmailOrderLike): EmailTemplate {
     return {
-      subject: `🚨 NEW ORDER - #${order.orderNumber} - ₹${money(order.total)}`,
+      subject: `🚨 NEW ORDER - #${orderNo(order)} - ₹${money(order.total)}`,
       html: `
         <!DOCTYPE html>
         <html>
@@ -388,7 +389,7 @@ class EmailAutomationService {
           <div style="max-width: 600px; margin: 0 auto; background: white;">
             <div style="background: #dc3545; padding: 20px; text-align: center; color: white;">
               <h1>🚨 NEW ORDER RECEIVED</h1>
-              <p>Order #${order.orderNumber} - ₹${money(order.total)}</p>
+              <p>Order #${orderNo(order)} - ₹${money(order.total)}</p>
             </div>
             <div style="padding: 30px;">
               <p><strong>Customer:</strong> ${order.shippingAddress?.fullName || 'Unknown'}</p>
@@ -406,7 +407,7 @@ class EmailAutomationService {
 
   private getStatusUpdateTemplate(order: EmailOrderLike, previousStatus: string): EmailTemplate {
     return {
-      subject: `Order Update - #${order.orderNumber} | ${process.env.COMPANY_NAME || 'Nakoda Mobile'}`,
+      subject: `Order Update - #${orderNo(order)} | ${process.env.COMPANY_NAME || 'Nakoda Mobile'}`,
       html: `
         <!DOCTYPE html>
         <html>
@@ -414,7 +415,7 @@ class EmailAutomationService {
           <div style="max-width: 600px; margin: 0 auto; background: white;">
             <div style="background: #28a745; padding: 20px; text-align: center; color: white;">
               <h1>📦 Order Status Updated</h1>
-              <p>Order #${order.orderNumber}</p>
+              <p>Order #${orderNo(order)}</p>
             </div>
             <div style="padding: 30px;">
               <p>Your order status has been updated from <strong>${previousStatus}</strong> to <strong>${order.orderStatus}</strong></p>
@@ -430,16 +431,13 @@ class EmailAutomationService {
 
   private getStatusSMSMessage(order: EmailOrderLike): string {
     const messages: Record<string, string> = {
-      shipped: `📦 Your order #${order.orderNumber} has been shipped${order.trackingNumber ? ` (Track: ${order.trackingNumber})` : ''}. Expected delivery in 2-3 days.`,
-      delivered: `🎉 Your order #${order.orderNumber} has been delivered. Thank you for choosing ${process.env.COMPANY_NAME || 'Nakoda Mobile'}!`,
-      cancelled: `❌ Order #${order.orderNumber} has been cancelled. Refund will be processed within 3-5 business days if applicable.`,
+      shipped: `📦 Your order #${orderNo(order)} has been shipped${order.trackingNumber ? ` (Track: ${order.trackingNumber})` : ''}. Expected delivery in 2-3 days.`,
+      delivered: `🎉 Your order #${orderNo(order)} has been delivered. Thank you for choosing ${process.env.COMPANY_NAME || 'Nakoda Mobile'}!`,
+      cancelled: `❌ Order #${orderNo(order)} has been cancelled. Refund will be processed within 3-5 business days if applicable.`,
     };
-    return messages[order.orderStatus || ''] || `Order #${order.orderNumber} status updated to ${order.orderStatus}`;
+    return messages[order.orderStatus || ''] || `Order #${orderNo(order)} status updated to ${order.orderStatus}`;
   }
 }
-
-
-
 
 const emailAutomationService = new EmailAutomationService();
 export default emailAutomationService;
