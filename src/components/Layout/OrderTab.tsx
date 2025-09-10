@@ -118,7 +118,23 @@ interface IOrderFull extends IOrder {
 
   /* ---- GST ---- */
   gst?: GstDetails;
+  shippingPackage?: IShippingPackage;
+shippingPayment?: IShippingPayment;
 }
+// at top
+type ShippingPaymentStatus = 'pending' | 'paid' | 'partial' | 'expired' | 'cancelled';
+interface IShippingPackage {
+  lengthCm?: number; breadthCm?: number; heightCm?: number; weightKg?: number;
+  notes?: string; images?: string[]; packedAt?: string;
+}
+interface IShippingPayment {
+  linkId?: string; shortUrl?: string;
+  status?: ShippingPaymentStatus;
+  currency?: string; amount?: number; amountPaid?: number; paymentIds?: string[];
+  paidAt?: string;
+}
+
+
 
 /* =========================
    Utils
@@ -373,25 +389,53 @@ const OrdersTab: React.FC = () => {
 
   // fetch one
   const fetchOrderDetails = async (id: string) => {
-    setDrawerLoading(true);
-    try {
-      const res = await fetch(`/api/orders/admin/${id}`, {
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${getAdminToken()}`,
-        },
-        credentials: 'include',
-      });
-      const data = await res.json();
-      if (!res.ok || data.success === false) throw new Error(data.message || 'Failed to load order');
-      const o = data.order;
-      setSelected({ ...o, status: (o.status || o.orderStatus || 'pending') });
-    } catch (e: any) {
-      alert(e.message || 'Failed to load order');
-    } finally {
-      setDrawerLoading(false);
-    }
-  };
+  setDrawerLoading(true);
+  try {
+    const res = await fetch(`/api/orders/admin/${id}`, {
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${getAdminToken()}`,
+      },
+      credentials: 'include',
+    });
+    const data = await res.json();
+    if (!res.ok || data.success === false) throw new Error(data.message || 'Failed to load order');
+
+    const o = data.order || {};
+    const sp = o.shippingPayment || o.shipping_payment || {};
+    const pkg = o.shippingPackage || o.shipping_package || {};
+
+    setSelected({
+      ...o,
+      status: o.status || o.orderStatus || 'pending',
+      shippingPayment: {
+        status: sp.status,
+        // map snake_case -> camelCase too
+        shortUrl: sp.shortUrl ?? sp.short_url,
+        linkId: sp.linkId ?? sp.link_id,
+        currency: sp.currency,
+        amount: sp.amount ?? undefined,
+        amountPaid: sp.amountPaid ?? sp.amount_paid,
+        paymentIds: sp.paymentIds ?? sp.payment_ids ?? [],
+        paidAt: sp.paidAt ?? sp.paid_at,
+      },
+      shippingPackage: {
+        lengthCm: pkg.lengthCm ?? pkg.length_cm,
+        breadthCm: pkg.breadthCm ?? pkg.breadth_cm,
+        heightCm: pkg.heightCm ?? pkg.height_cm,
+        weightKg: pkg.weightKg ?? pkg.weight_kg,
+        notes: pkg.notes,
+        images: pkg.images || [],
+        packedAt: pkg.packedAt ?? pkg.packed_at,
+      },
+    });
+  } catch (e: any) {
+    alert(e.message || 'Failed to load order');
+  } finally {
+    setDrawerLoading(false);
+  }
+};
+
 
   async function setStatus(id: string, status: OrderStatus) {
     try {
@@ -796,6 +840,43 @@ const OrdersTab: React.FC = () => {
     // generic Shiprocket fallback
     return `https://track.shiprocket.in/?awb=${awb}`;
   }
+
+
+
+  async function savePackAndLink(id: string, payload: any) {
+  setBusyId(id);
+  try {
+    const res = await fetch(`/api/orders/${id}/shipping/package`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getAdminToken()}` },
+      credentials: 'include',
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || 'Failed to save package');
+    await fetchOrderDetails(id); // refresh
+    alert(data?.order?.shippingPayment?.shortUrl ? 'Saved, link created & email sent.' : 'Package saved.');
+  } catch (e:any) { alert(e.message); }
+  finally { setBusyId(null); }
+}
+
+async function createShipPayLink(id: string, amount: number) {
+  setBusyId(id);
+  try {
+    const res = await fetch(`/api/orders/${id}/shipping/payment-link`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getAdminToken()}` },
+      credentials: 'include',
+      body: JSON.stringify({ amount }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.message || 'Failed to create link');
+    await fetchOrderDetails(id);
+    alert('Payment link created & emailed to customer.');
+  } catch (e:any) { alert(e.message); }
+  finally { setBusyId(null); }
+}
+
 
   /* =========================
      Render
@@ -1604,6 +1685,129 @@ const OrdersTab: React.FC = () => {
                   </div>
                 </div>
 
+
+                {selected && (() => {
+  const sp: any = selected.shippingPayment || {};
+  const shortUrl: string | undefined = sp.shortUrl || sp.short_url; // support both shapes
+
+  return (
+    <div className="w-full border rounded-2xl p-3 space-y-2"> {/* note w-full */}
+      <div className="font-semibold text-gray-900">Shipping package & payment</div>
+
+      {/* Status row */}
+      <div className="flex flex-wrap items-center gap-2 text-sm">
+        <div>Payment:</div>
+        <span className={pill(sp.status || 'pending')}>
+          {sp.status || 'pending'}
+        </span>
+        {shortUrl && (
+          <a className="underline" href={shortUrl} target="_blank" rel="noreferrer">
+            Open link
+          </a>
+        )}
+        {sp.amount != null && (
+          <span className="ml-2 text-gray-700">Amount: {currency(sp.amount)}</span>
+        )}
+        {sp.amountPaid ? (
+          <span className="ml-2 text-emerald-700">Paid: {currency(sp.amountPaid)}</span>
+        ) : null}
+      </div>
+
+      {/* Package dims */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-sm">
+        <input className="border rounded-xl px-3 py-2" placeholder="L (cm)" defaultValue={selected.shippingPackage?.lengthCm ?? ''} id="pkgL" />
+        <input className="border rounded-xl px-3 py-2" placeholder="B (cm)" defaultValue={selected.shippingPackage?.breadthCm ?? ''} id="pkgB" />
+        <input className="border rounded-xl px-3 py-2" placeholder="H (cm)" defaultValue={selected.shippingPackage?.heightCm ?? ''} id="pkgH" />
+        <input className="border rounded-xl px-3 py-2" placeholder="Wt (kg)" defaultValue={selected.shippingPackage?.weightKg ?? ''} id="pkgW" />
+      </div>
+
+      {/* Images */}
+      <div className="text-sm">
+        <div className="text-gray-600 mb-1">Pack photos (max 5)</div>
+        <div className="flex gap-2 flex-wrap">
+          {(selected.shippingPackage?.images || []).map((u, i) => (
+            <img key={i} src={u} className="w-20 h-20 object-cover rounded border" />
+          ))}
+        </div>
+        <button
+          className="mt-2 px-3 py-1.5 rounded-xl border hover:bg-gray-50"
+          onClick={async () => {
+            const inp = document.createElement('input');
+            inp.type = 'file'; inp.accept = 'image/*'; inp.multiple = true;
+            inp.onchange = async () => {
+              const files = Array.from(inp.files || []).slice(0, 5);
+              const urls: string[] = [];
+              for (const f of files) {
+                const sign = await fetch(
+                  `/api/uploads/s3/sign?contentType=${encodeURIComponent(f.type)}&filename=${encodeURIComponent(f.name)}`
+                );
+                const { uploadUrl, publicUrl } = await sign.json();   // <-- changed
+                await fetch(uploadUrl, {                                // <-- PUT to uploadUrl
+                  method: 'PUT',
+                  headers: { 'Content-Type': f.type },
+                  body: f
+                });
+                urls.push(publicUrl);                                   // <-- save publicUrl
+              }
+              await savePackAndLink(selected._id, {
+                images: [ ...(selected.shippingPackage?.images || []), ...urls ]
+              });
+            };
+            inp.click();
+          }}
+        >Upload photos</button>
+      </div>
+
+      {/* Save + link */}
+      <div className="flex items-center gap-2">
+        <button
+          className="px-3 py-2 rounded-xl border hover:bg-gray-50"
+          disabled={busyId === selected._id}
+          onClick={() => {
+            const body = {
+              lengthCm: (document.getElementById('pkgL') as HTMLInputElement).value,
+              breadthCm: (document.getElementById('pkgB') as HTMLInputElement).value,
+              heightCm: (document.getElementById('pkgH') as HTMLInputElement).value,
+              weightKg: (document.getElementById('pkgW') as HTMLInputElement).value,
+            };
+            savePackAndLink(selected._id, body);
+          }}
+        >Save package</button>
+
+        <button
+          className="px-3 py-2 rounded-xl border hover:bg-gray-50"
+          disabled={busyId === selected._id}
+          onClick={async () => {
+            const amount = Number(prompt('Shipping amount (INR)?') || 0);
+            if (amount > 0) {
+              const body = {
+                lengthCm: (document.getElementById('pkgL') as HTMLInputElement).value,
+                breadthCm: (document.getElementById('pkgB') as HTMLInputElement).value,
+                heightCm: (document.getElementById('pkgH') as HTMLInputElement).value,
+                weightKg: (document.getElementById('pkgW') as HTMLInputElement).value,
+                createPaymentLink: true,
+                amount,
+              };
+              await savePackAndLink(selected._id, body);
+            }
+          }}
+        >Save + Create payment link</button>
+
+        {sp.status !== 'paid' && (
+          <button
+            className="px-3 py-2 rounded-xl border hover:bg-gray-50"
+            disabled={busyId === selected._id}
+            onClick={async () => {
+              const amount = Number(prompt('Shipping amount (INR)?') || 0);
+              if (amount > 0) await createShipPayLink(selected._id, amount);
+            }}
+          >Create/Refresh link</button>
+        )}
+      </div>
+    </div>
+  );
+})()}
+
                 {/* GST / Tax Details */}
                 {(() => {
   const g = getGstView(selected);
@@ -1688,6 +1892,133 @@ const OrdersTab: React.FC = () => {
                       Cancel
                     </button>
                   )}
+
+
+
+ 
+{selected && (() => {
+  const sp: any = selected.shippingPayment || {};
+  const shortUrl: string | undefined = sp.shortUrl || sp.short_url; // support both shapes
+
+  return (
+    <div className="w-full border rounded-2xl p-3 space-y-2"> {/* note w-full */}
+      <div className="font-semibold text-gray-900">Shipping package & payment</div>
+
+      {/* Status row */}
+      <div className="flex flex-wrap items-center gap-2 text-sm">
+        <div>Payment:</div>
+        <span className={pill(sp.status || 'pending')}>
+          {sp.status || 'pending'}
+        </span>
+        {shortUrl && (
+          <a className="underline" href={shortUrl} target="_blank" rel="noreferrer">
+            Open link
+          </a>
+        )}
+        {sp.amount != null && (
+          <span className="ml-2 text-gray-700">Amount: {currency(sp.amount)}</span>
+        )}
+        {sp.amountPaid ? (
+          <span className="ml-2 text-emerald-700">Paid: {currency(sp.amountPaid)}</span>
+        ) : null}
+      </div>
+
+      {/* Package dims */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-sm">
+        <input className="border rounded-xl px-3 py-2" placeholder="L (cm)" defaultValue={selected.shippingPackage?.lengthCm ?? ''} id="pkgL" />
+        <input className="border rounded-xl px-3 py-2" placeholder="B (cm)" defaultValue={selected.shippingPackage?.breadthCm ?? ''} id="pkgB" />
+        <input className="border rounded-xl px-3 py-2" placeholder="H (cm)" defaultValue={selected.shippingPackage?.heightCm ?? ''} id="pkgH" />
+        <input className="border rounded-xl px-3 py-2" placeholder="Wt (kg)" defaultValue={selected.shippingPackage?.weightKg ?? ''} id="pkgW" />
+      </div>
+
+      {/* Images */}
+      <div className="text-sm">
+        <div className="text-gray-600 mb-1">Pack photos (max 5)</div>
+        <div className="flex gap-2 flex-wrap">
+          {(selected.shippingPackage?.images || []).map((u, i) => (
+            <img key={i} src={u} className="w-20 h-20 object-cover rounded border" />
+          ))}
+        </div>
+        <button
+          className="mt-2 px-3 py-1.5 rounded-xl border hover:bg-gray-50"
+          onClick={async () => {
+            const inp = document.createElement('input');
+            inp.type = 'file'; inp.accept = 'image/*'; inp.multiple = true;
+            inp.onchange = async () => {
+              const files = Array.from(inp.files || []).slice(0, 5);
+              const urls: string[] = [];
+              for (const f of files) {
+                const sign = await fetch(
+                  `/api/uploads/s3/sign?contentType=${encodeURIComponent(f.type)}&filename=${encodeURIComponent(f.name)}`
+                );
+                const { uploadUrl, publicUrl } = await sign.json();   // <-- changed
+                await fetch(uploadUrl, {                                // <-- PUT to uploadUrl
+                  method: 'PUT',
+                  headers: { 'Content-Type': f.type },
+                  body: f
+                });
+                urls.push(publicUrl);                                   // <-- save publicUrl
+              }
+              await savePackAndLink(selected._id, {
+                images: [ ...(selected.shippingPackage?.images || []), ...urls ]
+              });
+            };
+            inp.click();
+          }}
+        >Upload photos</button>
+      </div>
+
+      {/* Save + link */}
+      <div className="flex items-center gap-2">
+        <button
+          className="px-3 py-2 rounded-xl border hover:bg-gray-50"
+          disabled={busyId === selected._id}
+          onClick={() => {
+            const body = {
+              lengthCm: (document.getElementById('pkgL') as HTMLInputElement).value,
+              breadthCm: (document.getElementById('pkgB') as HTMLInputElement).value,
+              heightCm: (document.getElementById('pkgH') as HTMLInputElement).value,
+              weightKg: (document.getElementById('pkgW') as HTMLInputElement).value,
+            };
+            savePackAndLink(selected._id, body);
+          }}
+        >Save package</button>
+
+        <button
+          className="px-3 py-2 rounded-xl border hover:bg-gray-50"
+          disabled={busyId === selected._id}
+          onClick={async () => {
+            const amount = Number(prompt('Shipping amount (INR)?') || 0);
+            if (amount > 0) {
+              const body = {
+                lengthCm: (document.getElementById('pkgL') as HTMLInputElement).value,
+                breadthCm: (document.getElementById('pkgB') as HTMLInputElement).value,
+                heightCm: (document.getElementById('pkgH') as HTMLInputElement).value,
+                weightKg: (document.getElementById('pkgW') as HTMLInputElement).value,
+                createPaymentLink: true,
+                amount,
+              };
+              await savePackAndLink(selected._id, body);
+            }
+          }}
+        >Save + Create payment link</button>
+
+        {sp.status !== 'paid' && (
+          <button
+            className="px-3 py-2 rounded-xl border hover:bg-gray-50"
+            disabled={busyId === selected._id}
+            onClick={async () => {
+              const amount = Number(prompt('Shipping amount (INR)?') || 0);
+              if (amount > 0) await createShipPayLink(selected._id, amount);
+            }}
+          >Create/Refresh link</button>
+        )}
+      </div>
+    </div>
+  );
+})()}
+
+
 
                   {/* ---- Shiprocket Actions ---- */}
                   <div className="w-full h-0" />
