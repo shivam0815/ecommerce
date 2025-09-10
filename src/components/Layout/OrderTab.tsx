@@ -1604,60 +1604,60 @@ const OrdersTab: React.FC = () => {
 
                 {/* GST / Tax Details */}
                 {(() => {
-                  const g = getGstView(selected);
-                  const hasSplit = g.cgst != null || g.sgst != null || g.igst != null;
-                  return (
-                    <div className="border rounded-2xl p-3">
-                      <div className="flex items-center justify-between mb-2">
-                        <div className="font-semibold text-gray-900">GST / Tax Details</div>
-                        {g.invoiceUrl ? (
-                          <a
-                            href={g.invoiceUrl}
-                            target="_blank"
-                            rel="noreferrer"
-                            className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-gray-900 text-white hover:bg-black text-sm"
-                          >
-                            View GST Invoice
-                          </a>
-                        ) : (
-                          <span className="text-xs text-gray-500">
-                            {g.wantInvoice ? 'Invoice not generated yet' : 'Customer did not request GST invoice'}
-                          </span>
-                        )}
-                      </div>
+  const g = getGstView(selected);
+  const hasSplit = g.cgst != null || g.sgst != null || g.igst != null;
+  return (
+    <div className="border rounded-2xl p-3">
+      <div className="flex items-center justify-between mb-2">
+        <div className="font-semibold text-gray-900">GST / Tax Details</div>
+        {g.invoiceUrl ? (
+          <a
+            href={g.invoiceUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-gray-900 text-white hover:bg-black text-sm"
+          >
+            View GST Invoice
+          </a>
+        ) : (
+          <span className="text-xs text-gray-500">
+            {g.wantInvoice ? 'Invoice not generated yet' : 'Customer did not request GST invoice'}
+          </span>
+        )}
+      </div>
 
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
-                        <div className="space-y-1">
-                          <div className="flex justify-between"><span className="text-gray-600">Requested</span><span className={g.wantInvoice ? 'text-emerald-700 font-medium' : 'text-gray-500'}>{g.wantInvoice ? 'Yes' : 'No'}</span></div>
-                          <div className="flex justify-between"><span className="text-gray-600">GSTIN</span><span className="font-mono text-xs">{g.gstin || '—'}</span></div>
-                          <div className="flex justify-between"><span className="text-gray-600">Legal Name</span><span className="font-medium truncate">{g.legalName || '—'}</span></div>
-                          <div className="flex justify-between"><span className="text-gray-600">Place of Supply</span><span className="font-medium">{g.pos || '—'}</span></div>
-                        </div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
+        <div className="space-y-1">
+          <div className="flex justify-between"><span className="text-gray-600">Requested</span><span className={g.wantInvoice ? 'text-emerald-700 font-medium' : 'text-gray-500'}>{g.wantInvoice ? 'Yes' : 'No'}</span></div>
+          <div className="flex justify-between"><span className="text-gray-600">GSTIN</span><span className="font-mono text-xs">{g.gstin || '—'}</span></div>
+          <div className="flex justify-between"><span className="text-gray-600">Legal Name</span><span className="font-medium truncate">{g.legalName || '—'}</span></div>
+          <div className="flex justify-between"><span className="text-gray-600">Place of Supply</span><span className="font-medium">{g.pos || '—'}</span></div>
+        </div>
 
-                        <div className="space-y-1">
-                          <div className="flex justify-between"><span className="text-gray-600">Taxable Value</span><span className="font-medium">{money(toNum(g.taxBase))}</span></div>
-                          <div className="flex justify-between"><span className="text-gray-600">GST %</span><span className="font-medium">{g.taxPercent || 0}%</span></div>
-                          <div className="flex justify-between"><span className="text-gray-600">GST Amount</span><span className="font-semibold text-gray-900">{money(toNum(g.taxAmount))}</span></div>
+        <div className="space-y-1">
+          <div className="flex justify-between"><span className="text-gray-600">Taxable Value</span><span className="font-medium">{money(toNum(g.taxBase))}</span></div>
+          <div className="flex justify-between"><span className="text-gray-600">GST %</span><span className="font-medium">{g.taxPercent || 0}%</span></div>
+          <div className="flex justify-between"><span className="text-gray-600">GST Amount</span><span className="font-semibold text-gray-900">{money(toNum(g.taxAmount))}</span></div>
 
-                          {hasSplit && (
-                            <>
-                              {g.cgst != null && <div className="flex justify-between"><span className="text-gray-600">CGST</span><span>{money(toNum(g.cgst))}</span></div>}
-                              {g.sgst != null && <div className="flex justify-between"><span className="text-gray-600">SGST</span><span>{money(toNum(g.sgst))}</span></div>}
-                              {g.igst != null && <div className="flex justify-between"><span className="text-gray-600">IGST</span><span>{money(toNum(g.igst))}</span></div>}
-                            </>
-                          )}
+          {hasSplit && (
+            <>
+              {g.cgst != null && <div className="flex justify-between"><span className="text-gray-600">CGST</span><span>{money(toNum(g.cgst))}</span></div>}
+              {g.sgst != null && <div className="flex justify-between"><span className="text-gray-600">SGST</span><span>{money(toNum(g.sgst))}</span></div>}
+              {g.igst != null && <div className="flex justify-between"><span className="text-gray-600">IGST</span><span>{money(toNum(g.igst))}</span></div>}
+            </>
+          )}
 
-                          {g.invoiceNumber && (
-                            <div className="flex justify-between">
-                              <span className="text-gray-600">Invoice #</span>
-                              <span className="font-mono text-xs">{g.invoiceNumber}</span>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  );
-                })()}
+          {g.invoiceNumber && (
+            <div className="flex justify-between">
+              <span className="text-gray-600">Invoice #</span>
+              <span className="font-mono text-xs">{g.invoiceNumber}</span>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+})()}
 
                 {/* Actions */}
                 <div className="flex flex-wrap gap-2 pt-1">

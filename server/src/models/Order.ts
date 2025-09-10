@@ -76,6 +76,7 @@ export interface IAddress {
   landmark?: string;
 }
 
+
 export interface IOrder extends Document {
   userId: Types.ObjectId;
   orderNumber: string;

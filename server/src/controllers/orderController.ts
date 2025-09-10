@@ -60,42 +60,51 @@ const clampQty = (desired: number, product: any): number => {
 
 /* ───────────────── Small helpers ───────────────── */
 
-const cleanGstin = (s?: string) =>
-  (s ?? "").toString().trim().toUpperCase().replace(/[^0-9A-Z]/g, "").slice(0, 15);
+// replace your buildGstBlock with this
+const cleanGstin = (s?: any) =>
+  (s ?? "").toString().toUpperCase().replace(/[^0-9A-Z]/g, "").slice(0, 15);
 
-/** Build gst block from checkout payload + computed numbers */
 function buildGstBlock(
   payload: any,
   shippingAddress: any,
   computed: { subtotal: number; tax: number }
 ) {
   const ex = payload?.extras || {};
-  const requested = Boolean(ex.wantGSTInvoice);
 
-  const percentFromPricing =
-    Number(payload?.pricing?.gstPercent ?? payload?.pricing?.taxRate ?? 0) || 0;
+  // accept many variants from checkout
+  const rawGstin =
+    ex.gstin ?? ex.gstNumber ?? payload.gstin ?? payload.gstNumber ?? payload.gst?.gstin;
+  const gstin = cleanGstin(rawGstin);
 
-  // Derive a safe percent if pricing didn't provide one
+  const wantInvoice =
+    Boolean(
+      ex.wantGSTInvoice ??
+        payload.needGSTInvoice ??
+        payload.needGstInvoice ??
+        payload.gst?.wantInvoice ??
+        payload.gst?.requested
+    ) || !!gstin; // typing a GSTIN counts as a request
+
   const taxPercent =
-    percentFromPricing ||
+    Number(payload?.pricing?.gstPercent ?? payload?.pricing?.taxRate) ||
     (computed.subtotal > 0 ? Math.round((computed.tax / computed.subtotal) * 100) : 0);
 
-  const base = {
-    requested,
-    taxableValue: computed.subtotal || 0,
+  return {
+    // --- fields that match your schema ---
+    wantInvoice,
+    gstin: gstin || undefined,
+    legalName:
+      (ex.gstLegalName ?? payload.gst?.legalName ?? shippingAddress?.fullName)?.toString().trim() ||
+      undefined,
+    placeOfSupply:
+      (ex.placeOfSupply ?? payload.gst?.placeOfSupply ?? shippingAddress?.state)?.toString().trim() ||
+      undefined,
     taxPercent,
+    taxBase: computed.subtotal || 0,
     taxAmount: computed.tax || 0,
   };
-
-  if (!requested) return base;
-
-  return {
-    ...base,
-    gstin: cleanGstin(ex.gstNumber ?? ex.gstin),
-    legalName: (ex.gstLegalName || shippingAddress?.fullName || "").toString().trim() || undefined,
-    placeOfSupply: (ex.placeOfSupply || shippingAddress?.state || "").toString().trim() || undefined,
-  };
 }
+
 
 /* ───────────────── CREATE ORDER (with stock deduction, GST & emails) ───────────────── */
 
