@@ -1,6 +1,6 @@
 // src/pages/OrderDetails.tsx
 import React, { useState, useEffect } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import clsx from 'clsx';
 import api from '../config/api';
@@ -51,7 +51,8 @@ interface OrderDetails {
   tax: number | string;
   shipping: number | string;
   total: number | string;
-  // optional alternates some backends use:
+
+  // alternates some backends use:
   shippingFee?: number | string;
   shippingCost?: number | string;
   deliveryCharge?: number | string;
@@ -75,7 +76,6 @@ interface OrderDetails {
   createdAt: string;
   updatedAt: string;
 
-  // optional hints if you later switch to /orders/details/:orderId
   canCancel?: boolean;
   canTrack?: boolean;
 }
@@ -95,7 +95,7 @@ const fade = {
 
 const ORDER_FLOW: OrderDetails['status'][] = ['pending', 'confirmed', 'processing', 'shipped', 'delivered'];
 
-/* -------------------- helpers: robust numeric + money utils -------------------- */
+/* -------------------- helpers -------------------- */
 const toNum = (v: any) => {
   if (typeof v === 'number') return Number.isFinite(v) ? v : 0;
   if (typeof v === 'string') {
@@ -109,7 +109,9 @@ const toNum = (v: any) => {
 const inr = (n: number) =>
   new Intl.NumberFormat('en-IN', { style: 'currency', currency: 'INR' }).format(n);
 
-/* Derive a reliable breakdown no matter how the backend sends numbers */
+/** Robust breakdown. If API gives zeros, compute from items/percentages.
+ *  IMPORTANT: If both shipping & tax are 0 but total > subtotal, we treat the
+ *  remainder as TAX (because shipping is added later after packing). */
 function deriveBreakdown(o: OrderDetails) {
   const itemsSubtotal = (o.items || []).reduce((sum, it) => {
     const q = toNum(it.quantity);
@@ -117,47 +119,52 @@ function deriveBreakdown(o: OrderDetails) {
     return sum + q * p;
   }, 0);
 
-  // Known values from order / alternates
+  // Start from explicit values or items-derived
   let subtotal = toNum(o.subtotal) || itemsSubtotal;
+
   let shippingKnown =
     toNum((o as any).shipping) ||
     toNum((o as any).shippingFee) ||
     toNum((o as any).shippingCost) ||
     toNum((o as any).deliveryCharge);
+
   let taxKnown =
     toNum((o as any).tax) ||
     toNum((o as any).taxes) ||
     toNum((o as any).gst) ||
     toNum((o as any).vat);
+
   const totalKnown = toNum(o.total);
 
-  const taxRatePct = toNum((o as any).taxRate) || toNum((o as any).gstPercent) || 0;
-  if (taxKnown === 0 && taxRatePct > 0) {
-    taxKnown = +(itemsSubtotal * (taxRatePct / 100)).toFixed(2);
+  // derive from GST/tax% if present
+  const pct = toNum((o as any).gstPercent) || toNum((o as any).taxRate) || 0;
+  if (taxKnown === 0 && pct > 0) {
+    taxKnown = +(subtotal * (pct / 100)).toFixed(2);
   }
 
+  // If API left both 0 but sent a total, push the remainder into TAX (shipping added later)
   if (totalKnown > 0) {
-    if (shippingKnown === 0 && taxKnown > 0) {
-      const s = totalKnown - subtotal - taxKnown;
-      shippingKnown = Math.max(0, +s.toFixed(2));
+    const remainder = +(totalKnown - subtotal).toFixed(2);
+    if (taxKnown === 0 && shippingKnown === 0 && remainder > 0) {
+      taxKnown = remainder; // show tax; we deliberately keep shipping at 0
     } else if (taxKnown === 0 && shippingKnown > 0) {
-      const t = totalKnown - subtotal - shippingKnown;
-      taxKnown = Math.max(0, +t.toFixed(2));
-    } else if (shippingKnown === 0 && taxKnown === 0) {
-      const rest = totalKnown - subtotal;
-      shippingKnown = Math.max(0, +rest.toFixed(2));
-      taxKnown = 0;
+      taxKnown = Math.max(0, +(totalKnown - subtotal - shippingKnown).toFixed(2));
+    } else if (shippingKnown === 0 && taxKnown > 0) {
+      shippingKnown = Math.max(0, +(totalKnown - subtotal - taxKnown).toFixed(2));
     }
   }
 
   const total =
     totalKnown > 0 ? totalKnown : Math.max(0, +(subtotal + taxKnown + shippingKnown).toFixed(2));
 
+  const taxLabel = pct > 0 ? `Tax (GST ${pct}%)` : 'Tax';
+
   return {
     subtotal: Math.max(0, +subtotal.toFixed(2)),
     tax: Math.max(0, +taxKnown.toFixed(2)),
     shipping: Math.max(0, +shippingKnown.toFixed(2)),
     total,
+    taxLabel,
   };
 }
 
@@ -245,7 +252,6 @@ const OrderDetailsPage: React.FC = () => {
       }
 
       if (orderData?._id) {
-        // derive canCancel/canTrack if not present
         const canCancel =
           typeof orderData.canCancel === 'boolean'
             ? orderData.canCancel
@@ -276,7 +282,6 @@ const OrderDetailsPage: React.FC = () => {
 
   const handleTrack = async () => {
     if (!order) return;
-    // open carrier link if provided
     if (order.trackingUrl) {
       window.open(order.trackingUrl, '_blank', 'noopener,noreferrer');
       return;
@@ -299,7 +304,6 @@ const OrderDetailsPage: React.FC = () => {
 
   const handleCancel = async () => {
     if (!order) return;
-    // guard
     const canCancel =
       (order as any).canCancel ??
       ['pending', 'confirmed'].includes((order.status || order.orderStatus || '').toLowerCase());
@@ -315,7 +319,6 @@ const OrderDetailsPage: React.FC = () => {
       setBusy(true);
       const { data } = await api.post(`/orders/${order._id}/cancel`, { reason });
       if (data?.success) {
-        // reflect new state locally
         setOrder((prev) =>
           prev
             ? {
@@ -408,31 +411,22 @@ const OrderDetailsPage: React.FC = () => {
     );
   }
 
-  // Use robust derived values everywhere we show money
-// Use robust derived values everywhere we show money
-const breakdown = deriveBreakdown(order);
+  // Derived values once
+  const breakdown = deriveBreakdown(order);
+  const showTracking = order.trackingUrl || order.trackingNumber;
+  const statusKey = ((order.status ?? order.orderStatus) ?? '').toLowerCase();
 
-const isCancelled = order.status === 'cancelled';
-const currentStep = isCancelled ? -1 : Math.max(0, ORDER_FLOW.indexOf(order.status));
-const showTracking = order.trackingUrl || order.trackingNumber;
+  const canCancel =
+    (order as any).canCancel ?? ['pending', 'confirmed'].includes(statusKey);
 
-// normalize status once
-const statusKey = ((order.status ?? order.orderStatus) ?? '').toLowerCase();
-
-// ✅ OK: ?? only inside the parens; || is outside
-const canCancel =
-  (order as any).canCancel ??
-  ['pending', 'confirmed'].includes(statusKey);
-
-// ✅ OK: group (A ?? B) before using || C
-const canTrack =
-  ((order as any).canTrack ?? Boolean(order.trackingUrl || order.trackingNumber)) ||
-  ['shipped', 'out_for_delivery', 'delivered'].includes(statusKey);
+  const canTrack =
+    ((order as any).canTrack ?? Boolean(order.trackingUrl || order.trackingNumber)) ||
+    ['shipped', 'out_for_delivery', 'delivered'].includes(statusKey);
 
   return (
     <div className="min-h-screen bg-gray-50 py-8 px-4">
       <div className="mx-auto max-w-5xl space-y-6">
-        {/* Summary */}
+        {/* Summary header */}
         <motion.div
           className="bg-white border border-gray-100 rounded-2xl shadow-sm p-5 md:p-6"
           initial="hidden"
@@ -495,7 +489,6 @@ const canTrack =
                 <span className="text-sm font-medium">Support</span>
               </button>
 
-              {/* NEW: Track + Cancel */}
               <button
                 onClick={handleTrack}
                 disabled={busy || !canTrack}
@@ -541,36 +534,6 @@ const canTrack =
                 ETA: {niceDate(order.estimatedDelivery)}
               </span>
             )}
-          </div>
-
-          <div className="mt-6">
-            <div className="flex items-center gap-2 md:gap-3">
-              {order.status === 'cancelled' ? (
-                <div className="inline-flex items-center gap-2 px-3 py-2 rounded-lg bg-rose-50 border border-rose-200 text-rose-700 text-sm">
-                  <XCircleIcon className="w-4 h-4" />
-                  Order cancelled {order.cancelledAt ? `on ${niceDate(order.cancelledAt)}` : ''}
-                </div>
-              ) : (
-                ORDER_FLOW.map((s, i) => {
-                  const done = i <= Math.max(0, ORDER_FLOW.indexOf(order.status));
-                  return (
-                    <div key={s} className="flex items-center gap-2">
-                      <div
-                        className={clsx(
-                          'w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-semibold',
-                          done ? 'bg-gray-900 text-white' : 'bg-gray-200 text-gray-600'
-                        )}
-                      >
-                        {i + 1}
-                      </div>
-                      {i < ORDER_FLOW.length - 1 && (
-                        <div className={clsx('h-0.5 w-6 md:w-12 rounded', done ? 'bg-gray-900' : 'bg-gray-200')} />
-                      )}
-                    </div>
-                  );
-                })
-              )}
-            </div>
           </div>
         </motion.div>
 
@@ -623,19 +586,21 @@ const canTrack =
             <div className="space-y-2 text-sm">
               <div className="flex justify-between text-gray-600">
                 <span>Subtotal</span>
-                <span>{inr(deriveBreakdown(order).subtotal)}</span>
+                <span>{inr(breakdown.subtotal)}</span>
               </div>
               <div className="flex justify-between text-gray-600">
-                <span>Tax</span>
-                <span>{inr(deriveBreakdown(order).tax)}</span>
+                <span>{breakdown.taxLabel}</span>
+                <span>{inr(breakdown.tax)}</span>
               </div>
-              <div className="flex justify-between text-gray-600">
-                <span>Shipping</span>
-                <span>{inr(deriveBreakdown(order).shipping)}</span>
+
+              {/* 🚚 Shipping note instead of amount */}
+              <div className="p-3 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 text-xs">
+                <strong>Note:</strong> Shipping fees will be added after your order is packed.
               </div>
+
               <div className="flex justify-between text-base font-semibold text-gray-900 pt-2 border-t border-gray-100">
                 <span>Total</span>
-                <span>{inr(deriveBreakdown(order).total)}</span>
+                <span>{inr(breakdown.total)}</span>
               </div>
             </div>
           </div>
