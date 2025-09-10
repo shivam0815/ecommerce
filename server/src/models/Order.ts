@@ -14,7 +14,38 @@ export type OrderStatus =
   | "cancelled";
 
 export type PaymentMethod = "razorpay" | "cod";
-export type PaymentStatus = "awaiting_payment" | "paid" | "failed" | "cod_pending" | "cod_paid";
+export type PaymentStatus =
+  | "awaiting_payment"
+  | "paid"
+  | "failed"
+  | "cod_pending"
+  | "cod_paid";
+
+/** NEW: GST details kept inside the order */
+export interface IGstDetails {
+  /** Did customer request a GST invoice at checkout? */
+  wantInvoice: boolean;
+  /** Customer’s GSTIN (15 chars, uppercase) */
+  gstin?: string;
+  /** Legal/Registered name on invoice */
+  legalName?: string;
+  /** Place of supply (state code or name) */
+  placeOfSupply?: string;
+
+  /** Percent applied, e.g. 18 for 18% */
+  taxPercent?: number;
+
+  /** Computed fields */
+  taxBase?: number;   // value on which GST is computed
+  taxAmount?: number; // total GST amount applied
+  cgst?: number;      // split (optional)
+  sgst?: number;      // split (optional)
+  igst?: number;      // split (optional)
+
+  /** Invoice artifacts (if/when generated) */
+  invoiceNumber?: string;
+  invoiceUrl?: string;
+}
 
 export type ShiprocketState =
   | "ORDER_CREATED"
@@ -65,6 +96,9 @@ export interface IOrder extends Document {
   total: number;
   discount?: number;
 
+  /** NEW: nested GST block */
+  gst?: IGstDetails;
+
   // Legacy/top-level status (kept for UI compatibility)
   status: OrderStatus;
 
@@ -104,14 +138,7 @@ export interface IOrder extends Document {
   // Auto timestamps
   createdAt: Date;
   updatedAt: Date;
-  inventoryCommitted: { type: Boolean, default: false };
-
-  // Virtuals (ts won’t see them, but we document)
-  // displayOrderNumber?: string;
-  // totalItems?: number;
-  // orderAge?: number;
-  // isDelivered?: boolean;
-  // isPaid?: boolean;
+  inventoryCommitted: { type: Boolean; default: false };
 }
 
 /** Instance methods */
@@ -142,7 +169,7 @@ export interface IOrderModel extends Model<IOrder, {}, IOrderMethods> {
 }
 
 /* ------------------------------------------------------------------ */
-/* Schema                                                              */
+/* Sub-schemas                                                         */
 /* ------------------------------------------------------------------ */
 
 const OrderItemSchema = new Schema<IOrderItem>(
@@ -170,6 +197,32 @@ const AddressSchema = new Schema<IAddress>(
   },
   { _id: false }
 );
+
+/** NEW: GST sub-schema */
+const GstSchema = new Schema<IGstDetails>(
+  {
+    wantInvoice: { type: Boolean, default: false },
+    gstin: { type: String, trim: true, uppercase: true },
+    legalName: { type: String, trim: true },
+    placeOfSupply: { type: String, trim: true },
+
+    taxPercent: { type: Number, min: 0, max: 100 },
+
+    taxBase: { type: Number, min: 0 },
+    taxAmount: { type: Number, min: 0 },
+    cgst: { type: Number, min: 0 },
+    sgst: { type: Number, min: 0 },
+    igst: { type: Number, min: 0 },
+
+    invoiceNumber: { type: String, trim: true },
+    invoiceUrl: { type: String, trim: true },
+  },
+  { _id: false }
+);
+
+/* ------------------------------------------------------------------ */
+/* Order schema                                                        */
+/* ------------------------------------------------------------------ */
 
 const OrderSchema = new Schema<IOrder, IOrderModel, IOrderMethods>(
   {
@@ -202,6 +255,9 @@ const OrderSchema = new Schema<IOrder, IOrderModel, IOrderMethods>(
     shipping: { type: Number, required: true, min: 0, default: 0 },
     total: { type: Number, required: true, min: 0 },
     discount: { type: Number, min: 0, default: 0 },
+
+    /** NEW: attach GST details */
+    gst: { type: GstSchema, required: false },
 
     status: {
       type: String,
@@ -304,6 +360,9 @@ OrderSchema.index({ "shippingAddress.city": 1 });
 OrderSchema.index({ paymentMethod: 1, createdAt: -1 });
 OrderSchema.index({ total: -1 });
 
+/** NEW: helpful search by GSTIN */
+OrderSchema.index({ "gst.gstin": 1 });
+
 // Shiprocket-specific:
 OrderSchema.index({ shipmentId: 1 });
 OrderSchema.index({ awbCode: 1 });
@@ -323,6 +382,16 @@ OrderSchema.pre<IOrder>("save", function (next) {
   // Ensure billing defaults to shipping if missing
   if (!this.billingAddress || Object.keys(this.billingAddress as any).length === 0) {
     this.billingAddress = this.shippingAddress;
+  }
+
+  // If GST % is present and order.tax = 0, compute GST on (subtotal - discount)
+  if (this.gst?.taxPercent && (!this.tax || this.tax === 0)) {
+    const base = Math.max(0, (this.subtotal || 0) - (this.discount || 0));
+    const amt = +(base * (this.gst.taxPercent / 100)).toFixed(2);
+    this.tax = amt;
+    this.gst.taxBase = base;
+    this.gst.taxAmount = amt;
+    // (Optional split can be filled later depending on inter/intra state)
   }
 
   this.updatedAt = new Date();
@@ -367,7 +436,6 @@ OrderSchema.methods.updatePaymentStatus = function (this: IOrder, newPaymentStat
 
   if (newPaymentStatus === "paid" || newPaymentStatus === "cod_paid") {
     this.paidAt = new Date();
-    // keep business control — move to processing if pending
     if (this.status === "pending") {
       this.status = "processing";
       this.orderStatus = "processing";
@@ -379,7 +447,6 @@ OrderSchema.methods.updatePaymentStatus = function (this: IOrder, newPaymentStat
 };
 
 // --- Shiprocket helpers ---
-
 OrderSchema.methods.attachShiprocketOrder = function (this: IOrder, shipmentId: number) {
   this.shipmentId = shipmentId;
   this.shiprocketStatus = "ORDER_CREATED";
@@ -469,7 +536,7 @@ OrderSchema.statics.getUserOrders = function (
 };
 
 /* ------------------------------------------------------------------ */
-/* Model export (guard against OverwriteModelError in dev)             */
+/* Model export                                                        */
 /* ------------------------------------------------------------------ */
 
 const Order =
