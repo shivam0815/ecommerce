@@ -1,5 +1,5 @@
 // src/controllers/orderController.ts
-// COMPLETE VERSION — Email automation + MAX(50) & MOQ clamping
+// COMPLETE VERSION — Email automation + MAX(50) & MOQ clamping + GST mapping
 // Stock is decremented during CREATE; updateOrderStatus does NOT deduct again.
 
 import { Request, Response } from "express";
@@ -58,11 +58,50 @@ const clampQty = (desired: number, product: any): number => {
   return Math.max(moq, Math.min(want, maxCap));
 };
 
-/* ───────────────── CREATE ORDER (with stock deduction & emails) ───────────────── */
+/* ───────────────── Small helpers ───────────────── */
+
+const cleanGstin = (s?: string) =>
+  (s ?? "").toString().trim().toUpperCase().replace(/[^0-9A-Z]/g, "").slice(0, 15);
+
+/** Build gst block from checkout payload + computed numbers */
+function buildGstBlock(
+  payload: any,
+  shippingAddress: any,
+  computed: { subtotal: number; tax: number }
+) {
+  const ex = payload?.extras || {};
+  const requested = Boolean(ex.wantGSTInvoice);
+
+  const percentFromPricing =
+    Number(payload?.pricing?.gstPercent ?? payload?.pricing?.taxRate ?? 0) || 0;
+
+  // Derive a safe percent if pricing didn't provide one
+  const taxPercent =
+    percentFromPricing ||
+    (computed.subtotal > 0 ? Math.round((computed.tax / computed.subtotal) * 100) : 0);
+
+  const base = {
+    requested,
+    taxableValue: computed.subtotal || 0,
+    taxPercent,
+    taxAmount: computed.tax || 0,
+  };
+
+  if (!requested) return base;
+
+  return {
+    ...base,
+    gstin: cleanGstin(ex.gstNumber ?? ex.gstin),
+    legalName: (ex.gstLegalName || shippingAddress?.fullName || "").toString().trim() || undefined,
+    placeOfSupply: (ex.placeOfSupply || shippingAddress?.state || "").toString().trim() || undefined,
+  };
+}
+
+/* ───────────────── CREATE ORDER (with stock deduction, GST & emails) ───────────────── */
 
 export const createOrder = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { shippingAddress, paymentMethod, billingAddress } = req.body;
+    const { shippingAddress, paymentMethod, billingAddress, extras, pricing } = req.body;
 
     if (!req.user) {
       res.status(401).json({ message: "User not authenticated" });
@@ -119,14 +158,17 @@ export const createOrder = async (req: Request, res: Response): Promise<void> =>
       subtotal += cartItem.price * clampedQty;
     }
 
-    // Pricing
-    const shipping = subtotal > 500 ? 0 : 50; // free above ₹500
-    const tax = Math.round(subtotal * 0.18); // 18% GST rounded to rupees
+    // Pricing (server-side). You can switch to your own rules as needed.
+    const shipping = subtotal > 500 ? 0 : 50;                 // free above ₹500
+    const tax = Math.round(subtotal * 0.18);                  // 18% GST rounded
     const total = subtotal + shipping + tax;
 
     // IDs
     const orderNumber = `NK${Date.now()}${Math.floor(Math.random() * 1000)}`;
     const paymentOrderId = `PAY${Date.now()}${Math.floor(Math.random() * 1000)}`;
+
+    // Build GST block from extras + computed values
+    const gstBlock = buildGstBlock(req.body, shippingAddress, { subtotal, tax });
 
     // Create and save
     const order = new Order({
@@ -144,6 +186,10 @@ export const createOrder = async (req: Request, res: Response): Promise<void> =>
       status: "pending",
       orderStatus: "pending",
       paymentStatus: paymentMethod === "cod" ? "cod_pending" : "awaiting_payment",
+
+      // ⬇️ persist GST & customer note if sent from checkout
+      gst: gstBlock,
+      customerNotes: (extras?.orderNotes || "").toString().trim() || undefined,
     });
 
     const savedOrder = await order.save();
@@ -240,6 +286,7 @@ export const createOrder = async (req: Request, res: Response): Promise<void> =>
         orderStatus: savedOrder.orderStatus,
         paymentStatus: savedOrder.paymentStatus,
         items: orderItems,
+        gst: savedOrder.gst,                 // ⬅️ return gst for client/debug
         emailStatus: emailResults,
       },
     });
@@ -389,7 +436,7 @@ export const getOrderDetails = async (req: Request, res: Response): Promise<void
     res.json({
       success: true,
       order: {
-        ...order,
+        ...order, // includes gst
         orderProgress,
         canCancel: ["pending", "confirmed"].includes(order.orderStatus),
         canTrack: ["shipped", "out_for_delivery"].includes(order.orderStatus),
