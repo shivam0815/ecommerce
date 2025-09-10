@@ -275,118 +275,131 @@ const CheckoutPage: React.FC = () => {
     return Object.keys(e).length === 0;
   };
 
-  const onSubmit = async (ev: React.FormEvent) => {
-    ev.preventDefault();
+const onSubmit = async (ev: React.FormEvent) => {
+  ev.preventDefault();
 
-    if (!validate()) {
-      toast.error('Please correct the errors below');
-      return;
-    }
+  if (!validate()) {
+    toast.error('Please correct the errors below');
+    return;
+  }
 
-    try {
-      // Save address locally (for next time)
-      localStorage.setItem('checkout:shipping', JSON.stringify(shipping));
+  try {
+    // Save address locally (for next time)
+    localStorage.setItem('checkout:shipping', JSON.stringify(shipping));
 
-      const orderData = {
-        items: cartItems.map((item: any) => ({
-          productId: item.productId || item.id,
-          name: item.name,                       // include for success page
-          image: item.image || item.img,         // include for success page
-          quantity: item.quantity,
-          price: item.price,
-        })),
-        // @ts-ignore
-        shippingAddress: shipping,
-        // @ts-ignore
-        billingAddress: sameAsShipping ? shipping : billing,
-        extras: {
-          orderNotes: orderNotes.trim() || undefined,
-          wantGSTInvoice,
-          gstNumber: wantGSTInvoice && gstNumber ? gstNumber.trim() : undefined,
-          giftWrap,
-        },
-        pricing: {
-          rawSubtotal,
-          discount: monetaryDiscount,
-          discountLabel: discountLabel || undefined,
-          coupon: appliedCoupon?.code || undefined,
-          couponFreeShipping: appliedCoupon?.freeShipping || false,
-          effectiveSubtotal,
-          tax,
-          shippingFee, // 0 at checkout
-          shippingAddedPostPack, // NEW flag to indicate shipping will be added later
-          codCharges,
-          giftWrapFee,
+    const orderData = {
+      items: cartItems.map((item: any) => ({
+        productId: item.productId || item.id,
+        name: item.name,                       // for success page fallback
+        image: item.image || item.img,         // for success page fallback
+        quantity: item.quantity,
+        price: item.price,
+      })),
+      // @ts-ignore
+      shippingAddress: shipping,
+      // @ts-ignore
+      billingAddress: sameAsShipping ? shipping : billing,
+      extras: {
+        orderNotes: orderNotes.trim() || undefined,
+        wantGSTInvoice,
+        gstNumber: wantGSTInvoice && gstNumber ? gstNumber.trim() : undefined,
+        giftWrap,
+      },
+      pricing: {
+        rawSubtotal,
+        discount: monetaryDiscount,
+        discountLabel: discountLabel || undefined,
+        coupon: appliedCoupon?.code || undefined,
+        couponFreeShipping: appliedCoupon?.freeShipping || false,
+        effectiveSubtotal,
+        tax,
+        shippingFee,                 // 0 at checkout
+        shippingAddedPostPack,       // flag for backend
+        codCharges,
+        giftWrapFee,
 
-          // Online fee details
-          convenienceFee,
-          convenienceFeeGst,
-          convenienceFeeRate: ONLINE_FEE_RATE,
-          convenienceFeeGstRate: ONLINE_FEE_GST_RATE,
+        // Online fee details (ignored if COD)
+        convenienceFee,
+        convenienceFeeGst,
+        convenienceFeeRate: ONLINE_FEE_RATE,
+        convenienceFeeGstRate: ONLINE_FEE_GST_RATE,
 
-          total,
-        },
-      };
-
-      const userDetails = {
-        name: shipping.fullName,
-        email: shipping.email,
-        phone: shipping.phoneNumber,
-      };
-
-      const result = (await processPayment(
         total,
-        method,
-        orderData,
-        userDetails
-      )) as PaymentResult;
+      },
+    };
 
-      if (result.success) {
-        if (result.redirected) return; // Razorpay might redirect/overlay
+    const userDetails = {
+      name: shipping.fullName,
+      email: shipping.email,
+      phone: shipping.phoneNumber,
+    };
 
-        // COD / Razorpay: we have the order immediately
-        clearCart();
-        localStorage.setItem('hasOrderedBefore', '1');
+    const result = (await processPayment(
+      total,
+      method,
+      orderData,
+      userDetails
+    )) as PaymentResult;
 
-        const ord = result.order || {};
-        const orderId =
-          ord.orderNumber || ord._id || ord.id || ord.order_id || null;
+    if (!result?.success) return;
 
-        const successState = {
-          orderId,
-          order: ord,
-          paymentMethod: result.method,
-          paymentId: result.paymentId ?? null,
-        };
+    // If a hosted checkout handled redirection/overlay, nothing else to do.
+    if (result.redirected) return;
 
-        // Persist snapshot so refresh still works
-        localStorage.setItem(
-          'lastOrderSuccess',
-          JSON.stringify({
-            orderId,
-            paymentMethod: successState.paymentMethod,
-            paymentId: successState.paymentId,
-            order: ord, // keep full if available
-            snapshot: {
-              total: ord.total ?? ord.amount ?? total,
-              createdAt: ord.createdAt ?? new Date().toISOString(),
-              items: ord.items ?? orderData.items,
-              shippingAddress: ord.shippingAddress ?? shipping,
-            },
-          })
-        );
+    // Success path (COD / Razorpay)
+    clearCart();
+    localStorage.setItem('hasOrderedBefore', '1');
 
-        const qs = orderId ? `?id=${encodeURIComponent(orderId)}` : '';
-        navigate(`/order-success${qs}`, {
-          state: successState,
-          replace: true,
-        });
-      }
-    } catch (error: any) {
-      console.error('Checkout error:', error);
-      toast.error(error?.message || 'Checkout failed. Please try again.');
-    }
-  };
+    const ord = result.order || {};
+
+    // Prefer your DB fields first
+    const orderId =
+      ord.orderNumber ||
+      ord._id ||
+      ord.paymentOrderId || // good fallback for COD
+      ord.paymentId ||
+      null;
+
+    const successState = {
+      orderId,
+      order: ord,
+      paymentMethod: result.method,
+      paymentId: result.paymentId ?? null,
+    };
+
+    // Build a robust snapshot for refresh/direct open
+    const snapshot = {
+      // Put ID variants here so success page can always display it
+      orderNumber: ord.orderNumber ?? orderId ?? undefined,
+      _id: ord._id ?? orderId ?? undefined,
+
+      total: ord.total ?? ord.amount ?? total,
+      createdAt: ord.createdAt ?? new Date().toISOString(),
+
+      // Prefer backend items; else fall back to what we sent
+      items: Array.isArray(ord.items) && ord.items.length ? ord.items : orderData.items,
+
+      // Prefer backend address; else use the form state
+      shippingAddress: ord.shippingAddress ?? shipping,
+    };
+
+    // Persist for reload / direct open
+    localStorage.setItem(
+      'lastOrderSuccess',
+      JSON.stringify({
+        ...successState,
+        snapshot,
+      })
+    );
+
+    // Also add the id to the URL for easy debugging/sharing
+    const qs = orderId ? `?id=${encodeURIComponent(orderId)}` : '';
+    navigate(`/order-success${qs}`, { state: successState, replace: true });
+  } catch (error: any) {
+    console.error('Checkout error:', error);
+    toast.error(error?.message || 'Checkout failed. Please try again.');
+  }
+};
 
   // Loading state
   if (cartLoading) {
