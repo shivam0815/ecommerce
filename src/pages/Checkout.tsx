@@ -11,7 +11,6 @@ import {
   MapPin,
   Phone,
   Mail,
-  Calendar,
   Lock,
   CheckCircle,
   AlertCircle,
@@ -38,14 +37,6 @@ interface Address {
   landmark: string;
 }
 
-interface CardInfo {
-  cardNumber: string;
-  expiryMonth: string;
-  expiryYear: string;
-  cvv: string;
-  cardholderName: string;
-}
-
 const emptyAddress: Address = {
   fullName: '',
   phoneNumber: '',
@@ -67,7 +58,7 @@ const GIFT_WRAP_FEE = 0;
 const FIRST_ORDER_RATE = 0.1; // 10%
 const FIRST_ORDER_CAP = 300;
 
-// Online payment fee & GST-on-fee
+// Online payment fee & GST-on-fee (applies to Razorpay)
 const ONLINE_FEE_RATE = 0.02;      // 2% convenience fee (online methods only)
 const ONLINE_FEE_GST_RATE = 0.18;  // 18% GST on that convenience fee
 
@@ -80,10 +71,10 @@ type CouponResult = {
 
 type PaymentResult = {
   success: boolean;
-  redirected?: boolean; // e.g., Stripe Checkout redirect
-  order?: any; // created/verified order object from server
-  paymentId?: string | null; // gateway payment id
-  method: 'razorpay' | 'stripe' | 'cod';
+  redirected?: boolean;
+  order?: any;
+  paymentId?: string | null;
+  method: 'razorpay' | 'cod';
 };
 
 const formatINR = (n: number) => `₹${Math.max(0, Math.round(n)).toLocaleString()}`;
@@ -103,17 +94,8 @@ const CheckoutPage: React.FC = () => {
   const [billing, setBilling] = useState<Address>(emptyAddress);
   const [sameAsShipping, setSameAsShipping] = useState(true);
 
-  // Card (Stripe only)
-  const [card, setCard] = useState<CardInfo>({
-    cardNumber: '',
-    expiryMonth: '',
-    expiryYear: '',
-    cvv: '',
-    cardholderName: user?.name || '',
-  });
-
   // UI / method / errors
-  const [method, setMethod] = useState<'razorpay' | 'stripe' | 'cod'>('razorpay');
+  const [method, setMethod] = useState<'razorpay' | 'cod'>('razorpay');
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   // Extras
@@ -154,12 +136,9 @@ const CheckoutPage: React.FC = () => {
     const c = code.trim().toUpperCase();
     if (!c) return null;
 
-    // Define coupons
     switch (c) {
       case 'WELCOME10': {
-        if (!isFirstOrderCandidate) {
-          throw new Error('WELCOME10 is only valid on your first order');
-        }
+        if (!isFirstOrderCandidate) throw new Error('WELCOME10 is only valid on your first order');
         const amt = Math.min(Math.round(subtotal * 0.1), 300);
         return { code: c, amount: amt, message: '10% off (up to ₹300) for your first order' };
       }
@@ -212,7 +191,6 @@ const CheckoutPage: React.FC = () => {
   const effectiveSubtotal = Math.max(0, rawSubtotal - monetaryDiscount);
 
   // 🔔 SHIPPING IS NOT CHARGED AT CHECKOUT ANYMORE
-  // Keep shippingFee = 0 and optionally send a flag to backend.
   const shippingFee = 0;
   const shippingAddedPostPack = true;
 
@@ -222,8 +200,7 @@ const CheckoutPage: React.FC = () => {
   // Tax after discount, before shipping/cod/wrap (on goods/services)
   const tax = useMemo(() => Math.round(effectiveSubtotal * 0.18), [effectiveSubtotal]);
 
-  // Convenience fee for online methods + GST on that fee.
-  // Base excludes shipping (since shipping is added later).
+  // Convenience fee for online methods + GST on that fee (online = Razorpay)
   const convenienceFee = useMemo(() => {
     if (method === 'cod') return 0;
     const baseBeforeFee = effectiveSubtotal + tax + shippingFee + giftWrapFee;
@@ -245,13 +222,6 @@ const CheckoutPage: React.FC = () => {
       (method !== 'cod' ? convenienceFee + convenienceFeeGst : 0)
   );
 
-  // Prefill cardholder name on user data change
-  useEffect(() => {
-    if (user?.name && !card.cardholderName) {
-      setCard((prev) => ({ ...prev, cardholderName: user.name! }));
-    }
-  }, [user?.name]);
-
   // Restore saved address
   useEffect(() => {
     try {
@@ -268,18 +238,11 @@ const CheckoutPage: React.FC = () => {
       setErrors((e) => ({ ...e, [field]: '' }));
     };
 
-  const handleCard = (field: keyof CardInfo, value: string) => {
-    setCard((prev) => ({ ...prev, [field]: value }));
-    setErrors((e) => ({ ...e, [field]: '' }));
-  };
-
   const validate = (): boolean => {
     const e: Record<string, string> = {};
     const regPhone = /^\d{10}$/;
     const regPin = /^\d{6}$/;
     const regEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    const regCard = /^\d{16}$/;
-    const regCvv = /^\d{3,4}$/;
 
     // Shipping
     if (!shipping.fullName.trim()) e.fullName = 'Full name is required';
@@ -301,27 +264,6 @@ const CheckoutPage: React.FC = () => {
       if (!billing.city.trim()) e.billing_city = 'Billing city required';
       if (!billing.state.trim()) e.billing_state = 'Billing state required';
       if (!regPin.test(billing.pincode)) e.billing_pincode = 'Valid 6-digit pincode required';
-    }
-
-    // Card validation (Stripe only)
-    if (method === 'stripe') {
-      if (!regCard.test(card.cardNumber.replace(/\s/g, '')))
-        e.cardNumber = 'Please enter a valid 16-digit card number';
-      if (!card.expiryMonth) e.expiryMonth = 'Select expiry month';
-      if (!card.expiryYear) e.expiryYear = 'Select expiry year';
-      if (!regCvv.test(card.cvv)) e.cvv = 'Enter a valid CVV';
-      if (!card.cardholderName.trim()) e.cardholderName = 'Cardholder name is required';
-
-      // Expiry in the future
-      if (card.expiryMonth && card.expiryYear) {
-        const now = new Date();
-        const exp = new Date(parseInt(card.expiryYear), parseInt(card.expiryMonth) - 1, 1);
-        exp.setMonth(exp.getMonth() + 1); // end of month
-        if (exp <= now) {
-          e.expiryMonth = 'Card has expired';
-          e.expiryYear = 'Card has expired';
-        }
-      }
     }
 
     // GST simple check (optional)
@@ -346,10 +288,12 @@ const CheckoutPage: React.FC = () => {
       localStorage.setItem('checkout:shipping', JSON.stringify(shipping));
 
       const orderData = {
-        items: cartItems.map((item) => ({
-          productId: (item as any).productId || (item as any).id,
-          quantity: (item as any).quantity,
-          price: (item as any).price,
+        items: cartItems.map((item: any) => ({
+          productId: item.productId || item.id,
+          name: item.name,                       // include for success page
+          image: item.image || item.img,         // include for success page
+          quantity: item.quantity,
+          price: item.price,
         })),
         // @ts-ignore
         shippingAddress: shipping,
@@ -398,24 +342,42 @@ const CheckoutPage: React.FC = () => {
       )) as PaymentResult;
 
       if (result.success) {
-        // Stripe: likely already redirected to hosted checkout
-        if (result.redirected) return;
+        if (result.redirected) return; // Razorpay might redirect/overlay
 
         // COD / Razorpay: we have the order immediately
         clearCart();
         localStorage.setItem('hasOrderedBefore', '1');
 
+        const ord = result.order || {};
+        const orderId =
+          ord.orderNumber || ord._id || ord.id || ord.order_id || null;
+
         const successState = {
-          order: result.order,
+          orderId,
+          order: ord,
           paymentMethod: result.method,
           paymentId: result.paymentId ?? null,
         };
 
-        // Persist fallback so refresh on success still works
-        localStorage.setItem('lastOrderSuccess', JSON.stringify(successState));
+        // Persist snapshot so refresh still works
+        localStorage.setItem(
+          'lastOrderSuccess',
+          JSON.stringify({
+            orderId,
+            paymentMethod: successState.paymentMethod,
+            paymentId: successState.paymentId,
+            order: ord, // keep full if available
+            snapshot: {
+              total: ord.total ?? ord.amount ?? total,
+              createdAt: ord.createdAt ?? new Date().toISOString(),
+              items: ord.items ?? orderData.items,
+              shippingAddress: ord.shippingAddress ?? shipping,
+            },
+          })
+        );
 
-        // Navigate to success page
-        navigate('/order-success', {
+        const qs = orderId ? `?id=${encodeURIComponent(orderId)}` : '';
+        navigate(`/order-success${qs}`, {
           state: successState,
           replace: true,
         });
@@ -620,7 +582,7 @@ const CheckoutPage: React.FC = () => {
                 </div>
               )}
 
-              {/* Online payment fee lines */}
+              {/* Online payment fee lines (Razorpay only) */}
               {method !== 'cod' && (
                 <>
                   <div className="flex justify-between">
@@ -649,7 +611,7 @@ const CheckoutPage: React.FC = () => {
               <div className="flex items-center text-sm">
                 <Shield className="h-5 w-5 text-blue-600 mr-2" />
                 <span className="font-semibold text-blue-800">
-                  Secured by {method === 'razorpay' ? 'Razorpay' : method === 'stripe' ? 'Stripe' : 'Cash on Delivery'}
+                  Secured by {method === 'razorpay' ? 'Razorpay' : 'Cash on Delivery'}
                 </span>
               </div>
             </div>
@@ -894,7 +856,7 @@ const CheckoutPage: React.FC = () => {
               </div>
             )}
 
-            {/* Payment Method */}
+            {/* Payment Method (Razorpay / COD only) */}
             <div className="border-t border-gray-200 pt-6 sm:pt-8">
               <div className="flex items-center mb-6">
                 <div className="w-10 h-10 bg-purple-100 rounded-full flex items-center justify-center mr-3">
@@ -903,7 +865,7 @@ const CheckoutPage: React.FC = () => {
                 <h2 className="text-xl font-bold text-gray-900">Payment Method</h2>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 sm:gap-4 mb-6 sm:mb-8">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4 mb-6 sm:mb-8">
                 {/* Razorpay */}
                 <label
                   className={`relative p-4 sm:p-6 border-2 rounded-2xl cursor-pointer transition-all duration-200 hover:shadow-lg transform hover:-translate-y-1 ${
@@ -926,31 +888,6 @@ const CheckoutPage: React.FC = () => {
                     <div className="font-bold text-sm sm:text-base text-gray-900 mb-1">Razorpay</div>
                     <div className="text-xs text-gray-600">Cards, UPI, NetBanking</div>
                     <div className="text-xs text-green-600 mt-1 font-semibold">Most Popular</div>
-                  </div>
-                </label>
-
-                {/* Stripe */}
-                <label
-                  className={`relative p-4 sm:p-6 border-2 rounded-2xl cursor-pointer transition-all duration-200 hover:shadow-lg transform hover:-translate-y-1 ${
-                    method === 'stripe' ? 'border-purple-500 bg-purple-50 shadow-lg' : 'border-gray-200 hover:border-gray-300'
-                  }`}
-                >
-                  <input
-                    type="radio"
-                    name="paymentMethod"
-                    value="stripe"
-                    checked={method === 'stripe'}
-                    onChange={(e) => setMethod(e.target.value as 'stripe')}
-                    className="sr-only"
-                  />
-                  {method === 'stripe' && <CheckCircle className="absolute top-3 right-3 h-5 w-5 text-purple-600" />}
-                  <div className="text-center">
-                    <div className="w-12 h-12 bg-purple-100 rounded-full flex items-center justify-center mx-auto mb-3">
-                      <CreditCard className="h-6 w-6 text-purple-600" />
-                    </div>
-                    <div className="font-bold text-sm sm:text-base text-gray-900 mb-1">Card Payment</div>
-                    <div className="text-xs text-gray-600">Visa, Mastercard</div>
-                    <div className="text-xs text-blue-600 mt-1 font-semibold">International</div>
                   </div>
                 </label>
 
@@ -979,108 +916,6 @@ const CheckoutPage: React.FC = () => {
                 </label>
               </div>
 
-              {/* Card Details (Stripe) */}
-              {method === 'stripe' && (
-                <div className="p-4 sm:p-6 bg-gradient-to-r from-purple-50 to-indigo-50 rounded-2xl border border-purple-100 mb-6">
-                  <h3 className="font-semibold text-gray-900 mb-4 flex items-center">
-                    <Lock className="h-4 w-4 mr-2 text-purple-600" />
-                    Card Details
-                  </h3>
-                  <div className="space-y-4">
-                    <Input
-                      field="cardholderName"
-                      label="Cardholder Name *"
-                      value={card.cardholderName}
-                      onChange={(v) => handleCard('cardholderName', v)}
-                      placeholder="Name on card"
-                      icon={User}
-                      errors={errors}
-                    />
-
-                    <Input
-                      field="cardNumber"
-                      label="Card Number *"
-                      value={card.cardNumber}
-                      onChange={(v) => {
-                        const formatted = v.replace(/\s/g, '').replace(/(\d{4})/g, '$1 ').trim().slice(0, 19);
-                        handleCard('cardNumber', formatted);
-                      }}
-                      placeholder="1234 5678 9012 3456"
-                      icon={CreditCard}
-                      errors={errors}
-                    />
-
-                    <div className="flex flex-col sm:flex-row gap-4">
-                      <div className="flex-1">
-                        <label className="block text-sm font-semibold text-gray-800 mb-2">Expiry Month *</label>
-                        <div className="relative">
-                          <Calendar className="absolute left-3 top-1/2 -translate-y-1/2 h-5 w-5 text-gray-400" />
-                          <select
-                            value={card.expiryMonth}
-                            onChange={(e) => handleCard('expiryMonth', e.target.value)}
-                            className={`w-full pl-10 pr-4 py-3 border-2 rounded-XL focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 transition-all duration-200 bg-gray-50 focus:bg-white ${
-                              errors.expiryMonth ? 'border-red-400 bg-red-50' : 'border-gray-200 hover:border-gray-300'
-                            }`.replace('rounded-XL', 'rounded-xl')}
-                          >
-                            <option value="">Month</option>
-                            {Array.from({ length: 12 }, (_, i) => (
-                              <option key={i + 1} value={String(i + 1).padStart(2, '0')}>
-                                {String(i + 1).padStart(2, '0')} - {new Date(0, i).toLocaleString('en', { month: 'long' })}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
-                        {errors.expiryMonth && (
-                          <div className="flex items-center mt-2 text-red-600">
-                            <AlertCircle className="h-4 w-4 mr-1" />
-                            <span className="text-sm">{errors.expiryMonth}</span>
-                          </div>
-                        )}
-                      </div>
-
-                      <div className="flex-1">
-                        <label className="block text-sm font-semibold text-gray-800 mb-2">Expiry Year *</label>
-                        <select
-                          value={card.expiryYear}
-                          onChange={(e) => handleCard('expiryYear', e.target.value)}
-                          className={`w-full px-4 py-3 border-2 rounded-xl focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 transition-all duration-200 bg-gray-50 focus:bg-white ${
-                            errors.expiryYear ? 'border-red-400 bg-red-50' : 'border-gray-200 hover:border-gray-300'
-                          }`}
-                        >
-                          <option value="">Year</option>
-                          {Array.from({ length: 15 }, (_, i) => {
-                            const yr = new Date().getFullYear() + i;
-                            return (
-                              <option key={yr} value={yr}>
-                                {yr}
-                              </option>
-                            );
-                          })}
-                        </select>
-                        {errors.expiryYear && (
-                          <div className="flex items-center mt-2 text-red-600">
-                            <AlertCircle className="h-4 w-4 mr-1" />
-                            <span className="text-sm">{errors.expiryYear}</span>
-                          </div>
-                        )}
-                      </div>
-
-                      <div className="w-full sm:w-24">
-                        <Input
-                          field="cvv"
-                          label="CVV *"
-                          value={card.cvv}
-                          onChange={(v) => handleCard('cvv', v.replace(/\D/g, '').slice(0, 4))}
-                          placeholder="123"
-                          icon={Lock}
-                          errors={errors}
-                        />
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-
               {/* Method descriptions */}
               <div className="mb-6 sm:mb-8">
                 {method === 'razorpay' && (
@@ -1088,20 +923,7 @@ const CheckoutPage: React.FC = () => {
                     <p className="text-blue-800 text-sm flex items-start">
                       <Shield className="h-4 w-4 mr-2 mt-0.5 text-blue-600" />
                       <span>
-                        <strong>Razorpay Payment:</strong> India's most trusted payment gateway. Supports all major cards,
-                        UPI, net banking, and digital wallets with bank-level security.
-                      </span>
-                    </p>
-                  </div>
-                )}
-
-                {method === 'stripe' && (
-                  <div className="p-4 bg-purple-50 border border-purple-200 rounded-xl">
-                    <p className="text-purple-800 text-sm flex items-start">
-                      <Shield className="h-4 w-4 mr-2 mt-0.5 text-purple-600" />
-                      <span>
-                        <strong>Stripe Payment:</strong> Global payment platform with advanced fraud protection. Your card
-                        information is encrypted and never stored on our servers.
+                        <strong>Razorpay Payment:</strong> Supports all major cards, UPI, net banking, and wallets with bank-level security.
                       </span>
                     </p>
                   </div>
@@ -1162,7 +984,7 @@ const CheckoutPage: React.FC = () => {
                 {isProcessing ? (
                   <>
                     <div className="animate-spin rounded-full h-6 w-6 border-2 border-white border-t-transparent mr-3"></div>
-                    {method === 'razorpay' ? 'Opening Razorpay...' : method === 'stripe' ? 'Processing Payment...' : 'Placing Order...'}
+                    {method === 'razorpay' ? 'Opening Razorpay...' : 'Placing Order...'}
                   </>
                 ) : (
                   <>
