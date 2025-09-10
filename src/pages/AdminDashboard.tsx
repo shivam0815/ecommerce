@@ -1568,7 +1568,7 @@ setSpecificationsError(null);
                   <option value="Bluetooth Neckbands">Bluetooth Neckband</option>
                   <option value="Data Cables">Data Cables</option>
                   <option value="Mobile Chargers">Mobile Chargers</option>
-                  <option value="Mobile ICs">Integrated Circuits & Chips</option>
+                  <option value="Integrated Circuits & Chips">Integrated Circuits & Chips</option>
                   <option value="Mobile Repairing Tools">Mobile Repairing Tools</option>
                   <option value="Car Chargers">Car Charger</option>
                   <option value="Bluetooth Speakers">Bluetooth Speaker</option>

@@ -11,6 +11,12 @@ import {
 import { Toaster } from 'react-hot-toast';
 import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
+// import
+
+
+// inside <Routes>
+<Route path="/order-success" element={<OrderSuccess />} />
+
 
 import Header from './components/Layout/Header';
 import Footer from './components/Layout/Footer';
