@@ -12,7 +12,6 @@ import path from 'path';
 import fs from 'fs';
 import http from 'http';
 import { Server, Socket } from 'socket.io';
-import crypto from 'node:crypto';
 
 import { connectDatabase } from './config/database';
 import passport from './config/passport';
@@ -50,7 +49,6 @@ const NODE_ENV = process.env.NODE_ENV || 'development';
 const isProd = NODE_ENV === 'production';
 
 const userRoutes = require('./routes/user');
-app.use('/api/webhooks/razorpay', express.raw({ type: 'application/json' }));
 
 // ✅ Required envs (fail fast in prod)
 const requiredEnvVars = [
@@ -61,8 +59,7 @@ const requiredEnvVars = [
   'CLOUDINARY_API_SECRET',
   'RAZORPAY_KEY_ID',
   'RAZORPAY_KEY_SECRET',
-  'OPENAI_API_KEY',
-   'RAZORPAY_WEBHOOK_SECRET',
+  'OPENAI_API_KEY'
 ];
 if (isProd) {
   const missingEnvVars = requiredEnvVars.filter((v) => !process.env[v]);
@@ -144,7 +141,7 @@ const limiter = rateLimit({
   max: isProd ? 1000 : 10000,
   standardHeaders: true,
   legacyHeaders: false,
-  skip: (req) => ['/api/health', '/api/debug', '/api/webhooks'].some((p) => req.path.startsWith(p)),
+  skip: (req) => ['/api/health', '/api/debug'].some((p) => req.path.startsWith(p)),
   handler: (req, res) => {
     console.warn('🚨 Rate limit exceeded', {
       ip: req.ip,
@@ -286,47 +283,11 @@ app.use(
     }
   })
 );
-// ⬇️ Place this BEFORE express.json() and BEFORE app.use('/api/webhooks', webhookRouter)
-app.post('/api/webhooks/razorpay', async (req, res) => {
-  try {
-    const secret = process.env.RAZORPAY_WEBHOOK_SECRET || '';
-    const signature = req.header('X-Razorpay-Signature') || '';
-    const bodyBuf = Buffer.isBuffer(req.body) ? req.body : Buffer.from(req.body || '');
-
-    const expected = crypto.createHmac('sha256', secret).update(bodyBuf).digest('hex');
-    const ok =
-      signature.length === expected.length &&
-      crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(expected));
-
-    if (!ok) {
-      console.error('❌ Invalid Razorpay webhook signature');
-      return res.sendStatus(200); // still 200, retries se bacho
-    }
-
-    const event = JSON.parse(bodyBuf.toString('utf8'));
-
-    // ✅ ACK fast (under 5s)
-    res.sendStatus(200);
-
-    // ⏱️ Process asynchronously
-    process.nextTick(async () => {
-      try {
-        // TODO: idempotency check by event.id in DB
-        // TODO: handle event.event === 'payment.captured' / 'order.paid' / 'refund.processed' etc.
-      } catch (e) {
-        console.error('Webhook async error:', e);
-      }
-    });
-  } catch (e) {
-    console.error('Webhook handler error:', e);
-    return res.sendStatus(200);
-  }
-});
 
 // API Routes (public first)
 app.use('/api/auth', authRoutes);
 app.use('/api', phoneAuthRoutes)
-app.use('/api/webhooks', webhookRouter); 
+
 app.use('/api/products', productRoutes);
 app.use('/api/cart', cartRoutes);
 app.use('/api/orders', orderRoutes);
@@ -347,7 +308,7 @@ app.use('/api/help', helpRoutes);
 app.use('/api/support', supportRouter);
 app.use('/api', notificationRoutes);
 app.use('/api', returnRoutes);
-
+app.use('/api/webhooks', webhookRouter); 
 // Admin protected
 app.use('/api/admin',  adminRoutes);
 import shippingRoutes from './routes/shipping';
