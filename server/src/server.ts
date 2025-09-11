@@ -79,6 +79,7 @@ const devOrigins = [
 const runtimeFrontend = process.env.FRONTEND_URL?.trim();
 const prodOrigins = [
   'https://nakodamobile.in',
+  'https://www.nakodamobile.in',
  
   ...(runtimeFrontend ? [runtimeFrontend] : [])
 ];
@@ -157,6 +158,11 @@ const limiter = rateLimit({
   }
 });
 app.use('/api', limiter);
+// put this ABOVE app.use(cors(...))
+app.use((_, res, next) => {
+  res.header('Vary', 'Origin');
+  next();
+});
 
 // CORS
 app.use(
