@@ -1,38 +1,44 @@
-// src/types/index.ts - COMPLETE FIXED VERSION
-import { Types, Document } from 'mongoose';
-import { Request } from 'express';
+// src/types/index.ts – unified FE/BE types with GST + pricing + categories
+// Safe to import from both frontend and backend.
 
-// ✅ FIXED: Complete Product interface matching ProductCard usage
+import type { Types } from 'mongoose';
+import type { Request } from 'express';
+
+/**
+ * Shared Product shape (flexible for API responses)
+ */
 export interface Product {
-  brand?: any;
   _id?: string;
   id?: string;
   name: string;
-  description: string;
+  description?: string;
   price: number;
-  originalPrice?: number;
+  originalPrice?: number | null;
   category: string;
   subcategory?: string;
-  images: string[];
+  images?: string[];
   image?: string;
   primaryImage?: string;
   imageUrl?: string;
   thumbnail?: string;
-  rating: number;
-  reviewsCount: number;
-  inStock: boolean;
-  currency:string;
+  rating?: number;
+  reviewsCount?: number;
+  inStock?: boolean;
+  currency?: string; // default "INR" from UI when missing
   stockQuantity?: number;
-  features: string[];
-  specifications: Record<string, any>; // ✅ Fixed: Complete Record type
+  features?: string[];
+  specifications?: Record<string, any>;
   tags?: string[];
   isActive?: boolean;
-  createdAt?: Date;
-  updatedAt?: Date;
-  compareAtPrice?: number | null; 
+  createdAt?: Date | string;
+  updatedAt?: Date | string;
+  compareAtPrice?: number | null;
+  brand?: string;
 }
 
-// ✅ FIXED: Complete CartItem interface
+/**
+ * Cart item (frontend)
+ */
 export interface CartItem {
   product: string;
   id: string;
@@ -47,59 +53,70 @@ export interface CartItem {
   totalPrice?: number;
 }
 
-// ✅ FIXED: Complete User interface
+/**
+ * Basic user (frontend)
+ */
 export interface User {
-  token?: any;
   id: string;
   name: string;
   email: string;
   phone?: string;
   address?: Address;
+  role: 'user' | 'admin';
+  token?: any;
   isVerified?: boolean;
   twoFactorEnabled?: boolean;
-  role: 'user' | 'admin';
-} // ✅ Added closing brace
+}
 
 export interface Address {
-  street: string;
+  street?: string; // FE convenience (can be blank)
   city: string;
   state: string;
   pincode: string;
-  country: string;
-} // ✅ Added closing brace
-
-export interface Order {
-  id: string;
-  userId: string;
-  items: CartItem[];
-  total: number;
-  status: 'pending' | 'confirmed' | 'shipped' | 'delivered' | 'cancelled';
-  shippingAddress: Address;
-  paymentMethod: string;
-  createdAt: string;
+  country?: string;
 }
 
-export type OEMStatus =
-  | 'pending'
-  | 'contacted'
-  | 'quoted'
-  | 'closed';
+/**
+ * Categories used on the site (runtime constant for FE widgets like Clara)
+ */
+export const CATEGORIES = [
+  'Car Chargers',
+  'Bluetooth Neckbands',
+  'TWS',
+  'Data Cables',
+  'Mobile Chargers',
+  'Bluetooth Speakers',
+  'Power Banks',
+  'Integrated Circuits & Chips',
+  'Mobile Repairing Tools',
+  'Electronics',
+  'Accessories',
+  'Others',
+] as const;
+export type CategoryName = typeof CATEGORIES[number];
 
+/**
+ * OEM types (aligned to catalog)
+ */
+export type OEMStatus = 'pending' | 'contacted' | 'quoted' | 'closed';
 export type OEMCategory =
-  | 'TWS'
+  | 'Car Chargers'
   | 'Bluetooth Neckbands'
+  | 'TWS'
   | 'Data Cables'
   | 'Mobile Chargers'
-  | 'Mobile ICs'
+  | 'Bluetooth Speakers'
+  | 'Power Banks'
+  | 'Integrated Circuits & Chips'
   | 'Mobile Repairing Tools'
-  | 'Car Charger'
-  | 'Bluetooth Speaker'
-  | 'Power Bank'
-  | 'Custom'; // backend normalizes "Custom Product" -> "Custom"
+  | 'Electronics'
+  | 'Accessories'
+  | 'Others'
+  | 'Custom';
 
 export interface OEMInquiry {
   id: string;        // FE-normalized id
-  _id?: string;      // sometimes BE returns _id; keep optional to be safe
+  _id?: string;      // BE sometimes sends _id
   companyName: string;
   contactPerson: string;
   email: string;
@@ -108,12 +125,16 @@ export interface OEMInquiry {
   quantity: number;
   customization: string;
   message?: string;
-  status: OEMStatus; // <-- add this
+  status: OEMStatus;
   createdAt: string;
   updatedAt?: string;
 }
-// ✅ FIXED: Database interfaces with proper syntax
-export interface IUser extends Document {
+
+/**
+ * DB models (backend only — extend mongoose.Document)
+ */
+export interface IUser {
+  _id?: Types.ObjectId;
   name: string;
   email: string;
   password: string;
@@ -127,31 +148,33 @@ export interface IUser extends Document {
   updatedAt: Date;
 }
 
-export interface IProduct extends Document {
+export interface IProduct {
+  _id?: Types.ObjectId;
   name: string;
-  description: string;
+  description?: string;
   price: number;
   originalPrice?: number;
   category: string;
   subcategory?: string;
-  images: string[];
-  rating: number;
-  reviews: number;
-  inStock: boolean;
-  stockQuantity: number;
-  features: string[];
-  specifications: Record<string, any>;
-  tags: string[];
-  isActive: boolean;
+  images?: string[];
+  rating?: number;
+  reviews?: number;
+  inStock?: boolean;
+  stockQuantity?: number;
+  features?: string[];
+  specifications?: Record<string, any>;
+  tags?: string[];
+  isActive?: boolean;
   createdAt: Date;
   updatedAt: Date;
-   isOnSale?: boolean;
+  isOnSale?: boolean;
   views?: number;
   brand?: string;
   stock?: number;
 }
 
-export interface ICart extends Document {
+export interface ICart {
+  _id?: Types.ObjectId;
   userId: Types.ObjectId;
   items: {
     productId: Types.ObjectId;
@@ -163,11 +186,85 @@ export interface ICart extends Document {
   updatedAt: Date;
 }
 
-// ✅ FIXED: Complete Order interface with proper syntax
-export interface IOrder extends Document {
+/**
+ * GST payload & pricing blocks used by checkout and admin
+ */
+export interface GstDetails {
+  gstin: string;
+  legalName: string;
+  placeOfSupply: string; // state
+  email?: string;
+  requestedAt?: string;
+}
+
+export interface OrderPricing {
+  rawSubtotal: number;
+  discount: number;
+  discountLabel?: string;
+  coupon?: string;
+  couponFreeShipping?: boolean;
+  effectiveSubtotal: number;
+  tax: number;
+  shippingFee: number;
+  shippingAddedPostPack?: boolean;
+  codCharges: number;
+  giftWrapFee: number;
+  convenienceFee: number;
+  convenienceFeeGst: number;
+  convenienceFeeRate?: number;
+  convenienceFeeGstRate?: number;
+  gstSummary?: {
+    requested: boolean;
+    rate: number; // 0.18 for 18%
+    taxableValue: number;
+    gstAmount: number;
+  };
+  total: number;
+}
+
+/**
+ * Frontend Order shape
+ */
+export interface Order {
+  id?: string;
+  _id?: string;
+  orderNumber?: string;
+  userId?: string;
+  items: CartItem[];
+  subtotal?: number;
+  tax?: number;
+  shipping?: number;
+  total?: number;        // prefer this
+  totalAmount?: number;  // kept for compatibility
+  status: 'pending' | 'confirmed' | 'processing' | 'shipped' | 'delivered' | 'cancelled';
+  orderStatus?: 'pending' | 'confirmed' | 'processing' | 'shipped' | 'delivered' | 'cancelled';
+  paymentStatus?: 'awaiting_payment' | 'paid' | 'failed' | 'cod_pending' | 'cod_paid' | 'pending' | 'completed' | 'refunded';
+  shippingAddress: Address;
+  billingAddress?: Address;
+  paymentMethod: string;
+  extras?: {
+    orderNotes?: string;
+    wantGSTInvoice?: boolean;
+    gst?: GstDetails;
+    giftWrap?: boolean;
+  };
+  pricing?: OrderPricing;
+  trackingNumber?: string;
+  paidAt?: string | Date;
+  shippedAt?: string | Date;
+  deliveredAt?: string | Date;
+  createdAt?: string | Date;
+  updatedAt?: string | Date;
+}
+
+/**
+ * Backend Order (mongoose) — mirrors the FE order plus ObjectIds
+ */
+export interface IOrder {
+  _id?: Types.ObjectId;
   userId: Types.ObjectId;
   orderNumber?: string;
-  items: Array<{ // ✅ Fixed: Proper TypeScript syntax
+  items: Array<{
     productId: Types.ObjectId;
     name?: string;
     quantity: number;
@@ -205,18 +302,28 @@ export interface IOrder extends Document {
   subtotal: number;
   tax: number;
   shipping: number;
-  totalAmount: number;
+  total?: number;        // allow both
+  totalAmount?: number;  // legacy name in some code paths
   paymentStatus: 'awaiting_payment' | 'paid' | 'failed' | 'cod_pending' | 'cod_paid' | 'pending' | 'completed' | 'refunded';
   orderStatus: 'pending' | 'confirmed' | 'processing' | 'shipped' | 'delivered' | 'cancelled';
   trackingNumber?: string;
   paidAt?: Date;
   shippedAt?: Date;
   deliveredAt?: Date;
+  extras?: {
+    orderNotes?: string;
+    wantGSTInvoice?: boolean;
+    gst?: GstDetails;
+    giftWrap?: boolean;
+  };
+  pricing?: OrderPricing;
   createdAt: Date;
   updatedAt: Date;
 }
 
-export interface IOEMInquiry extends Document {
+/*** Reviews ***/
+export interface IOEMInquiry {
+  _id?: Types.ObjectId;
   companyName: string;
   contactPerson: string;
   email: string;
@@ -228,10 +335,10 @@ export interface IOEMInquiry extends Document {
   status: 'pending' | 'contacted' | 'quoted' | 'closed';
   createdAt: Date;
   updatedAt: Date;
-  
 }
 
-export interface IReview extends Document {
+export interface IReview {
+  _id?: Types.ObjectId;
   userId: Types.ObjectId;
   productId: Types.ObjectId;
   rating: number;
@@ -241,54 +348,26 @@ export interface IReview extends Document {
   updatedAt: Date;
 }
 
-export interface JwtPayload {
-  id: string;
-  role: string;
-}
-
+/** Auth/JWT **/
+export interface JwtPayload { id: string; role: string; }
 export interface AuthRequest extends Request {
-  user?: {
-    id: string;
-    email: string;
-    role: string;
-    name?: string;
-    phone?: string;
-    _id?: string;
-    isVerified?: boolean;
-    status?: string;
-  };
+  user?: { id: string; email: string; role: string; name?: string; phone?: string; _id?: string; isVerified?: boolean; status?: string; };
 }
 
-// ✅ FIXED: Complete PaymentOrderData interface
+/** Payment order creation payload (frontend → backend) **/
 export interface PaymentOrderData {
-  items: Array<{
-    productId: string;
-    quantity: number;
-    price: number;
-  }>;
+  items: Array<{ productId: string; quantity: number; price: number; }>;
   shippingAddress: IOrder['shippingAddress'];
   billingAddress?: IOrder['billingAddress'];
   subtotal: number;
   tax: number;
   shipping: number;
   total: number;
+  extras?: IOrder['extras'];
+  pricing?: IOrder['pricing'];
 }
 
-export interface AdminStats {
-  totalProducts: number;
-  totalOrders: number;
-  pendingOrders: number;
-  totalUsers: number;
-  lowStockItems: Array<{
-    productId: string;
-    name: string;
-    stockQuantity: number;
-  }>;
-}
-// frontend/src/types/index.ts
-// Your existing types...
-
-// Admin Dashboard Types (without Document extension)
+/** Admin dashboard helpers (frontend only) **/
 export interface ReturnedProduct {
   _id?: string;
   productId: string;
@@ -335,7 +414,6 @@ export interface Payment {
   updatedAt?: Date;
 }
 
-// Frontend-specific types
 export type ReturnStatus = 'all' | 'pending' | 'approved' | 'rejected';
 export type PaymentStatusFilter = 'all' | 'completed' | 'pending' | 'failed';
 export type DateFilter = 'today' | 'weekly' | 'monthly' | 'all';
@@ -365,10 +443,6 @@ export interface QualityAssessment {
   average: number;
   poor: number;
 }
-export type Language = 'en' | 'hi' | 'bn' | 'ta' | 'te' | 'mr' | 'gu';
 
-export interface UserPrefs {
-  notifications: boolean;
-  theme: 'light' | 'dark';
-  language: Language;
-}
+export type Language = 'en' | 'hi' | 'bn' | 'ta' | 'te' | 'mr' | 'gu';
+export interface UserPrefs { notifications: boolean; theme: 'light' | 'dark'; language: Language; }

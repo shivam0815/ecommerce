@@ -25,7 +25,7 @@ const MAX_ORDER_QTY = 500;
 const CATEGORY_MOQ: Record<string, number> = {
   "Car Chargers": 50,
   "Bluetooth Neckbands": 50,
-  TWS: 30,
+  "TWS": 30,
   "Data Cables": 50,
   "Mobile Chargers": 20,
   "Bluetooth Speakers": 20,

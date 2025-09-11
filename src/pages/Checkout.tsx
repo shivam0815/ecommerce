@@ -1,4 +1,3 @@
-// src/pages/CheckoutPage.tsx
 import React, { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -13,7 +12,6 @@ import {
   Mail,
   Lock,
   CheckCircle,
-  AlertCircle,
   Package,
   Tag,
   Gift,
@@ -37,30 +35,14 @@ interface Address {
   landmark: string;
 }
 
-const emptyAddress: Address = {
-  fullName: '',
-  phoneNumber: '',
-  email: '',
-  addressLine1: '',
-  addressLine2: '',
-  city: '',
-  state: '',
-  pincode: '',
-  landmark: '',
+// NEW — GST payload shape stored on the order
+type GstDetails = {
+  gstin: string;
+  legalName: string;
+  placeOfSupply: string; // State
+  email?: string;
+  requestedAt?: string;
 };
-
-// (Kept for reference; shipping is now added after packing, so not used here)
-const SHIPPING_FREE_THRESHOLD = 999;
-const BASE_SHIPPING_FEE = 100;
-
-const COD_FEE = 25;
-const GIFT_WRAP_FEE = 0;
-const FIRST_ORDER_RATE = 0.1; // 10%
-const FIRST_ORDER_CAP = 300;
-
-// Online payment fee & GST-on-fee (applies to Razorpay)
-const ONLINE_FEE_RATE = 0.02;      // 2% convenience fee (online methods only)
-const ONLINE_FEE_GST_RATE = 0.18;  // 18% GST on that convenience fee
 
 type CouponResult = {
   code: string;
@@ -76,6 +58,36 @@ type PaymentResult = {
   paymentId?: string | null;
   method: 'razorpay' | 'cod';
 };
+
+const emptyAddress: Address = {
+  fullName: '',
+  phoneNumber: '',
+  email: '',
+  addressLine1: '',
+  addressLine2: '',
+  city: '',
+  state: '',
+  pincode: '',
+  landmark: '',
+};
+
+// Simple state list for Place of Supply (trim or reorder as you like)
+const INDIAN_STATES = [
+  'Andhra Pradesh','Arunachal Pradesh','Assam','Bihar','Chhattisgarh','Delhi','Goa','Gujarat','Haryana','Himachal Pradesh','Jammu & Kashmir','Jharkhand','Karnataka','Kerala','Ladakh','Lakshadweep','Madhya Pradesh','Maharashtra','Manipur','Meghalaya','Mizoram','Nagaland','Odisha','Puducherry','Punjab','Rajasthan','Sikkim','Tamil Nadu','Telangana','Tripura','Uttar Pradesh','Uttarakhand','West Bengal','Chandigarh','Dadra & Nagar Haveli & Daman & Diu','Andaman & Nicobar Islands'
+];
+
+// (Kept for reference; shipping is now added after packing, so not used here)
+const SHIPPING_FREE_THRESHOLD = 999;
+const BASE_SHIPPING_FEE = 100;
+
+const COD_FEE = 25;
+const GIFT_WRAP_FEE = 0;
+const FIRST_ORDER_RATE = 0.1; // 10%
+const FIRST_ORDER_CAP = 300;
+
+// Online payment fee & GST-on-fee (applies to Razorpay)
+const ONLINE_FEE_RATE = 0.02;      // 2% convenience fee (online methods only)
+const ONLINE_FEE_GST_RATE = 0.18;  // 18% GST on that convenience fee
 
 const formatINR = (n: number) => `₹${Math.max(0, Math.round(n)).toLocaleString()}`;
 
@@ -94,14 +106,19 @@ const CheckoutPage: React.FC = () => {
   const [billing, setBilling] = useState<Address>(emptyAddress);
   const [sameAsShipping, setSameAsShipping] = useState(true);
 
-  // UI / method / errors
+  // Payment / errors
   const [method, setMethod] = useState<'razorpay' | 'cod'>('razorpay');
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   // Extras
   const [orderNotes, setOrderNotes] = useState('');
   const [wantGSTInvoice, setWantGSTInvoice] = useState(false);
-  const [gstNumber, setGstNumber] = useState('');
+  const [gst, setGst] = useState<GstDetails>({
+    gstin: '',
+    legalName: '',
+    placeOfSupply: '',
+    email: user?.email || '',
+  });
   const [giftWrap, setGiftWrap] = useState(false);
 
   // Coupons & first order
@@ -176,9 +193,7 @@ const CheckoutPage: React.FC = () => {
 
   // Derived numbers
   const couponDiscount = appliedCoupon?.amount || 0;
-
-  // pick the best single monetary discount between coupon & first order (no stacking monetary)
-  const monetaryDiscount = Math.max(couponDiscount, firstOrderDiscount);
+  const monetaryDiscount = Math.max(couponDiscount, firstOrderDiscount); // no stacking of ₹ discounts
 
   const discountLabel = useMemo(() => {
     if (appliedCoupon && appliedCoupon.amount >= firstOrderDiscount && appliedCoupon.amount > 0) {
@@ -230,7 +245,7 @@ const CheckoutPage: React.FC = () => {
     } catch {}
   }, []);
 
-  // Handlers
+  // Helpers
   const handleAddr =
     (setter: React.Dispatch<React.SetStateAction<Address>>) =>
     (field: keyof Address, value: string) => {
@@ -246,8 +261,7 @@ const CheckoutPage: React.FC = () => {
 
     // Shipping
     if (!shipping.fullName.trim()) e.fullName = 'Full name is required';
-    if (!regPhone.test(shipping.phoneNumber.replace(/\D/g, '')))
-      e.phoneNumber = 'Please enter a valid 10-digit phone number';
+    if (!regPhone.test(shipping.phoneNumber.replace(/\D/g, ''))) e.phoneNumber = 'Please enter a valid 10-digit phone number';
     if (!regEmail.test(shipping.email)) e.email = 'Please enter a valid email address';
     if (!shipping.addressLine1.trim()) e.addressLine1 = 'Address is required';
     if (!shipping.city.trim()) e.city = 'City is required';
@@ -257,8 +271,7 @@ const CheckoutPage: React.FC = () => {
     // Billing (if different)
     if (!sameAsShipping) {
       if (!billing.fullName.trim()) e.billing_fullName = 'Billing name required';
-      if (!regPhone.test(billing.phoneNumber.replace(/\D/g, '')))
-        e.billing_phoneNumber = 'Valid 10-digit phone required';
+      if (!regPhone.test(billing.phoneNumber.replace(/\D/g, ''))) e.billing_phoneNumber = 'Valid 10-digit phone required';
       if (!regEmail.test(billing.email)) e.billing_email = 'Valid email required';
       if (!billing.addressLine1.trim()) e.billing_addressLine1 = 'Billing address required';
       if (!billing.city.trim()) e.billing_city = 'Billing city required';
@@ -266,140 +279,158 @@ const CheckoutPage: React.FC = () => {
       if (!regPin.test(billing.pincode)) e.billing_pincode = 'Valid 6-digit pincode required';
     }
 
-    // GST simple check (optional)
-    if (wantGSTInvoice && gstNumber && gstNumber.trim().length < 10) {
-      e.gst = 'Please enter a valid GSTIN';
+    // GST validations (only when requested)
+    if (wantGSTInvoice) {
+      const GSTIN_REGEX = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z]{1}[1-9A-Z]{1}Z[0-9A-Z]{1}$/i;
+      if (!gst.gstin || !GSTIN_REGEX.test(gst.gstin.trim())) {
+        e.gst_gstin = 'Please enter a valid 15-character GSTIN';
+      }
+      if (!gst.legalName.trim()) {
+        e.gst_legalName = 'Legal/Business name is required';
+      }
+      if (!gst.placeOfSupply.trim()) {
+        e.gst_placeOfSupply = 'Place of supply (state) is required';
+      }
+      if (gst.email && !regEmail.test(gst.email)) {
+        e.gst_email = 'Enter a valid email';
+      }
     }
 
     setErrors(e);
     return Object.keys(e).length === 0;
   };
 
-const onSubmit = async (ev: React.FormEvent) => {
-  ev.preventDefault();
+  const onSubmit = async (ev: React.FormEvent) => {
+    ev.preventDefault();
 
-  if (!validate()) {
-    toast.error('Please correct the errors below');
-    return;
-  }
+    if (!validate()) {
+      toast.error('Please correct the errors below');
+      return;
+    }
 
-  try {
-    // Save address locally (for next time)
-    localStorage.setItem('checkout:shipping', JSON.stringify(shipping));
+    try {
+      // Save address locally (for next time)
+      localStorage.setItem('checkout:shipping', JSON.stringify(shipping));
 
-    const orderData = {
-      items: cartItems.map((item: any) => ({
-        productId: item.productId || item.id,
-        name: item.name,                       // for success page fallback
-        image: item.image || item.img,         // for success page fallback
-        quantity: item.quantity,
-        price: item.price,
-      })),
-      // @ts-ignore
-      shippingAddress: shipping,
-      // @ts-ignore
-      billingAddress: sameAsShipping ? shipping : billing,
-      extras: {
-        orderNotes: orderNotes.trim() || undefined,
-        wantGSTInvoice,
-        gstNumber: wantGSTInvoice && gstNumber ? gstNumber.trim() : undefined,
-        giftWrap,
-      },
-      pricing: {
-        rawSubtotal,
-        discount: monetaryDiscount,
-        discountLabel: discountLabel || undefined,
-        coupon: appliedCoupon?.code || undefined,
-        couponFreeShipping: appliedCoupon?.freeShipping || false,
-        effectiveSubtotal,
-        tax,
-        shippingFee,                 // 0 at checkout
-        shippingAddedPostPack,       // flag for backend
-        codCharges,
-        giftWrapFee,
+      const orderData = {
+        items: cartItems.map((item: any) => ({
+          productId: item.productId || item.id,
+          name: item.name,
+          image: item.image || item.img,
+          quantity: item.quantity,
+          price: item.price,
+        })),
+        // @ts-ignore
+        shippingAddress: shipping,
+        // @ts-ignore
+        billingAddress: sameAsShipping ? shipping : billing,
+        extras: {
+          orderNotes: orderNotes.trim() || undefined,
+          wantGSTInvoice,
+          gst: wantGSTInvoice
+            ? {
+                gstin: gst.gstin.trim(),
+                legalName: gst.legalName.trim(),
+                placeOfSupply: gst.placeOfSupply,
+                email: gst.email?.trim() || undefined,
+                requestedAt: new Date().toISOString(),
+              }
+            : undefined,
+          giftWrap,
+        },
+        pricing: {
+          rawSubtotal,
+          discount: monetaryDiscount,
+          discountLabel: discountLabel || undefined,
+          coupon: appliedCoupon?.code || undefined,
+          couponFreeShipping: appliedCoupon?.freeShipping || false,
+          effectiveSubtotal,
+          tax,
+          shippingFee,                 // 0 at checkout
+          shippingAddedPostPack,       // flag for backend
+          codCharges,
+          giftWrapFee,
 
-        // Online fee details (ignored if COD)
-        convenienceFee,
-        convenienceFeeGst,
-        convenienceFeeRate: ONLINE_FEE_RATE,
-        convenienceFeeGstRate: ONLINE_FEE_GST_RATE,
+          // Online fee details (ignored if COD)
+          convenienceFee,
+          convenienceFeeGst,
+          convenienceFeeRate: ONLINE_FEE_RATE,
+          convenienceFeeGstRate: ONLINE_FEE_GST_RATE,
 
+          // Nice to have for admin rendering
+          gstSummary: {
+            requested: wantGSTInvoice,
+            rate: 0.18,
+            taxableValue: effectiveSubtotal, // adjust if your prices are GST-inclusive
+            gstAmount: tax,
+          },
+
+          total,
+        },
+      };
+
+      const userDetails = {
+        name: shipping.fullName,
+        email: shipping.email,
+        phone: shipping.phoneNumber,
+      };
+
+      const result = (await processPayment(
         total,
-      },
-    };
+        method,
+        orderData,
+        userDetails
+      )) as PaymentResult;
 
-    const userDetails = {
-      name: shipping.fullName,
-      email: shipping.email,
-      phone: shipping.phoneNumber,
-    };
+      if (!result?.success) return;
 
-    const result = (await processPayment(
-      total,
-      method,
-      orderData,
-      userDetails
-    )) as PaymentResult;
+      // If a hosted checkout handled redirection/overlay, nothing else to do.
+      if (result.redirected) return;
 
-    if (!result?.success) return;
+      // Success path (COD / Razorpay)
+      clearCart();
+      localStorage.setItem('hasOrderedBefore', '1');
 
-    // If a hosted checkout handled redirection/overlay, nothing else to do.
-    if (result.redirected) return;
+      const ord = result.order || {};
 
-    // Success path (COD / Razorpay)
-    clearCart();
-    localStorage.setItem('hasOrderedBefore', '1');
+      const orderId =
+        ord.orderNumber ||
+        ord._id ||
+        ord.paymentOrderId ||
+        ord.paymentId ||
+        null;
 
-    const ord = result.order || {};
+      const successState = {
+        orderId,
+        order: ord,
+        paymentMethod: result.method,
+        paymentId: result.paymentId ?? null,
+      };
 
-    // Prefer your DB fields first
-    const orderId =
-      ord.orderNumber ||
-      ord._id ||
-      ord.paymentOrderId || // good fallback for COD
-      ord.paymentId ||
-      null;
+      const snapshot = {
+        orderNumber: ord.orderNumber ?? orderId ?? undefined,
+        _id: ord._id ?? orderId ?? undefined,
+        total: ord.total ?? ord.amount ?? total,
+        createdAt: ord.createdAt ?? new Date().toISOString(),
+        items: Array.isArray(ord.items) && ord.items.length ? ord.items : orderData.items,
+        shippingAddress: ord.shippingAddress ?? shipping,
+      };
 
-    const successState = {
-      orderId,
-      order: ord,
-      paymentMethod: result.method,
-      paymentId: result.paymentId ?? null,
-    };
+      localStorage.setItem(
+        'lastOrderSuccess',
+        JSON.stringify({
+          ...successState,
+          snapshot,
+        })
+      );
 
-    // Build a robust snapshot for refresh/direct open
-    const snapshot = {
-      // Put ID variants here so success page can always display it
-      orderNumber: ord.orderNumber ?? orderId ?? undefined,
-      _id: ord._id ?? orderId ?? undefined,
-
-      total: ord.total ?? ord.amount ?? total,
-      createdAt: ord.createdAt ?? new Date().toISOString(),
-
-      // Prefer backend items; else fall back to what we sent
-      items: Array.isArray(ord.items) && ord.items.length ? ord.items : orderData.items,
-
-      // Prefer backend address; else use the form state
-      shippingAddress: ord.shippingAddress ?? shipping,
-    };
-
-    // Persist for reload / direct open
-    localStorage.setItem(
-      'lastOrderSuccess',
-      JSON.stringify({
-        ...successState,
-        snapshot,
-      })
-    );
-
-    // Also add the id to the URL for easy debugging/sharing
-    const qs = orderId ? `?id=${encodeURIComponent(orderId)}` : '';
-    navigate(`/order-success${qs}`, { state: successState, replace: true });
-  } catch (error: any) {
-    console.error('Checkout error:', error);
-    toast.error(error?.message || 'Checkout failed. Please try again.');
-  }
-};
+      const qs = orderId ? `?id=${encodeURIComponent(orderId)}` : '';
+      navigate(`/order-success${qs}`, { state: successState, replace: true });
+    } catch (error: any) {
+      console.error('Checkout error:', error);
+      toast.error(error?.message || 'Checkout failed. Please try again.');
+    }
+  };
 
   // Loading state
   if (cartLoading) {
@@ -969,19 +1000,56 @@ const onSubmit = async (ev: React.FormEvent) => {
                   <input
                     type="checkbox"
                     checked={wantGSTInvoice}
-                    onChange={(e) => setWantGSTInvoice(e.target.checked)}
+                    onChange={(e) => {
+                      const checked = e.target.checked;
+                      setWantGSTInvoice(checked);
+                      if (!checked) setGst({ gstin: '', legalName: '', placeOfSupply: '', email: user?.email || '' });
+                    }}
                   />
                   <span className="text-sm text-gray-800">Need GST invoice</span>
                 </div>
 
                 {wantGSTInvoice && (
-                  <div className="w-full sm:w-1/2">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                     <Input
-                      field="gst"
-                      label="GSTIN"
-                      value={gstNumber}
-                      onChange={(v) => setGstNumber(v.toUpperCase())}
-                      placeholder="15-digit GSTIN"
+                      field="gst_gstin"
+                      label="GSTIN *"
+                      value={gst.gstin}
+                      onChange={(v) => setGst((s) => ({ ...s, gstin: v.toUpperCase().slice(0, 15) }))}
+                      placeholder="15-character GSTIN"
+                      errors={errors}
+                    />
+                    <Input
+                      field="gst_legalName"
+                      label="Legal / Business Name *"
+                      value={gst.legalName}
+                      onChange={(v) => setGst((s) => ({ ...s, legalName: v }))}
+                      placeholder="Registered legal name"
+                      errors={errors}
+                    />
+
+                    <div className="sm:col-span-1">
+                      <label className="block text-sm font-semibold text-gray-800 mb-2">Place of Supply (State) *</label>
+                      <select
+                        value={gst.placeOfSupply}
+                        onChange={(e) => setGst((s) => ({ ...s, placeOfSupply: e.target.value }))}
+                        className="w-full px-4 py-3 border-2 rounded-xl bg-gray-50 border-gray-200 focus:bg-white focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 transition-all"
+                      >
+                        <option value="">Select state…</option>
+                        {INDIAN_STATES.map((st) => (
+                          <option key={st} value={st}>{st}</option>
+                        ))}
+                      </select>
+                      {errors.gst_placeOfSupply && <p className="mt-1 text-xs text-red-600">{errors.gst_placeOfSupply}</p>}
+                    </div>
+
+                    <Input
+                      field="gst_email"
+                      label="Business Email (optional)"
+                      type="email"
+                      value={gst.email || ''}
+                      onChange={(v) => setGst((s) => ({ ...s, email: v }))}
+                      placeholder="For sending GST invoice"
                       errors={errors}
                     />
                   </div>
