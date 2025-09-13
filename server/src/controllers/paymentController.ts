@@ -1,15 +1,13 @@
-// src/controllers/paymentController.ts - COMPLETE FIXED VERSION
+// src/controllers/paymentController.ts - COMPLETE FIXED VERSION (GST persisted)
 import { Request, Response } from 'express';
 import Razorpay from 'razorpay';
 import crypto from 'crypto';
-import { PaymentOrderData } from '../types';
+import mongoose from 'mongoose';
 import Order from '../models/Order';
 import Cart from '../models/Cart';
 import Payment from '../models/Payment';
-import { decrementStockForOrder } from '../services/inventory.service'; 
 import { startOfDay, endOfDay } from 'date-fns';
 
-// ✅ Define the authenticated user type
 interface AuthenticatedUser {
   id: string;
   role: string;
@@ -19,215 +17,217 @@ interface AuthenticatedUser {
   twoFactorEnabled?: boolean;
 }
 
-// ✅ Initialize Razorpay with error handling
 const razorpay = new Razorpay({
   key_id: process.env.RAZORPAY_KEY_ID!,
   key_secret: process.env.RAZORPAY_KEY_SECRET!,
 });
 
-// ✅ CRITICAL FIX: Generate unique order number
+/* ----------------------- GST helpers (same logic as orderController) ----------------------- */
+const cleanGstin = (s?: any) =>
+  (s ?? '').toString().toUpperCase().replace(/[^0-9A-Z]/g, '').slice(0, 15);
+
+function buildGstBlock(
+  payload: any,
+  shippingAddress: any,
+  computed: { subtotal: number; tax: number }
+) {
+  const ex = payload?.orderData?.extras ?? payload?.extras ?? {};
+
+  const rawGstin =
+    ex.gstin ??
+    ex.gstNumber ??
+    ex.gst?.gstin ??
+    ex.gst?.gstNumber ??
+    payload?.gst?.gstin ??
+    payload?.gstNumber ??
+    payload?.gstin;
+
+  const gstin = cleanGstin(rawGstin);
+
+  const wantInvoice =
+    Boolean(
+      ex.wantGSTInvoice ??
+        ex.gst?.wantInvoice ??
+        payload?.needGSTInvoice ??
+        payload?.needGstInvoice ??
+        payload?.gst?.wantInvoice ??
+        payload?.gst?.requested
+    ) || !!gstin;
+
+  const taxPercent =
+    Number(payload?.pricing?.gstPercent ?? payload?.orderData?.pricing?.gstPercent ?? payload?.pricing?.taxRate) ||
+    (computed.subtotal > 0 ? Math.round((computed.tax / computed.subtotal) * 100) : 0);
+
+  const clientRequestedAt =
+    ex.gst?.requestedAt ??
+    payload?.gst?.requestedAt ??
+    ex.requestedAt ??
+    payload?.requestedAt;
+
+  const requestedAt = clientRequestedAt
+    ? new Date(clientRequestedAt)
+    : wantInvoice
+    ? new Date()
+    : undefined;
+
+  return {
+    wantInvoice,
+    gstin: gstin || undefined,
+    legalName:
+      (ex.gst?.legalName ??
+        ex.gstLegalName ??
+        payload?.gst?.legalName ??
+        shippingAddress?.fullName)?.toString().trim() || undefined,
+    placeOfSupply:
+      (ex.gst?.placeOfSupply ??
+        ex.placeOfSupply ??
+        payload?.gst?.placeOfSupply ??
+        shippingAddress?.state)?.toString().trim() || undefined,
+    taxPercent,
+    taxBase: computed.subtotal || 0,
+    taxAmount: computed.tax || 0,
+    requestedAt,
+    email:
+      (ex.gst?.email ??
+        payload?.gst?.email ??
+        shippingAddress?.email)?.toString().trim() || undefined,
+  };
+}
+
+/* ----------------------- utils ----------------------- */
 const generateOrderNumber = (): string => {
-  const timestamp = Date.now();
-  const random = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
-  return `ORD${timestamp}${random}`;
+  const ts = Date.now();
+  const rnd = Math.floor(Math.random() * 1000).toString().padStart(3, '0');
+  return `ORD${ts}${rnd}`;
 };
 
-export const createPaymentOrder = async (
-  req: Request,
-  res: Response
-): Promise<void> => {
+/* ===========================================================================================
+   CREATE PAYMENT ORDER  —  this is where GST must be persisted
+=========================================================================================== */
+export const createPaymentOrder = async (req: Request, res: Response): Promise<void> => {
   try {
     const { amount, currency = 'INR', paymentMethod, orderData } = req.body;
     const user = req.user as AuthenticatedUser;
 
-    console.log('🔍 Creating payment order:', {
-      userId: user?.id,
-      amount,
-      paymentMethod,
-      hasOrderData: !!orderData,
-      timestamp: new Date().toISOString()
-    });
-
-    // ✅ Check environment variables first
     if (!process.env.RAZORPAY_KEY_ID || !process.env.RAZORPAY_KEY_SECRET) {
-      console.error('❌ Missing Razorpay environment variables');
-      res.status(500).json({
-        success: false,
-        message: 'Payment gateway configuration error'
-      });
+      res.status(500).json({ success: false, message: 'Payment gateway configuration error' });
       return;
     }
-
-    // ✅ Validate user authentication
     if (!user) {
-      console.error('❌ User not authenticated');
-      res.status(401).json({
-        success: false,
-        message: 'User not authenticated'
-      });
+      res.status(401).json({ success: false, message: 'User not authenticated' });
       return;
     }
-
-    // ✅ Validate amount
     if (!amount || amount <= 0) {
-      console.error('❌ Invalid amount:', amount);
-      res.status(400).json({
-        success: false,
-        message: 'Invalid amount'
-      });
+      res.status(400).json({ success: false, message: 'Invalid amount' });
       return;
     }
-
-    // ✅ Validate orderData
-    if (!orderData || !orderData.items || orderData.items.length === 0) {
-      console.error('❌ Invalid order data');
-      res.status(400).json({
-        success: false,
-        message: 'Invalid order data - items are required'
-      });
+    if (!orderData || !orderData.items?.length) {
+      res.status(400).json({ success: false, message: 'Invalid order data - items are required' });
       return;
     }
-
-    // ✅ Validate shipping address
     if (!orderData.shippingAddress) {
-      console.error('❌ Missing shipping address');
-      res.status(400).json({
-        success: false,
-        message: 'Shipping address is required'
-      });
+      res.status(400).json({ success: false, message: 'Shipping address is required' });
       return;
     }
 
-    let paymentOrderId: string;
+    let paymentOrderId = '';
 
-    switch (paymentMethod) {
-      case 'razorpay':
-        console.log('💳 Creating Razorpay order...');
-        
-        try {
-          // ✅ CRITICAL FIX: Generate shorter receipt (max 40 chars)
-          const timestamp = Date.now().toString().slice(-8); // Last 8 digits
-          const userIdShort = user.id.slice(-8); // Last 8 chars of user ID
-          const shortReceipt = `ord_${timestamp}_${userIdShort}`; // 21 chars total
-          
-          console.log('📋 Receipt generated:', shortReceipt, `(${shortReceipt.length} chars)`);
+    if (paymentMethod === 'razorpay') {
+      const shortReceipt = `ord_${Date.now().toString().slice(-8)}_${user.id.slice(-8)}`;
+      if (shortReceipt.length > 40) throw new Error(`Receipt too long (${shortReceipt.length})`);
 
-          // ✅ Validate receipt length (Razorpay max: 40 chars)
-          if (shortReceipt.length > 40) {
-            throw new Error(`Receipt too long: ${shortReceipt.length} chars (max 40)`);
-          }
-
-          const razorpayOrder = await razorpay.orders.create({
-            amount: Math.round(amount * 100), // Convert to paise
-            currency,
-            receipt: shortReceipt, // ✅ FIXED: Now under 40 chars
-            notes: {
-              userId: user.id,
-              orderType: 'product_purchase',
-              itemCount: orderData.items.length,
-              customerEmail: user.email || 'unknown',
-              fullTimestamp: Date.now().toString() // Store full timestamp in notes
-            }
-          });
-          
-          console.log('✅ Razorpay order created:', razorpayOrder.id);
-          paymentOrderId = razorpayOrder.id;
-        } catch (razorpayError: any) {
-          console.error('❌ Razorpay order creation failed:', {
-            error: razorpayError.message,
-            statusCode: razorpayError.statusCode,
-            details: razorpayError.error || razorpayError
-          });
-          res.status(500).json({
-            success: false,
-            message: 'Failed to create Razorpay order',
-            error: razorpayError.message || 'Razorpay API error'
-          });
-          return;
-        }
-        break;
-
-      case 'cod':
-        console.log('💰 Creating COD order...');
-        const timestamp = Date.now().toString().slice(-8);
-        const userIdShort = user.id.slice(-8);
-        paymentOrderId = `cod_${timestamp}_${userIdShort}`; // Consistent format
-        break;
-
-      default:
-        console.error('❌ Invalid payment method:', paymentMethod);
-        res.status(400).json({
-          success: false,
-          message: 'Invalid payment method. Supported: razorpay, cod'
-        });
-        return;
+      const razorpayOrder = await razorpay.orders.create({
+        amount: Math.round(amount * 100),
+        currency,
+        receipt: shortReceipt,
+        notes: {
+          userId: user.id,
+          orderType: 'product_purchase',
+          itemCount: orderData.items.length,
+          customerEmail: user.email || 'unknown',
+          fullTimestamp: Date.now().toString(),
+        },
+      });
+      paymentOrderId = razorpayOrder.id;
+    } else if (paymentMethod === 'cod') {
+      paymentOrderId = `cod_${Date.now().toString().slice(-8)}_${user.id.slice(-8)}`;
+    } else {
+      res.status(400).json({ success: false, message: 'Invalid payment method. Supported: razorpay, cod' });
+      return;
     }
 
-    // ✅ CRITICAL FIX: Generate unique order number to fix duplicate key error
-    const orderNumber = generateOrderNumber();
-    console.log('🔢 Generated order number:', orderNumber);
+    // Compute/fallback pricing if frontend didn’t send them
+    const fallbackSubtotal =
+      typeof orderData.subtotal === 'number'
+        ? orderData.subtotal
+        : orderData.items.reduce(
+            (s: number, it: any) => s + Number(it.price || 0) * Number(it.quantity || 1),
+            0
+          );
 
-    // ✅ Create order in database
-    console.log('💾 Creating database order...');
-    
+    const subtotal = Math.max(0, Number(fallbackSubtotal));
+    const tax = typeof orderData.tax === 'number' ? Number(orderData.tax) : Math.round(subtotal * 0.18);
+    const shipping = typeof orderData.shipping === 'number' ? Number(orderData.shipping) : 0;
+    const total = typeof orderData.total === 'number' ? Number(orderData.total) : amount;
+
+    // Build GST from payload
+    const gstBlock = buildGstBlock(req.body, orderData.shippingAddress, { subtotal, tax });
+
     const order = new Order({
-      userId: user.id,
-      orderNumber: orderNumber, // ✅ ADDED: Unique order number
+      userId: new mongoose.Types.ObjectId(user.id),
+      orderNumber: generateOrderNumber(),
       items: orderData.items,
       shippingAddress: orderData.shippingAddress,
       billingAddress: orderData.billingAddress || orderData.shippingAddress,
       paymentMethod,
       paymentOrderId,
-      subtotal: orderData.subtotal || 0,
-      tax: orderData.tax || 0,
-      shipping: orderData.shipping || 0,
-      total: amount, // ✅ FIXED: Use 'total' not 'totalAmount'
-      status: 'pending', // ✅ ADDED: status field
+      subtotal,
+      tax,
+      shipping,
+      total,
+      status: 'pending',
       orderStatus: 'pending',
       paymentStatus: paymentMethod === 'cod' ? 'cod_pending' : 'awaiting_payment',
+      gst: gstBlock, // ⬅️ PERSIST GST
+      customerNotes:
+        (orderData?.extras?.orderNotes || '').toString().trim() || undefined,
       createdAt: new Date(),
-      updatedAt: new Date()
+      updatedAt: new Date(),
     });
 
     await order.save();
-    console.log('✅ Order created in database with orderNumber:', order.orderNumber);
 
     res.json({
       success: true,
       orderId: order._id,
-      orderNumber: order.orderNumber, // ✅ Include in response
+      orderNumber: order.orderNumber,
       paymentOrderId,
-      amount,
+      amount: total,
       currency,
       paymentMethod,
-      razorpayKeyId: process.env.RAZORPAY_KEY_ID, // ✅ For frontend
+      razorpayKeyId: process.env.RAZORPAY_KEY_ID,
       order: {
         _id: order._id,
         orderNumber: order.orderNumber,
         total: order.total,
         orderStatus: order.orderStatus,
         paymentStatus: order.paymentStatus,
-        items: order.items
-      }
+        items: order.items,
+        gst: order.gst, // ⬅️ return for quick verification
+      },
     });
-
   } catch (error: any) {
-    console.error('❌ Payment order creation error:', {
-      message: error.message,
-      stack: error.stack,
-      name: error.name,
-      timestamp: new Date().toISOString()
-    });
-    
+    console.error('❌ Payment order creation error:', error);
     res.status(500).json({
       success: false,
       message: error.message || 'Failed to create payment order',
-      error: process.env.NODE_ENV === 'development' ? error.stack : undefined
     });
   }
 };
 
-// In your paymentController.ts - CRITICAL FIX
+/* ===========================================================================================
+   VERIFY PAYMENT — unchanged logic, kept for completeness
+=========================================================================================== */
 export const verifyPayment = async (req: Request, res: Response): Promise<void> => {
   try {
     const user = req.user as AuthenticatedUser;
@@ -237,51 +237,35 @@ export const verifyPayment = async (req: Request, res: Response): Promise<void> 
     const signature = body.signature ?? body.razorpay_signature;
     const paymentMethod = body.paymentMethod;
 
-    console.log('🔍 Verifying payment:', {
-      paymentId, orderId, paymentMethod, userId: user?.id, ts: new Date().toISOString()
-    });
-
     if (!user) {
       res.status(401).json({ success: false, message: 'User not authenticated' });
       return;
     }
-
     if (!paymentId || !orderId || !paymentMethod) {
       res.status(400).json({ success: false, message: 'Missing required payment verification data' });
       return;
     }
 
     let paymentVerified = false;
-
-    switch (paymentMethod) {
-      case 'razorpay': {
-        if (!signature) {
-          res.status(400).json({ success: false, message: 'Payment signature is required for Razorpay' });
-          return;
-        }
-        if (!process.env.RAZORPAY_KEY_SECRET) {
-          console.error('❌ RAZORPAY_KEY_SECRET missing');
-          res.status(500).json({ success: false, message: 'Payment gateway misconfiguration' });
-          return;
-        }
-        const payload = `${orderId}|${paymentId}`;
-        const expected = crypto.createHmac('sha256', process.env.RAZORPAY_KEY_SECRET)
-          .update(payload)
-          .digest('hex');
-
-        paymentVerified = expected === signature;
-        console.log('🔐 Razorpay signature verification:', { verified: paymentVerified });
-        break;
-      }
-
-      case 'cod':
-        paymentVerified = true;
-        console.log('💰 COD payment auto-verified');
-        break;
-
-      default:
-        res.status(400).json({ success: false, message: 'Invalid payment method for verification' });
+    if (paymentMethod === 'razorpay') {
+      if (!signature) {
+        res.status(400).json({ success: false, message: 'Payment signature is required for Razorpay' });
         return;
+      }
+      if (!process.env.RAZORPAY_KEY_SECRET) {
+        res.status(500).json({ success: false, message: 'Payment gateway misconfiguration' });
+        return;
+      }
+      const expected = crypto
+        .createHmac('sha256', process.env.RAZORPAY_KEY_SECRET)
+        .update(`${orderId}|${paymentId}`)
+        .digest('hex');
+      paymentVerified = expected === signature;
+    } else if (paymentMethod === 'cod') {
+      paymentVerified = true;
+    } else {
+      res.status(400).json({ success: false, message: 'Invalid payment method for verification' });
+      return;
     }
 
     if (!paymentVerified) {
@@ -295,7 +279,6 @@ export const verifyPayment = async (req: Request, res: Response): Promise<void> 
       return;
     }
 
-    // 🔒 Safe compare
     const same = (v: any) => (v && v.toString ? v.toString() : String(v));
     if (same(order.userId) !== same(user.id)) {
       res.status(403).json({ success: false, message: 'Unauthorized access to order' });
@@ -311,8 +294,6 @@ export const verifyPayment = async (req: Request, res: Response): Promise<void> 
     order.updatedAt       = new Date();
     await order.save();
 
-    console.log('✅ Order updated:', { orderNumber: order.orderNumber });
-
     await Payment.findOneAndUpdate(
       { transactionId: paymentId },
       {
@@ -324,17 +305,12 @@ export const verifyPayment = async (req: Request, res: Response): Promise<void> 
         status: 'completed',
         transactionId: paymentId,
         orderId: order.id.toString(),
-        paymentDate: new Date()
+        paymentDate: new Date(),
       },
       { upsert: true, new: true }
     );
 
-    try {
-      await Cart.findOneAndDelete({ userId: user.id });
-      console.log('🛒 Cart cleared successfully');
-    } catch (cartError) {
-      console.error('⚠️ Cart clearing failed:', cartError);
-    }
+    try { await Cart.findOneAndDelete({ userId: user.id }); } catch {}
 
     const populatedOrder = await Order.findById(order._id).populate('items.productId');
     res.json({
@@ -345,63 +321,29 @@ export const verifyPayment = async (req: Request, res: Response): Promise<void> 
         paymentId,
         paymentMethod,
         amount: order.total,
-        paidAt: order.paidAt
-      }
+        paidAt: order.paidAt,
+      },
     });
   } catch (error: any) {
-    console.error('❌ Payment verification error:', error);
     res.status(500).json({ success: false, error: error?.message || 'Payment verification failed' });
   }
 };
 
-
-
-export const getPaymentStatus = async (
-  req: Request,
-  res: Response
-): Promise<void> => {
+/* ===========================================================================================
+   Status / listings – unchanged
+=========================================================================================== */
+export const getPaymentStatus = async (req: Request, res: Response): Promise<void> => {
   try {
     const { orderId } = req.params;
     const user = req.user as AuthenticatedUser;
 
-    console.log('📊 Getting payment status:', {
-      orderId,
-      userId: user?.id
-    });
-
-    if (!user) {
-      res.status(401).json({
-        success: false,
-        message: 'User not authenticated'
-      });
-      return;
-    }
-
-    if (!orderId) {
-      res.status(400).json({
-        success: false,
-        message: 'Order ID is required'
-      });
-      return;
-    }
+    if (!user) { res.status(401).json({ success: false, message: 'User not authenticated' }); return; }
+    if (!orderId) { res.status(400).json({ success: false, message: 'Order ID is required' }); return; }
 
     const order = await Order.findById(orderId).populate('items.productId');
-
-    if (!order) {
-      res.status(404).json({
-        success: false,
-        message: 'Order not found'
-      });
-      return;
-    }
-
-    // ✅ FIXED: Correct authorization logic (! added)
+    if (!order) { res.status(404).json({ success: false, message: 'Order not found' }); return; }
     if (!order.userId.equals(user.id)) {
-      console.error('❌ Unauthorized order access in getPaymentStatus');
-      res.status(403).json({
-        success: false,
-        message: 'Unauthorized access to order'
-      });
+      res.status(403).json({ success: false, message: 'Unauthorized access to order' });
       return;
     }
 
@@ -414,66 +356,44 @@ export const getPaymentStatus = async (
         total: order.total,
         paymentMethod: order.paymentMethod,
         createdAt: order.createdAt,
-        paidAt: order.paidAt
-      }
+        paidAt: order.paidAt,
+      },
     });
-
   } catch (error: any) {
-    console.error('❌ Get payment status error:', error);
-    res.status(500).json({
-      success: false,
-      message: error.message || 'Failed to get payment status'
-    });
+    res.status(500).json({ success: false, message: error.message || 'Failed to get payment status' });
   }
 };
 
-// ✅ BONUS: Add helper function for receipt generation
 export const generateShortReceipt = (prefix: string, userId: string): string => {
   const timestamp = Date.now().toString().slice(-8);
   const userIdShort = userId.slice(-8);
   const receipt = `${prefix}_${timestamp}_${userIdShort}`;
-  
-  // Validate length
-  if (receipt.length > 40) {
-    throw new Error(`Receipt too long: ${receipt.length} chars (max 40)`);
-  }
-  
+  if (receipt.length > 40) throw new Error(`Receipt too long: ${receipt.length} chars (max 40)`);
   return receipt;
 };
+
 export const getTodayPaymentsSummary = async (req: Request, res: Response) => {
   try {
     const start = startOfDay(new Date());
     const end = endOfDay(new Date());
 
     const payments = await Payment.aggregate([
-      {
-        $match: {
-          status: 'completed',
-          paymentDate: { $gte: start, $lte: end }
-        }
-      },
-      {
-        $group: {
-          _id: null,
-          totalAmount: { $sum: '$amount' },
-          count: { $sum: 1 }
-        }
-      }
+      { $match: { status: 'completed', paymentDate: { $gte: start, $lte: end } } },
+      { $group: { _id: null, totalAmount: { $sum: '$amount' }, count: { $sum: 1 } } },
     ]);
 
     const todayList = await Payment.find({
       status: 'completed',
-      paymentDate: { $gte: start, $lte: end }
+      paymentDate: { $gte: start, $lte: end },
     }).sort({ paymentDate: -1 });
 
     res.json({
       success: true,
       totalAmount: payments[0]?.totalAmount || 0,
       count: payments[0]?.count || 0,
-      transactions: todayList
+      transactions: todayList,
     });
   } catch (err: any) {
-    console.error('❌ Error in getTodayPaymentsSummary:', err);
     res.status(500).json({ success: false, message: err.message });
   }
 };
