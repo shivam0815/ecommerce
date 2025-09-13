@@ -46,6 +46,7 @@ export interface IGstDetails {
   placeOfSupply?: string;
   email?: string;
   requestedAt?: Date;
+  wantInvoice?: boolean;
   // optional accounting fields used by middleware
   taxPercent?: number;
   taxBase?: number;
@@ -221,6 +222,7 @@ const AddressSchema = new Schema<IAddress>(
 
 const GstSchema = new Schema<IGstDetails>(
   {
+    wantInvoice: { type: Boolean, default: false },
     gstin: { type: String, trim: true, default: "" },
     legalName: { type: String, trim: true, default: "" },
     placeOfSupply: { type: String, trim: true, default: "" },
