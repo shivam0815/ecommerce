@@ -60,7 +60,9 @@ const clampQty = (desired: number, product: any): number => {
 
 /* ───────────────── Small helpers ───────────────── */
 
-// replace your buildGstBlock with this
+
+
+// ...existing code...
 const cleanGstin = (s?: any) =>
   (s ?? "").toString().toUpperCase().replace(/[^0-9A-Z]/g, "").slice(0, 15);
 
@@ -76,6 +78,10 @@ function buildGstBlock(
     ex.gstin ?? ex.gstNumber ?? payload.gstin ?? payload.gstNumber ?? payload.gst?.gstin;
   const gstin = cleanGstin(rawGstin);
 
+  // simple GSTIN regex (len 15, format-ish) — permissive but filters common mistakes
+  const GSTIN_REGEX = /^[0-9]{2}[A-Z0-9]{13}$/;
+  const validGstin = gstin && GSTIN_REGEX.test(gstin) ? gstin : undefined;
+
   const wantInvoice =
     Boolean(
       ex.wantGSTInvoice ??
@@ -83,7 +89,7 @@ function buildGstBlock(
         payload.needGstInvoice ??
         payload.gst?.wantInvoice ??
         payload.gst?.requested
-    ) || !!gstin; // typing a GSTIN counts as a request
+    ) || !!validGstin; // typing a valid GSTIN counts as a request
 
   const taxPercent =
     Number(payload?.pricing?.gstPercent ?? payload?.pricing?.taxRate) ||
@@ -92,7 +98,7 @@ function buildGstBlock(
   return {
     // --- fields that match your schema ---
     wantInvoice,
-    gstin: gstin || undefined,
+    gstin: validGstin,
     legalName:
       (ex.gstLegalName ?? payload.gst?.legalName ?? shippingAddress?.fullName)?.toString().trim() ||
       undefined,
@@ -101,11 +107,11 @@ function buildGstBlock(
       undefined,
     taxPercent,
     taxBase: computed.subtotal || 0,
-    taxAmount: computed.tax || 0,
+   taxAmount: computed.tax || 0,
+    requestedAt: wantInvoice ? new Date() : undefined,
   };
+
 }
-
-
 /* ───────────────── CREATE ORDER (with stock deduction, GST & emails) ───────────────── */
 
 export const createOrder = async (req: Request, res: Response): Promise<void> => {

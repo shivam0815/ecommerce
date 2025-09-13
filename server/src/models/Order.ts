@@ -1,4 +1,3 @@
-// backend/src/models/Order.ts
 import mongoose, { Document, Model, Schema, Types } from "mongoose";
 
 /* ------------------------------------------------------------------ */
@@ -37,21 +36,25 @@ export type ShippingPaymentStatus =
   | "expired"
   | "cancelled";
 
-/** GST sub-object stored on the order */
+/* ------------------------------------------------------------------ */
+/* GST types                                                            */
+/* ------------------------------------------------------------------ */
+
 export interface IGstDetails {
-  wantInvoice: boolean;
   gstin?: string;
   legalName?: string;
   placeOfSupply?: string;
+  email?: string;
+  requestedAt?: Date;
+  // optional accounting fields used by middleware
   taxPercent?: number;
   taxBase?: number;
   taxAmount?: number;
-  cgst?: number;
-  sgst?: number;
-  igst?: number;
-  invoiceNumber?: string;
-  invoiceUrl?: string;
 }
+
+/* ------------------------------------------------------------------ */
+/* Order-related interfaces                                             */
+/* ------------------------------------------------------------------ */
 
 export interface IOrderItem {
   productId: Types.ObjectId;
@@ -73,18 +76,16 @@ export interface IAddress {
   landmark?: string;
 }
 
-/** New: packaging info & photos */
 export interface IShippingPackage {
   lengthCm?: number;
   breadthCm?: number;
   heightCm?: number;
   weightKg?: number;
   notes?: string;
-  images?: string[]; // S3 URLs (max 5)
+  images?: string[];
   packedAt?: Date;
 }
 
-/** New: shipping payment via Razorpay Payment Links */
 export interface IShippingPayment {
   linkId?: string;
   shortUrl?: string;
@@ -162,12 +163,11 @@ export interface IOrder extends Document {
   inventoryCommitted?: boolean;
 }
 
-/** Instance methods */
+/* Instance methods */
 export interface IOrderMethods {
   updateStatus(newStatus: OrderStatus, updateDate?: boolean): Promise<IOrder>;
   updatePaymentStatus(newPaymentStatus: PaymentStatus): Promise<IOrder>;
 
-  // Shiprocket helpers
   attachShiprocketOrder(shipmentId: number): Promise<IOrder>;
   setAwb(opts: { awbCode: string; courierName?: string }): Promise<IOrder>;
   markPickupGenerated(): Promise<IOrder>;
@@ -182,7 +182,7 @@ export interface IOrderMethods {
   }): Promise<IOrder>;
 }
 
-/** Static methods */
+/* Static methods */
 export interface IOrderModel extends Model<IOrder, {}, IOrderMethods> {
   findByOrderNumber(orderNumber: string): Promise<IOrder | null>;
   findByTrackingNumber(trackingNumber: string): Promise<IOrder | null>;
@@ -221,18 +221,14 @@ const AddressSchema = new Schema<IAddress>(
 
 const GstSchema = new Schema<IGstDetails>(
   {
-    wantInvoice: { type: Boolean, default: false },
-    gstin: { type: String, trim: true, uppercase: true },
-    legalName: { type: String, trim: true },
-    placeOfSupply: { type: String, trim: true },
-    taxPercent: { type: Number, min: 0, max: 100 },
-    taxBase: { type: Number, min: 0 },
-    taxAmount: { type: Number, min: 0 },
-    cgst: { type: Number, min: 0 },
-    sgst: { type: Number, min: 0 },
-    igst: { type: Number, min: 0 },
-    invoiceNumber: { type: String, trim: true },
-    invoiceUrl: { type: String, trim: true },
+    gstin: { type: String, trim: true, default: "" },
+    legalName: { type: String, trim: true, default: "" },
+    placeOfSupply: { type: String, trim: true, default: "" },
+    email: { type: String, trim: true, default: "" },
+    requestedAt: { type: Date },
+    taxPercent: { type: Number },
+    taxBase: { type: Number },
+    taxAmount: { type: Number },
   },
   { _id: false }
 );
@@ -263,17 +259,30 @@ const OrderSchema = new Schema<IOrder, IOrderModel, IOrderMethods>(
     total: { type: Number, required: true, min: 0 },
     discount: { type: Number, min: 0, default: 0 },
 
+    // GST stored here
     gst: { type: GstSchema, required: false },
 
-    status: { type: String, enum: ["pending", "confirmed", "processing", "shipped", "delivered", "cancelled"], default: "pending" },
-    orderStatus: { type: String, enum: ["pending", "confirmed", "processing", "shipped", "delivered", "cancelled"], default: "pending" },
+    status: {
+      type: String,
+      enum: ["pending", "confirmed", "processing", "shipped", "delivered", "cancelled"],
+      default: "pending",
+    },
+    orderStatus: {
+      type: String,
+      enum: ["pending", "confirmed", "processing", "shipped", "delivered", "cancelled"],
+      default: "pending",
+    },
 
     trackingNumber: { type: String, trim: true, uppercase: true },
     trackingUrl: { type: String, trim: true },
     carrierName: { type: String, trim: true },
     estimatedDelivery: { type: Date },
 
-    paymentStatus: { type: String, enum: ["awaiting_payment", "paid", "failed", "cod_pending", "cod_paid"], default: "awaiting_payment" },
+    paymentStatus: {
+      type: String,
+      enum: ["awaiting_payment", "paid", "failed", "cod_pending", "cod_paid"],
+      default: "awaiting_payment",
+    },
     paidAt: { type: Date },
 
     shippedAt: { type: Date },
@@ -294,7 +303,15 @@ const OrderSchema = new Schema<IOrder, IOrderModel, IOrderMethods>(
     manifestUrl: { type: String, trim: true },
     shiprocketStatus: {
       type: String,
-      enum: ["ORDER_CREATED","AWB_ASSIGNED","PICKUP_GENERATED","LABEL_READY","INVOICE_READY","MANIFEST_READY","TRACKING_UPDATED"],
+      enum: [
+        "ORDER_CREATED",
+        "AWB_ASSIGNED",
+        "PICKUP_GENERATED",
+        "LABEL_READY",
+        "INVOICE_READY",
+        "MANIFEST_READY",
+        "TRACKING_UPDATED",
+      ],
     },
 
     // NEW: package & shipping payment
@@ -318,7 +335,11 @@ const OrderSchema = new Schema<IOrder, IOrderModel, IOrderMethods>(
     shippingPayment: {
       linkId: { type: String, index: true },
       shortUrl: { type: String },
-      status: { type: String, enum: ["pending","paid","partial","expired","cancelled"], default: "pending" },
+      status: {
+        type: String,
+        enum: ["pending", "paid", "partial", "expired", "cancelled"],
+        default: "pending",
+      },
       currency: { type: String, default: "INR" },
       amount: { type: Number, min: 0 },
       amountPaid: { type: Number, min: 0 },
@@ -326,7 +347,6 @@ const OrderSchema = new Schema<IOrder, IOrderModel, IOrderMethods>(
       paidAt: { type: Date },
     },
 
-    // flag you had in the interface
     inventoryCommitted: { type: Boolean, default: false },
   },
   {
@@ -380,7 +400,6 @@ OrderSchema.index({ total: -1 });
 OrderSchema.index({ "gst.gstin": 1 });
 OrderSchema.index({ shipmentId: 1 });
 OrderSchema.index({ awbCode: 1 });
-// NEW
 OrderSchema.index({ "shippingPayment.linkId": 1 });
 
 /* ------------------------------------------------------------------ */
@@ -443,10 +462,7 @@ OrderSchema.methods.updateStatus = function (
   return this.save();
 };
 
-OrderSchema.methods.updatePaymentStatus = function (
-  this: IOrder,
-  newPaymentStatus: PaymentStatus
-) {
+OrderSchema.methods.updatePaymentStatus = function (this: IOrder, newPaymentStatus: PaymentStatus) {
   this.paymentStatus = newPaymentStatus;
 
   if (newPaymentStatus === "paid" || newPaymentStatus === "cod_paid") {
@@ -531,18 +547,12 @@ OrderSchema.statics.findByTrackingNumber = function (this: IOrderModel, tracking
 };
 
 OrderSchema.statics.getUserOrders = function (this: IOrderModel, userId: string, limit: number = 20) {
-  return this.find({ userId })
-    .sort({ createdAt: -1 })
-    .limit(limit)
-    .populate("items.productId");
+  return this.find({ userId }).sort({ createdAt: -1 }).limit(limit).populate("items.productId");
 };
 
 /* ------------------------------------------------------------------ */
 /* Export                                                              */
 /* ------------------------------------------------------------------ */
 
-const Order =
-  (mongoose.models.Order as IOrderModel) ||
-  mongoose.model<IOrder, IOrderModel>("Order", OrderSchema);
-
+const Order = (mongoose.models.Order as IOrderModel) || mongoose.model<IOrder, IOrderModel>("Order",OrderSchema);
 export default Order;
