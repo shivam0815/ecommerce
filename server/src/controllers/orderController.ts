@@ -240,6 +240,7 @@ export const createOrder = async (req: Request, res: Response): Promise<void> =>
         items: orderItems,
         userId: userSummary,
         createdAt: savedOrder.createdAt,
+        gst: savedOrder.gst,
       });
     }
 
