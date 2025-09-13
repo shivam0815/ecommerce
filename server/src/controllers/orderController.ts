@@ -60,58 +60,9 @@ const clampQty = (desired: number, product: any): number => {
 
 /* ───────────────── Small helpers ───────────────── */
 
-
-
-// ...existing code...
 const cleanGstin = (s?: any) =>
   (s ?? "").toString().toUpperCase().replace(/[^0-9A-Z]/g, "").slice(0, 15);
 
-function buildGstBlock(
-  payload: any,
-  shippingAddress: any,
-  computed: { subtotal: number; tax: number }
-) {
-  const ex = payload?.extras || {};
-
-  // accept many variants from checkout
-  const rawGstin =
-    ex.gstin ?? ex.gstNumber ?? payload.gstin ?? payload.gstNumber ?? payload.gst?.gstin;
-  const gstin = cleanGstin(rawGstin);
-
-  // simple GSTIN regex (len 15, format-ish) — permissive but filters common mistakes
-  const GSTIN_REGEX = /^[0-9]{2}[A-Z0-9]{13}$/;
-  const validGstin = gstin && GSTIN_REGEX.test(gstin) ? gstin : undefined;
-
-  const wantInvoice =
-    Boolean(
-      ex.wantGSTInvoice ??
-        payload.needGSTInvoice ??
-        payload.needGstInvoice ??
-        payload.gst?.wantInvoice ??
-        payload.gst?.requested
-    ) || !!validGstin; // typing a valid GSTIN counts as a request
-
-  const taxPercent =
-    Number(payload?.pricing?.gstPercent ?? payload?.pricing?.taxRate) ||
-    (computed.subtotal > 0 ? Math.round((computed.tax / computed.subtotal) * 100) : 0);
-
-  return {
-    // --- fields that match your schema ---
-    wantInvoice,
-    gstin: validGstin,
-    legalName:
-      (ex.gstLegalName ?? payload.gst?.legalName ?? shippingAddress?.fullName)?.toString().trim() ||
-      undefined,
-    placeOfSupply:
-      (ex.placeOfSupply ?? payload.gst?.placeOfSupply ?? shippingAddress?.state)?.toString().trim() ||
-      undefined,
-    taxPercent,
-    taxBase: computed.subtotal || 0,
-   taxAmount: computed.tax || 0,
-    requestedAt: wantInvoice ? new Date() : undefined,
-  };
-
-}
 /* ───────────────── CREATE ORDER (with stock deduction, GST & emails) ───────────────── */
 
 export const createOrder = async (req: Request, res: Response): Promise<void> => {
@@ -910,3 +861,62 @@ export const getOrderByIdAdmin = async (req: Request, res: Response) => {
     res.status(500).json({ success: false, message: "Server error" });
   }
 };
+
+function buildGstBlock(
+  payload: any,
+  shippingAddress: any,
+  computed: { subtotal: number; tax: number }
+) {
+  const ex = payload?.extras || {};
+
+  // accept many variants including nested extras.gst.*
+  const rawGstin =
+    ex.gstin ??
+    ex.gstNumber ??
+    ex.gst?.gstin ??
+    ex.gst?.gstNumber ??
+    payload.gstin ??
+    payload.gstNumber ??
+    payload.gst?.gstin;
+  const gstin = cleanGstin(rawGstin);
+
+  const wantInvoice =
+    Boolean(
+      ex.wantGSTInvoice ??
+        ex.gst?.wantInvoice ??
+        payload.needGSTInvoice ??
+        payload.needGstInvoice ??
+        payload.gst?.wantInvoice ??
+        payload.gst?.requested
+    ) || !!gstin;
+
+  const taxPercent =
+    Number(payload?.pricing?.gstPercent ?? payload?.pricing?.taxRate) ||
+    (computed.subtotal > 0 ? Math.round((computed.tax / computed.subtotal) * 100) : 0);
+
+  const clientRequestedAt =
+    ex.gst?.requestedAt ?? payload.gst?.requestedAt ?? ex.requestedAt ?? payload.requestedAt;
+  const requestedAt = clientRequestedAt ? new Date(clientRequestedAt) : wantInvoice ? new Date() : undefined;
+
+  return {
+    wantInvoice,
+    gstin: gstin || undefined,
+    legalName:
+      (ex.gst?.legalName ??
+        ex.gstLegalName ??
+        payload.gst?.legalName ??
+        shippingAddress?.fullName)?.toString().trim() || undefined,
+    placeOfSupply:
+      (ex.gst?.placeOfSupply ??
+        ex.placeOfSupply ??
+        payload.gst?.placeOfSupply ??
+        shippingAddress?.state)?.toString().trim() || undefined,
+    taxPercent,
+    taxBase: computed.subtotal || 0,
+    taxAmount: computed.tax || 0,
+    requestedAt,
+    email:
+      (ex.gst?.email ?? payload.gst?.email ?? shippingAddress?.email)?.toString().trim() ||
+      undefined,
+  };
+}
