@@ -1,3 +1,4 @@
+// backend/src/models/Order.ts  — COMPLETE FIXED VERSION
 import mongoose, { Document, Model, Schema, Types } from "mongoose";
 
 /* ------------------------------------------------------------------ */
@@ -32,21 +33,22 @@ export type ShiprocketState =
 export type ShippingPaymentStatus =
   | "pending"
   | "paid"
-  | "partial"
+  | "partial"      // ✅ keep "partial" (not "partially_paid")
   | "expired"
   | "cancelled";
 
 /* ------------------------------------------------------------------ */
-/* GST types                                                            */
+/* GST types                                                           */
 /* ------------------------------------------------------------------ */
 
 export interface IGstDetails {
-  gstin?: string;
-  legalName?: string;
-  placeOfSupply?: string;
+  wantInvoice?: boolean;      // whether customer asked for GST invoice
+  gstin?: string;             // 15-char GSTIN
+  legalName?: string;         // registered legal name
+  placeOfSupply?: string;     // state code or state name
   email?: string;
-  requestedAt?: Date;
-  wantInvoice?: boolean;
+  requestedAt?: Date;         // auto-set when wantInvoice === true
+
   // optional accounting fields used by middleware
   taxPercent?: number;
   taxBase?: number;
@@ -54,7 +56,7 @@ export interface IGstDetails {
 }
 
 /* ------------------------------------------------------------------ */
-/* Order-related interfaces                                             */
+/* Order-related interfaces                                            */
 /* ------------------------------------------------------------------ */
 
 export interface IOrderItem {
@@ -108,7 +110,7 @@ export interface IOrder extends Document {
   billingAddress: IAddress;
 
   paymentMethod: PaymentMethod;
-  paymentOrderId: string;
+  paymentOrderId?: string; // ✅ optional for COD
   paymentId?: string;
   paymentSignature?: string;
 
@@ -162,6 +164,14 @@ export interface IOrder extends Document {
   updatedAt: Date;
 
   inventoryCommitted?: boolean;
+
+  // Virtuals
+  displayOrderNumber?: string;
+  totalItems?: number;
+  orderAge?: number;
+  isDelivered?: boolean;
+  isPaid?: boolean;
+  gstStatus?: "none" | "requested" | "ready";
 }
 
 /* Instance methods */
@@ -220,17 +230,47 @@ const AddressSchema = new Schema<IAddress>(
   { _id: false }
 );
 
+// Simplified but strict GSTIN validation + normalization
+const GSTIN_REGEX =
+  /^\d{2}[A-Z]{5}\d{4}[A-Z]{1}[A-Z0-9]{1}Z[A-Z0-9]{1}$/;
+
 const GstSchema = new Schema<IGstDetails>(
   {
     wantInvoice: { type: Boolean, default: false },
-    gstin: { type: String, trim: true, default: "" },
-    legalName: { type: String, trim: true, default: "" },
-    placeOfSupply: { type: String, trim: true, default: "" },
-    email: { type: String, trim: true, default: "" },
+    gstin: {
+      type: String,
+      trim: true,
+      uppercase: true,
+      validate: {
+        validator: function (this: IGstDetails, v?: string) {
+          if (!this.wantInvoice) return true; // ignore if not requested
+          if (!v) return false;               // requested → must have GSTIN
+          return GSTIN_REGEX.test(v);
+        },
+        message: "Invalid GSTIN format",
+      },
+    },
+    legalName: {
+      type: String,
+      trim: true,
+      set: (v: string) => (v ? v.trim() : v),
+    },
+    placeOfSupply: {
+      type: String,
+      trim: true,
+      set: (v: string) => (v ? v.trim().toUpperCase() : v),
+    },
+    email: {
+      type: String,
+      trim: true,
+      lowercase: true,
+    },
     requestedAt: { type: Date },
-    taxPercent: { type: Number },
-    taxBase: { type: Number },
-    taxAmount: { type: Number },
+
+    // optional computed tax info
+    taxPercent: { type: Number, min: 0 },
+    taxBase: { type: Number, min: 0 },
+    taxAmount: { type: Number, min: 0 },
   },
   { _id: false }
 );
@@ -251,7 +291,15 @@ const OrderSchema = new Schema<IOrder, IOrderModel, IOrderMethods>(
     billingAddress: { type: AddressSchema, required: true },
 
     paymentMethod: { type: String, enum: ["razorpay", "cod"], required: true },
-    paymentOrderId: { type: String, required: true, trim: true },
+
+    // ✅ Optional when COD
+    paymentOrderId: {
+      type: String,
+      trim: true,
+      required: function (this: IOrder) {
+        return this.paymentMethod === "razorpay";
+      },
+    },
     paymentId: { type: String, trim: true },
     paymentSignature: { type: String, trim: true },
 
@@ -262,7 +310,7 @@ const OrderSchema = new Schema<IOrder, IOrderModel, IOrderMethods>(
     discount: { type: Number, min: 0, default: 0 },
 
     // GST stored here
-    gst: { type: GstSchema, required: false },
+    gst: { type: GstSchema, required: false, default: undefined },
 
     status: {
       type: String,
@@ -316,7 +364,7 @@ const OrderSchema = new Schema<IOrder, IOrderModel, IOrderMethods>(
       ],
     },
 
-    // NEW: package & shipping payment
+    // Package & shipping payment
     shippingPackage: {
       lengthCm: { type: Number, min: 0 },
       breadthCm: { type: Number, min: 0 },
@@ -339,7 +387,7 @@ const OrderSchema = new Schema<IOrder, IOrderModel, IOrderMethods>(
       shortUrl: { type: String },
       status: {
         type: String,
-        enum: ["pending", "paid", "partial", "expired", "cancelled"],
+        enum: ["pending", "paid", "partial", "expired", "cancelled"], // ✅ keep "partial"
         default: "pending",
       },
       currency: { type: String, default: "INR" },
@@ -384,6 +432,13 @@ OrderSchema.virtual("isPaid").get(function (this: IOrder) {
   return this.paymentStatus === "paid" || this.paymentStatus === "cod_paid";
 });
 
+// ✅ Helpful for Admin badge/chip
+OrderSchema.virtual("gstStatus").get(function (this: IOrder) {
+  const g = this.gst;
+  if (!g || !g.wantInvoice) return "none";
+  return g.gstin ? "ready" : "requested";
+});
+
 /* ------------------------------------------------------------------ */
 /* Indexes                                                             */
 /* ------------------------------------------------------------------ */
@@ -400,6 +455,7 @@ OrderSchema.index({ "shippingAddress.city": 1 });
 OrderSchema.index({ paymentMethod: 1, createdAt: -1 });
 OrderSchema.index({ total: -1 });
 OrderSchema.index({ "gst.gstin": 1 });
+OrderSchema.index({ "gst.wantInvoice": 1, createdAt: -1 }); // ✅ fast filter for admin GST list
 OrderSchema.index({ shipmentId: 1 });
 OrderSchema.index({ awbCode: 1 });
 OrderSchema.index({ "shippingPayment.linkId": 1 });
@@ -408,30 +464,91 @@ OrderSchema.index({ "shippingPayment.linkId": 1 });
 /* Middleware                                                          */
 /* ------------------------------------------------------------------ */
 
+// Normalize + auto-stamp GST request, compute tax if configured
+OrderSchema.pre<IOrder>("validate", function (next) {
+  if (this.gst) {
+    // Normalize casing
+    if (typeof this.gst.gstin === "string") this.gst.gstin = this.gst.gstin.trim().toUpperCase();
+    if (typeof this.gst.legalName === "string") this.gst.legalName = this.gst.legalName.trim();
+    if (typeof this.gst.placeOfSupply === "string")
+      this.gst.placeOfSupply = this.gst.placeOfSupply.trim().toUpperCase();
+    if (typeof this.gst.email === "string") this.gst.email = this.gst.email.trim().toLowerCase();
+
+    // Auto-flag request time
+    if (this.gst.wantInvoice && !this.gst.requestedAt) {
+      this.gst.requestedAt = new Date();
+    }
+
+    // If not requested, clear sensitive fields to avoid stale data
+    if (!this.gst.wantInvoice) {
+      this.gst.gstin = undefined;
+      this.gst.legalName = undefined;
+      this.gst.placeOfSupply = undefined;
+      this.gst.email = undefined;
+      this.gst.requestedAt = undefined;
+      this.gst.taxPercent = undefined;
+      this.gst.taxBase = undefined;
+      this.gst.taxAmount = undefined;
+    }
+  }
+  next();
+});
+
 OrderSchema.pre<IOrder>("save", function (next) {
+  // ── Helpers ──────────────────────────────────────────────────────────────
+  const isAddressEmpty = (addr: Partial<IAddress> | undefined | null) => {
+    if (!addr) return true;
+    // consider it empty if all key fields are missing/blank
+    const requiredKeys: (keyof IAddress)[] = [
+      "fullName",
+      "phoneNumber",
+      "email",
+      "addressLine1",
+      "city",
+      "state",
+      "pincode",
+    ];
+    return requiredKeys.every((k) => {
+      const v = (addr as any)[k];
+      return v == null || String(v).trim() === "";
+    });
+  };
+
+  const clonePlain = <T extends object>(obj: T | undefined): T | undefined => {
+    if (!obj) return undefined;
+    // if it's a mongoose subdoc, toObject() exists
+    const anyObj = obj as any;
+    if (typeof anyObj.toObject === "function") return anyObj.toObject();
+    return { ...(obj as any) };
+  };
+
+  // ── Billing fallback (fixes: object-by-reference comparison) ─────────────
+  if (isAddressEmpty(this.billingAddress)) {
+    const ship = clonePlain(this.shippingAddress);
+    if (ship) this.billingAddress = ship as IAddress;
+  }
+
+  // Optional computed tax: only if taxPercent provided and tax not already set
+  if (this.gst?.wantInvoice && this.gst.taxPercent != null && (!this.tax || this.tax === 0)) {
+    const base = Math.max(0, (this.subtotal || 0) - (this.discount || 0));
+    const amt = +(base * (Number(this.gst.taxPercent) / 100)).toFixed(2);
+    this.tax = amt;
+    this.gst.taxBase = base;
+    this.gst.taxAmount = amt;
+  }
+
+  // orderNumber generation only if missing (rare)
   if (!this.orderNumber) {
     const ts = Date.now();
     const rnd = Math.floor(Math.random() * 1000).toString().padStart(3, "0");
     this.orderNumber = `ORD${ts}${rnd}`.toUpperCase();
   }
 
-  if (!this.billingAddress || Object.keys(this.billingAddress as any).length === 0) {
-    this.billingAddress = this.shippingAddress;
-  }
-
-  if (this.gst?.taxPercent && (!this.tax || this.tax === 0)) {
-    const base = Math.max(0, (this.subtotal || 0) - (this.discount || 0));
-    const amt = +(base * (this.gst.taxPercent / 100)).toFixed(2);
-    this.tax = amt;
-    this.gst.taxBase = base;
-    this.gst.taxAmount = amt;
-  }
-
   this.updatedAt = new Date();
   if (this.isNew) this.createdAt = new Date();
-
   next();
 });
+
 
 /* ------------------------------------------------------------------ */
 /* Instance methods                                                    */
@@ -556,5 +673,7 @@ OrderSchema.statics.getUserOrders = function (this: IOrderModel, userId: string,
 /* Export                                                              */
 /* ------------------------------------------------------------------ */
 
-const Order = (mongoose.models.Order as IOrderModel) || mongoose.model<IOrder, IOrderModel>("Order",OrderSchema);
+const Order =
+  (mongoose.models.Order as IOrderModel) ||
+  mongoose.model<IOrder, IOrderModel>("Order", OrderSchema);
 export default Order;

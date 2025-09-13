@@ -66,6 +66,8 @@ type GstDetails = {
   taxPercent?: number;  // e.g. 18
   taxBase?: number;     // taxable value
   taxAmount?: number;   // total GST
+
+  // UI/possible-future fields (not in backend GstSchema yet)
   cgst?: number;
   sgst?: number;
   igst?: number;
@@ -118,9 +120,12 @@ interface IOrderFull extends IOrder {
 
   /* ---- GST ---- */
   gst?: GstDetails;
+
+  /* ---- Package & shipping payment ---- */
   shippingPackage?: IShippingPackage;
-shippingPayment?: IShippingPayment;
+  shippingPayment?: IShippingPayment;
 }
+
 // at top
 type ShippingPaymentStatus = 'pending' | 'paid' | 'partial' | 'expired' | 'cancelled';
 interface IShippingPackage {
@@ -134,12 +139,9 @@ interface IShippingPayment {
   paidAt?: string;
 }
 
-
-
 /* =========================
    Utils
 ========================= */
-
 
 const currency = (n: number) =>
   new Intl.NumberFormat('en-IN', {
@@ -244,24 +246,36 @@ const toNum = (v: any) => {
   return 0;
 };
 
+/** Robust GST view that falls back to order.invoiceUrl for link and computes % if missing */
 function getGstView(o?: IOrderFull) {
-  const g = o?.gst || {} as GstDetails;
+  const g = (o?.gst || {}) as GstDetails;
   const subtotal = toNum(o?.subtotal ?? 0);
   const tax = toNum(o?.tax ?? 0);
 
+  const taxPercent =
+    typeof g.taxPercent === 'number'
+      ? g.taxPercent
+      : subtotal > 0
+        ? Math.round((tax / subtotal) * 100)
+        : 0;
+
   return {
-    wantInvoice: !!g.wantInvoice,
+    wantInvoice: !!g.wantInvoice || !!g.gstin,
     gstin: g.gstin || '',
     legalName: g.legalName || '',
     pos: g.placeOfSupply || '',
-    taxPercent: typeof g.taxPercent === 'number' ? g.taxPercent : (tax ? 18 : 0),
+    taxPercent,
     taxBase: typeof g.taxBase === 'number' ? g.taxBase : subtotal,
     taxAmount: typeof g.taxAmount === 'number' ? g.taxAmount : tax,
-    cgst: typeof g.cgst === 'number' ? g.cgst : undefined,
-    sgst: typeof g.sgst === 'number' ? g.sgst : undefined,
-    igst: typeof g.igst === 'number' ? g.igst : undefined,
+
+    // fall back to root order.invoiceUrl (Shiprocket) if GST-specific url not present
     invoiceNumber: g.invoiceNumber || '',
-    invoiceUrl: g.invoiceUrl || '',
+    invoiceUrl: g.invoiceUrl || (o?.invoiceUrl || ''),
+
+    // optional splits (unused unless backend adds them)
+    cgst: g.cgst,
+    sgst: g.sgst,
+    igst: g.igst,
   };
 }
 
@@ -389,53 +403,52 @@ const OrdersTab: React.FC = () => {
 
   // fetch one
   const fetchOrderDetails = async (id: string) => {
-  setDrawerLoading(true);
-  try {
-    const res = await fetch(`/api/orders/admin/${id}`, {
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${getAdminToken()}`,
-      },
-      credentials: 'include',
-    });
-    const data = await res.json();
-    if (!res.ok || data.success === false) throw new Error(data.message || 'Failed to load order');
+    setDrawerLoading(true);
+    try {
+      const res = await fetch(`/api/orders/admin/${id}`, {
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${getAdminToken()}`,
+        },
+        credentials: 'include',
+      });
+      const data = await res.json();
+      if (!res.ok || data.success === false) throw new Error(data.message || 'Failed to load order');
 
-    const o = data.order || {};
-    const sp = o.shippingPayment || o.shipping_payment || {};
-    const pkg = o.shippingPackage || o.shipping_package || {};
+      const o = data.order || {};
+      const sp = o.shippingPayment || o.shipping_payment || {};
+      const pkg = o.shippingPackage || o.shipping_package || {};
 
-    setSelected({
-      ...o,
-      status: o.status || o.orderStatus || 'pending',
-      shippingPayment: {
-        status: sp.status,
-        // map snake_case -> camelCase too
-        shortUrl: sp.shortUrl ?? sp.short_url,
-        linkId: sp.linkId ?? sp.link_id,
-        currency: sp.currency,
-        amount: sp.amount ?? undefined,
-        amountPaid: sp.amountPaid ?? sp.amount_paid,
-        paymentIds: sp.paymentIds ?? sp.payment_ids ?? [],
-        paidAt: sp.paidAt ?? sp.paid_at,
-      },
-      shippingPackage: {
-        lengthCm: pkg.lengthCm ?? pkg.length_cm,
-        breadthCm: pkg.breadthCm ?? pkg.breadth_cm,
-        heightCm: pkg.heightCm ?? pkg.height_cm,
-        weightKg: pkg.weightKg ?? pkg.weight_kg,
-        notes: pkg.notes,
-        images: pkg.images || [],
-        packedAt: pkg.packedAt ?? pkg.packed_at,
-      },
-    });
-  } catch (e: any) {
-    alert(e.message || 'Failed to load order');
-  } finally {
-    setDrawerLoading(false);
-  }
-};
-
+      setSelected({
+        ...o,
+        status: o.status || o.orderStatus || 'pending',
+        shippingPayment: {
+          status: sp.status,
+          // map snake_case -> camelCase too
+          shortUrl: sp.shortUrl ?? sp.short_url,
+          linkId: sp.linkId ?? sp.link_id,
+          currency: sp.currency,
+          amount: sp.amount ?? undefined,
+          amountPaid: sp.amountPaid ?? sp.amount_paid,
+          paymentIds: sp.paymentIds ?? sp.payment_ids ?? [],
+          paidAt: sp.paidAt ?? sp.paid_at,
+        },
+        shippingPackage: {
+          lengthCm: pkg.lengthCm ?? pkg.length_cm,
+          breadthCm: pkg.breadthCm ?? pkg.breadth_cm,
+          heightCm: pkg.heightCm ?? pkg.height_cm,
+          weightKg: pkg.weightKg ?? pkg.weight_kg,
+          notes: pkg.notes,
+          images: pkg.images || [],
+          packedAt: pkg.packedAt ?? pkg.packed_at,
+        },
+      });
+    } catch (e: any) {
+      alert(e.message || 'Failed to load order');
+    } finally {
+      setDrawerLoading(false);
+    }
+  };
 
   async function setStatus(id: string, status: OrderStatus) {
     try {
@@ -821,7 +834,7 @@ const OrdersTab: React.FC = () => {
     }
   };
 
-  // put this near other helpers in OrdersTab.tsx
+  // tracking link helper
   function trackingHref(o: IOrderFull): string {
     const url = (o.trackingUrl || '').trim();
     if (url) return url;
@@ -841,42 +854,40 @@ const OrdersTab: React.FC = () => {
     return `https://track.shiprocket.in/?awb=${awb}`;
   }
 
-
-
+  // package + payment helpers
   async function savePackAndLink(id: string, payload: any) {
-  setBusyId(id);
-  try {
-    const res = await fetch(`/api/orders/${id}/shipping/package`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getAdminToken()}` },
-      credentials: 'include',
-      body: JSON.stringify(payload),
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.message || 'Failed to save package');
-    await fetchOrderDetails(id); // refresh
-    alert(data?.order?.shippingPayment?.shortUrl ? 'Saved, link created & email sent.' : 'Package saved.');
-  } catch (e:any) { alert(e.message); }
-  finally { setBusyId(null); }
-}
+    setBusyId(id);
+    try {
+      const res = await fetch(`/api/orders/${id}/shipping/package`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getAdminToken()}` },
+        credentials: 'include',
+        body: JSON.stringify(payload),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || 'Failed to save package');
+      await fetchOrderDetails(id); // refresh
+      alert(data?.order?.shippingPayment?.shortUrl ? 'Saved, link created & email sent.' : 'Package saved.');
+    } catch (e:any) { alert(e.message); }
+    finally { setBusyId(null); }
+  }
 
-async function createShipPayLink(id: string, amount: number) {
-  setBusyId(id);
-  try {
-    const res = await fetch(`/api/orders/${id}/shipping/payment-link`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getAdminToken()}` },
-      credentials: 'include',
-      body: JSON.stringify({ amount }),
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.message || 'Failed to create link');
-    await fetchOrderDetails(id);
-    alert('Payment link created & emailed to customer.');
-  } catch (e:any) { alert(e.message); }
-  finally { setBusyId(null); }
-}
-
+  async function createShipPayLink(id: string, amount: number) {
+    setBusyId(id);
+    try {
+      const res = await fetch(`/api/orders/${id}/shipping/payment-link`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${getAdminToken()}` },
+        credentials: 'include',
+        body: JSON.stringify({ amount }),
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || 'Failed to create link');
+      await fetchOrderDetails(id);
+      alert('Payment link created & emailed to customer.');
+    } catch (e:any) { alert(e.message); }
+    finally { setBusyId(null); }
+  }
 
   /* =========================
      Render
@@ -1127,7 +1138,7 @@ async function createShipPayLink(id: string, amount: number) {
                       </div>
                       <div className="text-[12px] text-gray-500 mt-0.5 uppercase tracking-wide">
                         {o.paymentMethod} • {o.paymentStatus || '-'}
-                        {(o as any).gst?.wantInvoice ? ' • GST' : ''}
+                        {(o as any).gst?.wantInvoice || (o as any).gst?.gstin ? ' • GST' : ''}
                       </div>
                     </td>
                     <td className="p-3 align-top">
@@ -1343,7 +1354,7 @@ async function createShipPayLink(id: string, amount: number) {
                 </div>
 
                 <div className="mt-3 flex items-center justify-between gap-2 text-xs text-gray-600">
-                  <div className="uppercase">{o.paymentMethod} • {o.paymentStatus || '-'}{(o as any).gst?.wantInvoice ? ' • GST' : ''}</div>
+                  <div className="uppercase">{o.paymentMethod} • {o.paymentStatus || '-'}{(o as any).gst?.wantInvoice || (o as any).gst?.gstin ? ' • GST' : ''}</div>
                   <button
                     className="inline-flex items-center gap-1 rounded-xl border px-2.5 py-1.5 hover:bg-gray-50"
                     onClick={e => {
@@ -1685,185 +1696,187 @@ async function createShipPayLink(id: string, amount: number) {
                   </div>
                 </div>
 
-
+                {/* Shipping package & payment */}
                 {selected && (() => {
-  const sp: any = selected.shippingPayment || {};
-  const shortUrl: string | undefined = sp.shortUrl || sp.short_url; // support both shapes
+                  const sp: any = selected.shippingPayment || {};
+                  const shortUrl: string | undefined = sp.shortUrl || sp.short_url; // support both shapes
 
-  return (
-    <div className="w-full border rounded-2xl p-3 space-y-2"> {/* note w-full */}
-      <div className="font-semibold text-gray-900">Shipping package & payment</div>
+                  return (
+                    <div className="w-full border rounded-2xl p-3 space-y-2">
+                      <div className="font-semibold text-gray-900">Shipping package & payment</div>
 
-      {/* Status row */}
-      <div className="flex flex-wrap items-center gap-2 text-sm">
-        <div>Payment:</div>
-        <span className={pill(sp.status || 'pending')}>
-          {sp.status || 'pending'}
-        </span>
-        {shortUrl && (
-          <a className="underline" href={shortUrl} target="_blank" rel="noreferrer">
-            Open link
-          </a>
-        )}
-        {sp.amount != null && (
-          <span className="ml-2 text-gray-700">Amount: {currency(sp.amount)}</span>
-        )}
-        {sp.amountPaid ? (
-          <span className="ml-2 text-emerald-700">Paid: {currency(sp.amountPaid)}</span>
-        ) : null}
-      </div>
+                      {/* Status row */}
+                      <div className="flex flex-wrap items-center gap-2 text-sm">
+                        <div>Payment:</div>
+                        <span className={pill(sp.status || 'pending')}>
+                          {sp.status || 'pending'}
+                        </span>
+                        {shortUrl && (
+                          <a className="underline" href={shortUrl} target="_blank" rel="noreferrer">
+                            Open link
+                          </a>
+                        )}
+                        {sp.amount != null && (
+                          <span className="ml-2 text-gray-700">Amount: {currency(sp.amount)}</span>
+                        )}
+                        {sp.amountPaid ? (
+                          <span className="ml-2 text-emerald-700">Paid: {currency(sp.amountPaid)}</span>
+                        ) : null}
+                      </div>
 
-      {/* Package dims */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-sm">
-        <input className="border rounded-xl px-3 py-2" placeholder="L (cm)" defaultValue={selected.shippingPackage?.lengthCm ?? ''} id="pkgL" />
-        <input className="border rounded-xl px-3 py-2" placeholder="B (cm)" defaultValue={selected.shippingPackage?.breadthCm ?? ''} id="pkgB" />
-        <input className="border rounded-xl px-3 py-2" placeholder="H (cm)" defaultValue={selected.shippingPackage?.heightCm ?? ''} id="pkgH" />
-        <input className="border rounded-xl px-3 py-2" placeholder="Wt (kg)" defaultValue={selected.shippingPackage?.weightKg ?? ''} id="pkgW" />
-      </div>
+                      {/* Package dims */}
+                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-sm">
+                        <input className="border rounded-xl px-3 py-2" placeholder="L (cm)" defaultValue={selected.shippingPackage?.lengthCm ?? ''} id="pkgL" />
+                        <input className="border rounded-xl px-3 py-2" placeholder="B (cm)" defaultValue={selected.shippingPackage?.breadthCm ?? ''} id="pkgB" />
+                        <input className="border rounded-xl px-3 py-2" placeholder="H (cm)" defaultValue={selected.shippingPackage?.heightCm ?? ''} id="pkgH" />
+                        <input className="border rounded-xl px-3 py-2" placeholder="Wt (kg)" defaultValue={selected.shippingPackage?.weightKg ?? ''} id="pkgW" />
+                      </div>
 
-      {/* Images */}
-      <div className="text-sm">
-        <div className="text-gray-600 mb-1">Pack photos (max 5)</div>
-        <div className="flex gap-2 flex-wrap">
-          {(selected.shippingPackage?.images || []).map((u, i) => (
-            <img key={i} src={u} className="w-20 h-20 object-cover rounded border" />
-          ))}
-        </div>
-        <button
-          className="mt-2 px-3 py-1.5 rounded-xl border hover:bg-gray-50"
-          onClick={async () => {
-            const inp = document.createElement('input');
-            inp.type = 'file'; inp.accept = 'image/*'; inp.multiple = true;
-            inp.onchange = async () => {
-              const files = Array.from(inp.files || []).slice(0, 5);
-              const urls: string[] = [];
-              for (const f of files) {
-                const sign = await fetch(
-                  `/api/uploads/s3/sign?contentType=${encodeURIComponent(f.type)}&filename=${encodeURIComponent(f.name)}`
-                );
-                const { uploadUrl, publicUrl } = await sign.json();   // <-- changed
-                await fetch(uploadUrl, {                                // <-- PUT to uploadUrl
-                  method: 'PUT',
-                  headers: { 'Content-Type': f.type },
-                  body: f
-                });
-                urls.push(publicUrl);                                   // <-- save publicUrl
-              }
-              await savePackAndLink(selected._id, {
-                images: [ ...(selected.shippingPackage?.images || []), ...urls ]
-              });
-            };
-            inp.click();
-          }}
-        >Upload photos</button>
-      </div>
+                      {/* Images */}
+                      <div className="text-sm">
+                        <div className="text-gray-600 mb-1">Pack photos (max 5)</div>
+                        <div className="flex gap-2 flex-wrap">
+                          {(selected.shippingPackage?.images || []).map((u, i) => (
+                            <img key={i} src={u} className="w-20 h-20 object-cover rounded border" />
+                          ))}
+                        </div>
+                        <button
+                          className="mt-2 px-3 py-1.5 rounded-xl border hover:bg-gray-50"
+                          onClick={async () => {
+                            const inp = document.createElement('input');
+                            inp.type = 'file'; inp.accept = 'image/*'; inp.multiple = true;
+                            inp.onchange = async () => {
+                              const files = Array.from(inp.files || []).slice(0, 5);
+                              const urls: string[] = [];
+                              for (const f of files) {
+                                const sign = await fetch(
+                                  `/api/uploads/s3/sign?contentType=${encodeURIComponent(f.type)}&filename=${encodeURIComponent(f.name)}`
+                                );
+                                const { uploadUrl, publicUrl } = await sign.json();
+                                await fetch(uploadUrl, {
+                                  method: 'PUT',
+                                  headers: { 'Content-Type': f.type },
+                                  body: f
+                                });
+                                urls.push(publicUrl);
+                              }
+                              await savePackAndLink(selected._id, {
+                                images: [ ...(selected.shippingPackage?.images || []), ...urls ]
+                              });
+                            };
+                            inp.click();
+                          }}
+                        >Upload photos</button>
+                      </div>
 
-      {/* Save + link */}
-      <div className="flex items-center gap-2">
-        <button
-          className="px-3 py-2 rounded-xl border hover:bg-gray-50"
-          disabled={busyId === selected._id}
-          onClick={() => {
-            const body = {
-              lengthCm: (document.getElementById('pkgL') as HTMLInputElement).value,
-              breadthCm: (document.getElementById('pkgB') as HTMLInputElement).value,
-              heightCm: (document.getElementById('pkgH') as HTMLInputElement).value,
-              weightKg: (document.getElementById('pkgW') as HTMLInputElement).value,
-            };
-            savePackAndLink(selected._id, body);
-          }}
-        >Save package</button>
+                      {/* Save + link */}
+                      <div className="flex items-center gap-2">
+                        <button
+                          className="px-3 py-2 rounded-xl border hover:bg-gray-50"
+                          disabled={busyId === selected._id}
+                          onClick={() => {
+                            const body = {
+                              lengthCm: (document.getElementById('pkgL') as HTMLInputElement).value,
+                              breadthCm: (document.getElementById('pkgB') as HTMLInputElement).value,
+                              heightCm: (document.getElementById('pkgH') as HTMLInputElement).value,
+                              weightKg: (document.getElementById('pkgW') as HTMLInputElement).value,
+                            };
+                            savePackAndLink(selected._id, body);
+                          }}
+                        >Save package</button>
 
-        <button
-          className="px-3 py-2 rounded-xl border hover:bg-gray-50"
-          disabled={busyId === selected._id}
-          onClick={async () => {
-            const amount = Number(prompt('Shipping amount (INR)?') || 0);
-            if (amount > 0) {
-              const body = {
-                lengthCm: (document.getElementById('pkgL') as HTMLInputElement).value,
-                breadthCm: (document.getElementById('pkgB') as HTMLInputElement).value,
-                heightCm: (document.getElementById('pkgH') as HTMLInputElement).value,
-                weightKg: (document.getElementById('pkgW') as HTMLInputElement).value,
-                createPaymentLink: true,
-                amount,
-              };
-              await savePackAndLink(selected._id, body);
-            }
-          }}
-        >Save + Create payment link</button>
+                        <button
+                          className="px-3 py-2 rounded-xl border hover:bg-gray-50"
+                          disabled={busyId === selected._id}
+                          onClick={async () => {
+                            const amount = Number(prompt('Shipping amount (INR)?') || 0);
+                            if (amount > 0) {
+                              const body = {
+                                lengthCm: (document.getElementById('pkgL') as HTMLInputElement).value,
+                                breadthCm: (document.getElementById('pkgB') as HTMLInputElement).value,
+                                heightCm: (document.getElementById('pkgH') as HTMLInputElement).value,
+                                weightKg: (document.getElementById('pkgW') as HTMLInputElement).value,
+                                createPaymentLink: true,
+                                amount,
+                              };
+                              await savePackAndLink(selected._id, body);
+                            }
+                          }}
+                        >Save + Create payment link</button>
 
-        {sp.status !== 'paid' && (
-          <button
-            className="px-3 py-2 rounded-xl border hover:bg-gray-50"
-            disabled={busyId === selected._id}
-            onClick={async () => {
-              const amount = Number(prompt('Shipping amount (INR)?') || 0);
-              if (amount > 0) await createShipPayLink(selected._id, amount);
-            }}
-          >Create/Refresh link</button>
-        )}
-      </div>
-    </div>
-  );
-})()}
+                        {sp.status !== 'paid' && (
+                          <button
+                            className="px-3 py-2 rounded-xl border hover:bg-gray-50"
+                            disabled={busyId === selected._id}
+                            onClick={async () => {
+                              const amount = Number(prompt('Shipping amount (INR)?') || 0);
+                              if (amount > 0) await createShipPayLink(selected._id, amount);
+                            }}
+                          >Create/Refresh link</button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 {/* GST / Tax Details */}
                 {(() => {
-  const g = getGstView(selected);
-  const hasSplit = g.cgst != null || g.sgst != null || g.igst != null;
-  return (
-    <div className="border rounded-2xl p-3">
-      <div className="flex items-center justify-between mb-2">
-        <div className="font-semibold text-gray-900">GST / Tax Details</div>
-        {g.invoiceUrl ? (
-          <a
-            href={g.invoiceUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-gray-900 text-white hover:bg-black text-sm"
-          >
-            View GST Invoice
-          </a>
-        ) : (
-          <span className="text-xs text-gray-500">
-            {g.wantInvoice ? 'Invoice not generated yet' : 'Customer did not request GST invoice'}
-          </span>
-        )}
-      </div>
+                  const g = getGstView(selected);
+                  const hasSplit = g.cgst != null || g.sgst != null || g.igst != null;
+                  const isSR = !!selected?.invoiceUrl && !selected?.gst?.invoiceUrl;
 
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
-        <div className="space-y-1">
-          <div className="flex justify-between"><span className="text-gray-600">Requested</span><span className={g.wantInvoice ? 'text-emerald-700 font-medium' : 'text-gray-500'}>{g.wantInvoice ? 'Yes' : 'No'}</span></div>
-          <div className="flex justify-between"><span className="text-gray-600">GSTIN</span><span className="font-mono text-xs">{g.gstin || '—'}</span></div>
-          <div className="flex justify-between"><span className="text-gray-600">Legal Name</span><span className="font-medium truncate">{g.legalName || '—'}</span></div>
-          <div className="flex justify-between"><span className="text-gray-600">Place of Supply</span><span className="font-medium">{g.pos || '—'}</span></div>
-        </div>
+                  return (
+                    <div className="border rounded-2xl p-3">
+                      <div className="flex items-center justify-between mb-2">
+                        <div className="font-semibold text-gray-900">GST / Tax Details</div>
+                        {g.invoiceUrl ? (
+                          <a
+                            href={g.invoiceUrl}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-gray-900 text-white hover:bg-black text-sm"
+                          >
+                            {isSR ? 'View Shipping Invoice' : 'View GST Invoice'}
+                          </a>
+                        ) : (
+                          <span className="text-xs text-gray-500">
+                            {g.wantInvoice ? 'Invoice not generated yet' : 'Customer did not request GST invoice'}
+                          </span>
+                        )}
+                      </div>
 
-        <div className="space-y-1">
-          <div className="flex justify-between"><span className="text-gray-600">Taxable Value</span><span className="font-medium">{money(toNum(g.taxBase))}</span></div>
-          <div className="flex justify-between"><span className="text-gray-600">GST %</span><span className="font-medium">{g.taxPercent || 0}%</span></div>
-          <div className="flex justify-between"><span className="text-gray-600">GST Amount</span><span className="font-semibold text-gray-900">{money(toNum(g.taxAmount))}</span></div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 text-sm">
+                        <div className="space-y-1">
+                          <div className="flex justify-between"><span className="text-gray-600">Requested</span><span className={g.wantInvoice ? 'text-emerald-700 font-medium' : 'text-gray-500'}>{g.wantInvoice ? 'Yes' : 'No'}</span></div>
+                          <div className="flex justify-between"><span className="text-gray-600">GSTIN</span><span className="font-mono text-xs">{g.gstin || '—'}</span></div>
+                          <div className="flex justify-between"><span className="text-gray-600">Legal Name</span><span className="font-medium truncate">{g.legalName || '—'}</span></div>
+                          <div className="flex justify-between"><span className="text-gray-600">Place of Supply</span><span className="font-medium">{g.pos || '—'}</span></div>
+                        </div>
 
-          {hasSplit && (
-            <>
-              {g.cgst != null && <div className="flex justify-between"><span className="text-gray-600">CGST</span><span>{money(toNum(g.cgst))}</span></div>}
-              {g.sgst != null && <div className="flex justify-between"><span className="text-gray-600">SGST</span><span>{money(toNum(g.sgst))}</span></div>}
-              {g.igst != null && <div className="flex justify-between"><span className="text-gray-600">IGST</span><span>{money(toNum(g.igst))}</span></div>}
-            </>
-          )}
+                        <div className="space-y-1">
+                          <div className="flex justify-between"><span className="text-gray-600">Taxable Value</span><span className="font-medium">{money(toNum(g.taxBase))}</span></div>
+                          <div className="flex justify-between"><span className="text-gray-600">GST %</span><span className="font-medium">{g.taxPercent || 0}%</span></div>
+                          <div className="flex justify-between"><span className="text-gray-600">GST Amount</span><span className="font-semibold text-gray-900">{money(toNum(g.taxAmount))}</span></div>
 
-          {g.invoiceNumber && (
-            <div className="flex justify-between">
-              <span className="text-gray-600">Invoice #</span>
-              <span className="font-mono text-xs">{g.invoiceNumber}</span>
-            </div>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-})()}
+                          {hasSplit && (
+                            <>
+                              {g.cgst != null && <div className="flex justify-between"><span className="text-gray-600">CGST</span><span>{money(toNum(g.cgst))}</span></div>}
+                              {g.sgst != null && <div className="flex justify-between"><span className="text-gray-600">SGST</span><span>{money(toNum(g.sgst))}</span></div>}
+                              {g.igst != null && <div className="flex justify-between"><span className="text-gray-600">IGST</span><span>{money(toNum(g.igst))}</span></div>}
+                            </>
+                          )}
+
+                          {g.invoiceNumber && (
+                            <div className="flex justify-between">
+                              <span className="text-gray-600">Invoice #</span>
+                              <span className="font-mono text-xs">{g.invoiceNumber}</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 {/* Actions */}
                 <div className="flex flex-wrap gap-2 pt-1">
@@ -1892,13 +1905,6 @@ async function createShipPayLink(id: string, amount: number) {
                       Cancel
                     </button>
                   )}
-
-
-
- 
-
-
-
 
                   {/* ---- Shiprocket Actions ---- */}
                   <div className="w-full h-0" />

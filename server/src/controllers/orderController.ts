@@ -65,19 +65,11 @@ const cleanGstin = (s?: any) =>
 
 /* ───────────────── CREATE ORDER (with stock deduction, GST & emails) ───────────────── */
 
-// ...existing code...
 export const createOrder = async (req: Request, res: Response): Promise<void> => {
   try {
-    // DEBUG: incoming request body & keys related to GST
-    console.log('[CREATE_ORDER] REQ_BODY:', JSON.stringify(req.body ?? {}, null, 2));
-    console.log('[CREATE_ORDER] EXTRAS:', JSON.stringify(req.body?.extras ?? {}, null, 2));
-    console.log(
-      '[CREATE_ORDER] GST_PAYLOAD_SRC:',
-      JSON.stringify(req.body?.gst ?? req.body?.extras?.gst ?? {}, null, 2)
-    );
-
+   
     const { shippingAddress, paymentMethod, billingAddress, extras, pricing } = req.body;
-
+        
     if (!req.user) {
       res.status(401).json({ message: "User not authenticated" });
       return;
@@ -133,9 +125,9 @@ export const createOrder = async (req: Request, res: Response): Promise<void> =>
       subtotal += cartItem.price * clampedQty;
     }
 
-    // Pricing (server-side)
-    const shipping = subtotal > 500 ? 0 : 50;
-    const tax = Math.round(subtotal * 0.18);
+    // Pricing (server-side). You can switch to your own rules as needed.
+    const shipping = subtotal > 500 ? 0 : 50;                 // free above ₹500
+    const tax = Math.round(subtotal * 0.18);                  // 18% GST rounded
     const total = subtotal + shipping + tax;
 
     // IDs
@@ -144,9 +136,8 @@ export const createOrder = async (req: Request, res: Response): Promise<void> =>
 
     // Build GST block from extras + computed values
     const gstBlock = buildGstBlock(req.body, shippingAddress, { subtotal, tax });
-    console.log('[CREATE_ORDER] gstBlock computed:', JSON.stringify(gstBlock ?? {}, null, 2));
 
-    // Create order payload
+    // Create and save
     const order = new Order({
       userId: new mongoose.Types.ObjectId(userId),
       orderNumber,
@@ -163,17 +154,14 @@ export const createOrder = async (req: Request, res: Response): Promise<void> =>
       orderStatus: "pending",
       paymentStatus: paymentMethod === "cod" ? "cod_pending" : "awaiting_payment",
 
-      // persist GST & customer note if sent from checkout
+      // ⬇️ persist GST & customer note if sent from checkout
       gst: gstBlock,
       customerNotes: (extras?.orderNotes || "").toString().trim() || undefined,
     });
 
-    // Save
     const savedOrder = await order.save();
-    console.log('[CREATE_ORDER] savedOrder._id:', savedOrder._id?.toString());
-    console.log('[CREATE_ORDER] savedOrder.gst:', JSON.stringify((savedOrder as any).gst ?? null, null, 2));
 
-    // REAL-TIME STOCK DEDUCTION
+    // REAL-TIME STOCK DEDUCTION (based on SAVED ORDER ITEMS to match persisted quantities)
     try {
       for (const item of savedOrder.items) {
         const updated = await Product.findOneAndUpdate(
@@ -189,7 +177,6 @@ export const createOrder = async (req: Request, res: Response): Promise<void> =>
     } catch (stockError) {
       // Rollback order if stock deduction fails
       await Order.findByIdAndDelete(savedOrder._id);
-      console.error('[CREATE_ORDER] stock deduction failed, rolled back order:', stockError);
       res.status(409).json({ message: "Stock changed. Please try again." });
       return;
     }
@@ -197,7 +184,7 @@ export const createOrder = async (req: Request, res: Response): Promise<void> =>
     // Clear cart
     await Cart.findOneAndDelete({ userId });
 
-    // EMAIL AUTOMATION (non-blocking)
+    // EMAIL AUTOMATION (non-blocking error handling)
     const emailResults = {
       customerEmailSent: false,
       adminEmailSent: false,
@@ -206,14 +193,17 @@ export const createOrder = async (req: Request, res: Response): Promise<void> =>
 
     try {
       emailResults.customerEmailSent =
-        await EmailAutomationService.sendOrderConfirmation(savedOrder as any, savedOrder.shippingAddress.email);
-      emailResults.adminEmailSent = await EmailAutomationService.notifyAdminNewOrder(savedOrder as any);
+        await EmailAutomationService.sendOrderConfirmation(
+          savedOrder as any,
+          savedOrder.shippingAddress.email
+        );
+      emailResults.adminEmailSent =
+        await EmailAutomationService.notifyAdminNewOrder(savedOrder as any);
     } catch (emailError: any) {
       emailResults.emailError = emailError.message || "Email error";
-      console.warn('[CREATE_ORDER] email send error:', emailResults.emailError);
     }
 
-    // Socket pushes (include GST)
+    // Socket pushes
     if (req.io) {
       interface IUserSummary {
         _id: mongoose.Types.ObjectId;
@@ -223,7 +213,12 @@ export const createOrder = async (req: Request, res: Response): Promise<void> =>
 
       let userDoc: IUserSummary | null = null;
       try {
-        userDoc = await mongoose.model<IUserSummary>("User").findById(savedOrder.userId).select("name email").lean().exec();
+        userDoc = await mongoose
+          .model<IUserSummary>("User")
+          .findById(savedOrder.userId)
+          .select("name email")
+          .lean()
+          .exec();
       } catch {
         userDoc = null;
       }
@@ -244,12 +239,10 @@ export const createOrder = async (req: Request, res: Response): Promise<void> =>
         total: savedOrder.total,
         items: orderItems,
         userId: userSummary,
-        gst: (savedOrder as any).gst || undefined,
         createdAt: savedOrder.createdAt,
       });
     }
 
-    // Respond
     res.status(201).json({
       success: true,
       message: "Order created successfully",
@@ -260,19 +253,17 @@ export const createOrder = async (req: Request, res: Response): Promise<void> =>
         orderStatus: savedOrder.orderStatus,
         paymentStatus: savedOrder.paymentStatus,
         items: orderItems,
-        gst: savedOrder.gst,
+        gst: savedOrder.gst,                 // ⬅️ return gst for client/debug
         emailStatus: emailResults,
       },
     });
   } catch (error: any) {
-    console.error('[CREATE_ORDER] unexpected error:', error);
     res.status(500).json({
       success: false,
       message: error.message || "Server error",
     });
   }
 };
-//
 
 /* ───────────────── GET USER ORDERS (paginated) ───────────────── */
 
