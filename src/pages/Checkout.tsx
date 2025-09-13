@@ -227,6 +227,12 @@ const CheckoutPage: React.FC = () => {
     return Math.round(convenienceFee * ONLINE_FEE_GST_RATE);
   }, [method, convenienceFee]);
 
+  // ✅ Combined fee for display (includes 2% + 18% GST on that 2%)
+  const totalProcessingFee = useMemo(() => {
+    if (method === 'cod') return 0;
+    return convenienceFee + convenienceFeeGst; // both already rounded above
+  }, [method, convenienceFee, convenienceFeeGst]);
+
   const total = Math.max(
     0,
     effectiveSubtotal +
@@ -626,18 +632,12 @@ const CheckoutPage: React.FC = () => {
                 </div>
               )}
 
-              {/* Online payment fee lines (Razorpay only) */}
+              {/* ✅ Single combined processing fee (Razorpay only) */}
               {method !== 'cod' && (
-                <>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">Payment Processing Fee (2%)</span>
-                    <span className="font-semibold">{formatINR(convenienceFee)}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600">GST on Processing Fee (18%)</span>
-                    <span className="font-semibold">{formatINR(convenienceFeeGst)}</span>
-                  </div>
-                </>
+                <div className="flex justify-between">
+                  <span className="text-gray-600">Payment Processing Fee</span>
+                  <span className="font-semibold">{formatINR(totalProcessingFee)}</span>
+                </div>
               )}
 
               <div className="flex justify-between font-bold text-base sm:text-lg pt-3 sm:pt-4 border-t border-gray-200">
