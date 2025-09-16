@@ -479,7 +479,7 @@ const ChatBot: React.FC<{ suggestions?: string[] }>= () => {
         aria-label="Open Clara chat"
       >
         <MessageCircle className="h-5 w-5" />
-        <span className="hidden sm:block">Meet Clara</span>
+        <span className="hidden sm:block">Meet Artha</span>
       </motion.button>
 
       {/* Chat Panel */}

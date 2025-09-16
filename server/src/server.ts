@@ -135,6 +135,22 @@ app.use((req, res, next): void => {
   next();
 });
 
+// Ensure utf-8 charset sticks to text/json responses
+app.use((req, res, next) => {
+  const set = res.setHeader.bind(res);
+  res.setHeader = (name: string, value: any) => {
+    if (
+      name.toLowerCase() === 'content-type' &&
+      typeof value === 'string' &&
+      /^(application\/json|text\/html|text\/plain)/i.test(value) &&
+      !/charset=/i.test(value)
+    ) value = `${value}; charset=UTF-8`;
+    return set(name, value);
+  };
+  next();
+});
+
+
 // Rate limiting
 const limiter = rateLimit({
   windowMs: 15 * 60 * 1000,
