@@ -181,11 +181,11 @@ const OEM: React.FC = () => {
     { icon: Package, title: 'Bulk Manufacturing', description: 'Large-scale production with competitive pricing and QA.' },
     { icon: Award, title: 'Custom Branding', description: 'Your logo + pro packaging and design services.' },
     { icon: Truck, title: 'Global Shipping', description: 'Worldwide delivery with tracking and insurance.' },
-    { icon: Users, title: 'Dedicated Support', description: '24/7 support with a dedicated account manager.' },
+    { icon: Users, title: 'Dedicated Support', description: ' Support with a  account manager. ' },
   ];
 
   const features = [
-    'Minimum Order Quantity: 100 pieces',
+    'Minimum Order Quantity: 50 pieces',
     'Custom packaging and branding',
     'Quality assurance and testing',
     'Competitive wholesale pricing',
