@@ -8,6 +8,7 @@ import User from '../models/User';
 import nodemailer from 'nodemailer';
 import crypto from 'crypto';
 import { Parser as Json2CsvParser } from 'json2csv';
+
 interface AuthRequest extends Request {
   user?: {
     id: string;
@@ -39,12 +40,11 @@ const asArray = (v: any): string[] => {
     } catch {}
     return v
       .split(',')
-      .map(s => s.trim())
+      .map((s) => s.trim())
       .filter(Boolean);
   }
   return [];
 };
-
 
 // ---------- Price/stock compatibility helpers ----------
 const toNumber = (v: any) => (v === '' || v == null ? null : Number(v));
@@ -64,7 +64,7 @@ const mirrorCompare = <T extends Record<string, any>>(obj: T): T => {
 };
 
 const normalizeOut = (p: any) => {
-  const po = (p && typeof p.toObject === 'function') ? p.toObject({ virtuals: true }) : p;
+  const po = p && typeof p.toObject === 'function' ? p.toObject({ virtuals: true }) : p;
   const cmp = po?.compareAtPrice ?? po?.originalPrice ?? null;
   const stockQty = po?.stockQuantity ?? po?.stock ?? 0;
   return {
@@ -75,9 +75,6 @@ const normalizeOut = (p: any) => {
     stock: po?.stock ?? stockQty,
   };
 };
-
-
-
 
 const parseSpecs = (v: any): Record<string, any> => {
   if (!v) return {};
@@ -98,8 +95,8 @@ const getAuthorizedEmails = (): string[] => {
   const emails = process.env.AUTHORIZED_ADMIN_EMAILS || '';
   return emails
     .split(',')
-    .map(email => email.trim().toLowerCase())
-    .filter(email => email.length > 0);
+    .map((email) => email.trim().toLowerCase())
+    .filter((email) => email.length > 0);
 };
 
 const isAuthorizedAdminEmail = (email: string): boolean => {
@@ -115,12 +112,12 @@ const isAuthorizedAdminEmail = (email: string): boolean => {
 // ---------- Mail Transport ----------
 const transporter = nodemailer.createTransport({
   host: process.env.SMTP_HOST || 'smtp.gmail.com',
-  port: 465,
+  port: Number(process.env.SMTP_PORT || 465),
   secure: true,
   auth: {
     user: process.env.SMTP_USER,
-    pass: process.env.SMTP_PASS
-  }
+    pass: process.env.SMTP_PASS,
+  },
 });
 
 // ---------- OTP Utilities ----------
@@ -148,14 +145,14 @@ export const sendAdminOtp = async (req: Request, res: Response) => {
 
     if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       return res.status(400).json({
-        error: 'Valid email required'
+        error: 'Valid email required',
       });
     }
 
     if (!isAuthorizedAdminEmail(email)) {
       console.log('❌ Unauthorized admin access attempt:', email);
       return res.status(403).json({
-        error: 'Access denied. Email not authorized for admin access.'
+        error: 'Access denied. Email not authorized for admin access.',
       });
     }
 
@@ -163,22 +160,23 @@ export const sendAdminOtp = async (req: Request, res: Response) => {
 
     cleanExpiredOTPs();
 
-    const existingOTP = otpStorage.get(email.toLowerCase());
+    const key = email.toLowerCase();
+    const existingOTP = otpStorage.get(key);
     if (existingOTP && existingOTP.expiresAt > new Date()) {
       return res.status(429).json({
         error: 'OTP already sent',
-        expiresIn: Math.ceil((existingOTP.expiresAt.getTime() - Date.now()) / 1000)
+        expiresIn: Math.ceil((existingOTP.expiresAt.getTime() - Date.now()) / 1000),
       });
     }
 
     const otp = generateOTP();
     const expiresAt = new Date(Date.now() + 10 * 60 * 1000);
 
-    otpStorage.set(email.toLowerCase(), {
+    otpStorage.set(key, {
       otp,
-      email: email.toLowerCase(),
+      email: key,
       expiresAt,
-      attempts: 0
+      attempts: 0,
     });
 
     const mailOptions = {
@@ -197,32 +195,33 @@ export const sendAdminOtp = async (req: Request, res: Response) => {
             ⚠️ This is an authorized admin access attempt. If you didn't request this, please contact IT security immediately.
           </p>
         </div>
-      `
+      `,
     };
 
     await transporter.sendMail(mailOptions);
 
     res.status(200).json({
       message: 'OTP sent successfully to authorized admin email',
-      email: email.toLowerCase(),
-      expiresIn: 600
+      email: key,
+      expiresIn: 600,
+      success: true,
     });
   } catch (error) {
     console.error('❌ OTP send error:', error);
     res.status(500).json({
-      error: 'Failed to send OTP'
+      error: 'Failed to send OTP',
     });
   }
 };
 
-// Verify Admin OTP
+// Verify Admin OTP  ✅ FIXED to avoid duplicate email 500
 export const verifyAdminOtp = async (req: Request, res: Response) => {
   try {
     const { email, otp } = req.body;
 
     if (!email || !otp) {
       return res.status(400).json({
-        error: 'Email and OTP required'
+        error: 'Email and OTP required',
       });
     }
 
@@ -231,7 +230,7 @@ export const verifyAdminOtp = async (req: Request, res: Response) => {
     if (!isAuthorizedAdminEmail(normalizedEmail)) {
       console.log('❌ Unauthorized verification attempt:', normalizedEmail);
       return res.status(403).json({
-        error: 'Access denied. Email not authorized.'
+        error: 'Access denied. Email not authorized.',
       });
     }
 
@@ -240,62 +239,84 @@ export const verifyAdminOtp = async (req: Request, res: Response) => {
     const storedOTPData = otpStorage.get(normalizedEmail);
     if (!storedOTPData) {
       return res.status(400).json({
-        error: 'OTP not found or expired'
+        error: 'OTP not found or expired',
       });
     }
 
     if (storedOTPData.expiresAt < new Date()) {
       otpStorage.delete(normalizedEmail);
       return res.status(400).json({
-        error: 'OTP expired'
+        error: 'OTP expired',
       });
     }
 
     if (storedOTPData.attempts >= 3) {
       otpStorage.delete(normalizedEmail);
       return res.status(400).json({
-        error: 'Too many attempts. Request new OTP.'
+        error: 'Too many attempts. Request new OTP.',
       });
     }
 
-    if (storedOTPData.otp !== otp.toString()) {
+    if (storedOTPData.otp !== String(otp)) {
       storedOTPData.attempts += 1;
       otpStorage.set(normalizedEmail, storedOTPData);
       return res.status(400).json({
         error: 'Invalid OTP',
-        attemptsLeft: 3 - storedOTPData.attempts
+        attemptsLeft: 3 - storedOTPData.attempts,
       });
     }
 
     // OTP verified successfully
     otpStorage.delete(normalizedEmail);
 
-    // Find or create admin user
-    let admin = await User.findOne({
-      email: normalizedEmail,
-      role: 'admin'
-    });
+    // ✅ SAFER: find by email only. Promote to admin if user exists; otherwise create.
+    let user = await User.findOne({ email: normalizedEmail });
 
-    if (!admin) {
-      console.log('🆕 Creating new admin user for:', normalizedEmail);
-      admin = new User({
+    if (user) {
+      user.role = 'admin';
+      (user as any).status = 'active'; // keep for places checking string status
+      user.isVerified = true;
+      (user as any).isActive = true;
+      try {
+        await user.save();
+      } catch (e: any) {
+        console.error('❌ Failed to promote user to admin:', e?.message);
+        return res.status(500).json({ error: 'Failed to promote account to admin' });
+      }
+    } else {
+      user = new User({
         name: `Admin (${normalizedEmail.split('@')[0]})`,
         email: normalizedEmail,
         role: 'admin',
         status: 'active',
         isVerified: true,
-        isActive: true
+        isActive: true,
       });
-      await admin.save();
+      try {
+        await user.save();
+      } catch (e: any) {
+        if (e?.code === 11000) {
+          console.error('❌ Duplicate key while creating admin:', normalizedEmail);
+          return res.status(409).json({ error: 'Account with this email already exists' });
+        }
+        console.error('❌ Failed to create admin account:', e?.message);
+        return res.status(500).json({ error: 'Failed to create admin account' });
+      }
+    }
+
+    const secret = process.env.JWT_SECRET?.trim();
+    if (!secret) {
+      console.error('❌ JWT_SECRET missing');
+      return res.status(500).json({ error: 'Server misconfiguration: JWT secret missing' });
     }
 
     const sessionToken = jwt.sign(
       {
-        id: admin.id.toString(),
-        role: admin.role,
-        email: admin.email
+        id: user.id.toString(),
+        role: user.role,
+        email: user.email,
       },
-      process.env.JWT_SECRET!,
+      secret,
       { expiresIn: '8h' }
     );
 
@@ -306,16 +327,16 @@ export const verifyAdminOtp = async (req: Request, res: Response) => {
       sessionToken,
       success: true,
       admin: {
-        id: admin.id.toString(),
-        name: admin.name,
-        email: admin.email,
-        role: admin.role
-      }
+        id: user.id.toString(),
+        name: user.name,
+        email: user.email,
+        role: user.role,
+      },
     });
   } catch (error) {
     console.error('❌ OTP verification error:', error);
     res.status(500).json({
-      error: 'Verification failed'
+      error: 'Verification failed',
     });
   }
 };
@@ -328,7 +349,7 @@ export const adminLogin = async (req: Request, res: Response): Promise<void> => 
     if (!email || !password) {
       res.status(400).json({
         success: false,
-        message: 'Email and password required'
+        message: 'Email and password required',
       });
       return;
     }
@@ -339,28 +360,35 @@ export const adminLogin = async (req: Request, res: Response): Promise<void> => 
       console.log('❌ Unauthorized admin login attempt:', normalizedEmail);
       res.status(403).json({
         success: false,
-        message: 'Access denied. Email not authorized for admin access.'
+        message: 'Access denied. Email not authorized for admin access.',
       });
       return;
     }
 
     const admin = await User.findOne({
       email: normalizedEmail,
-      role: 'admin'
+      role: 'admin',
     }).select('+password');
 
     if (!admin || !admin.password) {
       res.status(401).json({
         success: false,
-        message: 'Invalid credentials'
+        message: 'Invalid credentials',
       });
       return;
     }
 
-    if (admin.status !== 'active') {
+    if ((admin as any).status && (admin as any).status !== 'active') {
       res.status(401).json({
         success: false,
-        message: 'Account disabled'
+        message: 'Account disabled',
+      });
+      return;
+    }
+    if ((admin as any).isActive === false) {
+      res.status(401).json({
+        success: false,
+        message: 'Account disabled',
       });
       return;
     }
@@ -369,8 +397,15 @@ export const adminLogin = async (req: Request, res: Response): Promise<void> => 
     if (!isValidPassword) {
       res.status(401).json({
         success: false,
-        message: 'Invalid credentials'
+        message: 'Invalid credentials',
       });
+      return;
+    }
+
+    const secret = process.env.JWT_SECRET?.trim();
+    if (!secret) {
+      console.error('❌ JWT_SECRET missing');
+      res.status(500).json({ success: false, message: 'Server misconfiguration: JWT secret missing' });
       return;
     }
 
@@ -378,9 +413,9 @@ export const adminLogin = async (req: Request, res: Response): Promise<void> => 
       {
         id: admin.id.toString(),
         role: admin.role,
-        email: admin.email
+        email: admin.email,
       },
-      process.env.JWT_SECRET!,
+      secret,
       { expiresIn: '8h' }
     );
 
@@ -397,14 +432,14 @@ export const adminLogin = async (req: Request, res: Response): Promise<void> => 
         id: admin.id.toString(),
         name: admin.name,
         email: admin.email,
-        role: admin.role
-      }
+        role: admin.role,
+      },
     });
   } catch (error) {
     console.error('❌ Admin login error:', error);
     res.status(500).json({
       success: false,
-      message: 'Login failed'
+      message: 'Login failed',
     });
   }
 };
@@ -419,7 +454,7 @@ export const getAdminStats = async (req: AuthRequest, res: Response): Promise<vo
     if (!req.user || req.user.role !== 'admin') {
       res.status(403).json({
         success: false,
-        message: 'Admin access required'
+        message: 'Admin access required',
       });
       return;
     }
@@ -428,28 +463,22 @@ export const getAdminStats = async (req: AuthRequest, res: Response): Promise<vo
       console.log('❌ Admin access revoked for:', req.user.email);
       res.status(403).json({
         success: false,
-        message: 'Admin access has been revoked'
+        message: 'Admin access has been revoked',
       });
       return;
     }
 
-    const [
-      totalProducts,
-      totalActiveProducts,
-      totalOrders,
-      pendingOrders,
-      totalUsers
-    ] = await Promise.all([
+    const [totalProducts, totalActiveProducts, totalOrders, pendingOrders, totalUsers] = await Promise.all([
       Product.countDocuments(),
       Product.countDocuments({ isActive: true }),
       Order.countDocuments(),
       Order.countDocuments({ orderStatus: 'pending' }),
-      User.countDocuments({ role: 'user' })
+      User.countDocuments({ role: 'user' }),
     ]);
 
     const lowStockItems = await Product.countDocuments({
       stockQuantity: { $lte: 10 },
-      isActive: true
+      isActive: true,
     });
 
     const today = new Date();
@@ -459,16 +488,16 @@ export const getAdminStats = async (req: AuthRequest, res: Response): Promise<vo
       {
         $match: {
           createdAt: { $gte: today },
-          paymentStatus: { $in: ['paid', 'completed'] }
-        }
+          paymentStatus: { $in: ['paid', 'completed'] },
+        },
       },
       {
         $group: {
           _id: null,
           total: { $sum: '$totalAmount' },
-          count: { $sum: 1 }
-        }
-      }
+          count: { $sum: 1 },
+        },
+      },
     ]);
 
     const stats = {
@@ -480,20 +509,20 @@ export const getAdminStats = async (req: AuthRequest, res: Response): Promise<vo
       lowStockItems,
       todaySales: todaySalesResult[0]?.total || 0,
       todayOrderCount: todaySalesResult[0]?.count || 0,
-      authorizedEmails: getAuthorizedEmails().length
+      authorizedEmails: getAuthorizedEmails().length,
     };
 
     console.log('✅ Stats fetched successfully:', stats);
 
     res.json({
       success: true,
-      stats
+      stats,
     });
   } catch (error) {
     console.error('❌ Stats error:', error);
     res.status(500).json({
       success: false,
-      message: 'Failed to get stats'
+      message: 'Failed to get stats',
     });
   }
 };
@@ -518,10 +547,10 @@ export const uploadProduct = async (req: AuthRequest, res: Response): Promise<vo
       // optional/advanced fields:
       features,
       tags,
-      images,          // optional URLs provided in body
-      specifications, 
-       compareAtPrice,       // ✅ NEW
-      originalPrice  // JSON string or object
+      images, // optional URLs provided in body
+      specifications,
+      compareAtPrice, // ✅ NEW
+      originalPrice, // JSON string or object
     } = req.body as any;
 
     // Validation
@@ -532,14 +561,14 @@ export const uploadProduct = async (req: AuthRequest, res: Response): Promise<vo
         missing: {
           name: !name,
           price: !price,
-          category: !category
-        }
+          category: !category,
+        },
       });
       return;
     }
 
     const parsedPrice = parseFloat(price);
-      const cmpRaw = compareAtPrice ?? originalPrice;
+    const cmpRaw = compareAtPrice ?? originalPrice;
     const cmp = toNumber(cmpRaw);
     if (cmp != null) {
       if (!Number.isFinite(cmp) || !(cmp > parsedPrice)) {
@@ -587,12 +616,8 @@ export const uploadProduct = async (req: AuthRequest, res: Response): Promise<vo
         const { uploadProductImages } = await import('../config/cloudinary');
         for (const file of files) {
           const publicId = `product_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-          const uploadResult = await uploadProductImages(
-            file.buffer,
-            publicId,
-            file.originalname
-          );
-          uploadedUrls.push(uploadResult.secure_url);
+          const uploadResult = await uploadProductImages(file.buffer, publicId, file.originalname);
+          uploadedUrls.push(uploadResult.url);
         }
         console.log(`✅ Uploaded ${uploadedUrls.length} image(s)`);
       } catch (uploadError: any) {
@@ -600,7 +625,7 @@ export const uploadProduct = async (req: AuthRequest, res: Response): Promise<vo
         res.status(500).json({
           success: false,
           message: 'Image upload failed',
-          error: process.env.NODE_ENV === 'development' ? uploadError.message : 'Image upload error'
+          error: process.env.NODE_ENV === 'development' ? uploadError.message : 'Image upload error',
         });
         return;
       }
@@ -617,18 +642,18 @@ export const uploadProduct = async (req: AuthRequest, res: Response): Promise<vo
       name: String(name).trim(),
       description: String(description || '').trim(),
       price: parsedPrice,
-         compareAtPrice: cmp ?? null,          // ✅
+      compareAtPrice: cmp ?? null, // ✅
       originalPrice: cmp ?? null,
       stockQuantity: parsedStock,
       category: String(category).trim(),
-      images: finalImageUrls,                 // ✅ ALL images
+      images: finalImageUrls, // ✅ ALL images
       features: asArray(features),
       tags: asArray(tags),
       specifications: parseSpecs(specifications), // ✅ JSON -> object
       inStock: parsedStock > 0,
       isActive: true,
       createdAt: new Date(),
-      updatedAt: new Date()
+      updatedAt: new Date(),
     });
 
     const savedProduct = await newProduct.save();
@@ -646,18 +671,19 @@ export const uploadProduct = async (req: AuthRequest, res: Response): Promise<vo
         images: savedProduct.images,
         features: savedProduct.features,
         tags: savedProduct.tags,
-        specifications: savedProduct.specifications
-      }
+        specifications: savedProduct.specifications,
+      },
     });
   } catch (error: any) {
     console.error('❌ Product upload error:', error);
     res.status(500).json({
       success: false,
       message: 'Product upload failed',
-      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error',
     });
   }
 };
+
 export const updateProduct = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const id = (req.params as any).productId || (req.params as any).id;
@@ -669,9 +695,12 @@ export const updateProduct = async (req: AuthRequest, res: Response): Promise<vo
     const patch = mirrorCompare(req.body); // ensures compareAtPrice ↔ originalPrice; stock ↔ stockQuantity
 
     const priceNext = toNumber(patch.price);
-    const cmpNext = patch.compareAtPrice != null ? toNumber(patch.compareAtPrice)
-                   : patch.originalPrice != null ? toNumber(patch.originalPrice)
-                   : null;
+    const cmpNext =
+      patch.compareAtPrice != null
+        ? toNumber(patch.compareAtPrice)
+        : patch.originalPrice != null
+        ? toNumber(patch.originalPrice)
+        : null;
 
     if (cmpNext != null) {
       let priceToCheck = priceNext;
@@ -716,29 +745,34 @@ export const updateProductStatus = async (req: AuthRequest, res: Response): Prom
   try {
     const id = (req.params as any).productId || (req.params as any).id;
     const { status } = req.body;
-    if (!id) { res.status(400).json({ success:false, message:'Product ID is required' }); return; }
-    if (!['active','inactive','draft','pending'].includes(String(status))) {
-      res.status(400).json({ success:false, message:'Invalid status' }); return;
+    if (!id) {
+      res.status(400).json({ success: false, message: 'Product ID is required' });
+      return;
+    }
+    if (!['active', 'inactive', 'draft', 'pending'].includes(String(status))) {
+      res.status(400).json({ success: false, message: 'Invalid status' });
+      return;
     }
     const doc = await Product.findByIdAndUpdate(
       id,
       { status, isActive: status === 'active', updatedAt: new Date() },
       { new: true, runValidators: true, context: 'query' }
     );
-    if (!doc) { res.status(404).json({ success:false, message:'Product not found' }); return; }
-    res.json({ success:true, product: normalizeOut(doc) });
-  } catch (e:any) {
+    if (!doc) {
+      res.status(404).json({ success: false, message: 'Product not found' });
+      return;
+    }
+    res.json({ success: true, product: normalizeOut(doc) });
+  } catch (e: any) {
     console.error('❌ Product status update error:', e);
-    res.status(500).json({ success:false, message:'Failed to update product status' });
+    res.status(500).json({ success: false, message: 'Failed to update product status' });
   }
 };
-
 
 // ======================================
 // 📚 ADMIN PRODUCT LISTING / UTILITIES
 // ======================================
 
-// Get All Products (Admin)
 export const getAllProducts = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const page = Math.max(parseInt(String(req.query.page ?? '1'), 10) || 1, 1);
@@ -764,7 +798,17 @@ export const getAllProducts = async (req: AuthRequest, res: Response): Promise<v
     if (stockFilter === 'out-of-stock') filter.stockQuantity = { $eq: 0 };
     if (stockFilter === 'low-stock') filter.stockQuantity = { $gt: 0, $lte: 10 };
 
-    const allowedSort = new Set(['name', 'price', 'compareAtPrice', 'stockQuantity', 'createdAt', 'updatedAt', 'rating', 'reviews', 'status']);
+    const allowedSort = new Set([
+      'name',
+      'price',
+      'compareAtPrice',
+      'stockQuantity',
+      'createdAt',
+      'updatedAt',
+      'rating',
+      'reviews',
+      'status',
+    ]);
     const sort: any = {};
     sort[allowedSort.has(sortBy) ? sortBy : 'name'] = sortOrder;
 
@@ -800,7 +844,7 @@ export const deleteProduct = async (req: AuthRequest, res: Response): Promise<vo
     if (!id) {
       res.status(400).json({
         success: false,
-        message: 'Product ID is required'
+        message: 'Product ID is required',
       });
       return;
     }
@@ -809,7 +853,7 @@ export const deleteProduct = async (req: AuthRequest, res: Response): Promise<vo
     if (!product) {
       res.status(404).json({
         success: false,
-        message: 'Product not found'
+        message: 'Product not found',
       });
       return;
     }
@@ -817,25 +861,25 @@ export const deleteProduct = async (req: AuthRequest, res: Response): Promise<vo
     await Product.findByIdAndUpdate(id, {
       isActive: false,
       deletedAt: new Date(),
-      updatedAt: new Date()
+      updatedAt: new Date(),
     });
 
     console.log('✅ Product soft deleted successfully:', {
       id: product._id,
-      name: product.name
+      name: product.name,
     });
 
     res.json({
       success: true,
       message: 'Product deleted successfully',
-      productName: product.name
+      productName: product.name,
     });
   } catch (error: any) {
     console.error('❌ Product deletion error:', error);
     res.status(500).json({
       success: false,
       message: 'Failed to delete product',
-      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error',
     });
   }
 };
@@ -847,30 +891,37 @@ export const updateProductStock = async (req: AuthRequest, res: Response): Promi
     const body: any = req.body || {};
     const stockRaw = body.stockQuantity ?? body.stock; // accept either
     const n = Number(stockRaw);
-    if (!id) { res.status(400).json({ success:false, message:'Product ID is required' }); return; }
+    if (!id) {
+      res.status(400).json({ success: false, message: 'Product ID is required' });
+      return;
+    }
     if (!Number.isInteger(n) || n < 0) {
-      res.status(400).json({ success:false, message:'Valid stock is required (non-negative integer)' }); return;
+      res.status(400).json({ success: false, message: 'Valid stock is required (non-negative integer)' });
+      return;
     }
     const doc = await Product.findByIdAndUpdate(
       id,
       { stockQuantity: n, inStock: n > 0, updatedAt: new Date() },
       { new: true, runValidators: true, context: 'query' }
     );
-    if (!doc) { res.status(404).json({ success:false, message:'Product not found' }); return; }
-    res.json({ success:true, product: normalizeOut(doc) });
-  } catch (e:any) {
+    if (!doc) {
+      res.status(404).json({ success: false, message: 'Product not found' });
+      return;
+    }
+    res.json({ success: true, product: normalizeOut(doc) });
+  } catch (e: any) {
     console.error('❌ Product stock update error:', e);
-    res.status(500).json({ success:false, message:'Failed to update stock' });
+    res.status(500).json({ success: false, message: 'Failed to update stock' });
   }
 };
-
 
 // Low Stock Products
 export const getLowStockProducts = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const threshold = Number(req.query.threshold ?? 10);
-    const productsDocs = await Product.find({ stockQuantity: { $gt: 0, $lte: threshold }, isActive: true })
-      .sort({ stockQuantity: 1 });
+    const productsDocs = await Product.find({ stockQuantity: { $gt: 0, $lte: threshold }, isActive: true }).sort({
+      stockQuantity: 1,
+    });
 
     const products = productsDocs.map(normalizeOut);
     res.json({
@@ -886,14 +937,13 @@ export const getLowStockProducts = async (req: AuthRequest, res: Response): Prom
   }
 };
 
-
 // Admin Profile
 export const getAdminProfile = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     if (!req.user) {
       res.status(401).json({
         success: false,
-        message: 'Authentication required'
+        message: 'Authentication required',
       });
       return;
     }
@@ -902,7 +952,7 @@ export const getAdminProfile = async (req: AuthRequest, res: Response): Promise<
     if (!admin) {
       res.status(404).json({
         success: false,
-        message: 'Admin profile not found'
+        message: 'Admin profile not found',
       });
       return;
     }
@@ -914,20 +964,21 @@ export const getAdminProfile = async (req: AuthRequest, res: Response): Promise<
         name: admin.name,
         email: admin.email,
         role: admin.role,
-        status: admin.status,
-        isVerified: admin.isVerified,
+        status: (admin as any).status,
+        isVerified: (admin as any).isVerified,
         createdAt: admin.createdAt,
-        updatedAt: admin.updatedAt
-      }
+        updatedAt: admin.updatedAt,
+      },
     });
   } catch (error: any) {
     console.error('❌ Get admin profile error:', error);
     res.status(500).json({
       success: false,
-      message: 'Failed to fetch profile'
+      message: 'Failed to fetch profile',
     });
   }
 };
+
 export const exportProductsCsv = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const filters: any = req.query || {};
@@ -936,7 +987,7 @@ export const exportProductsCsv = async (req: AuthRequest, res: Response): Promis
     if (filters.search) q.$text = { $search: String(filters.search) };
 
     const docs = await Product.find(q).sort({ createdAt: -1 });
-    const rows = docs.map(d => {
+    const rows = docs.map((d) => {
       const n = normalizeOut(d);
       return {
         Name: n.name,
@@ -958,9 +1009,8 @@ export const exportProductsCsv = async (req: AuthRequest, res: Response): Promis
     res.setHeader('Content-Type', 'text/csv');
     res.setHeader('Content-Disposition', `attachment; filename="products-${Date.now()}.csv"`);
     res.send(csv);
-  } catch (e:any) {
+  } catch (e: any) {
     console.error('❌ Export CSV error:', e);
-    res.status(500).json({ success:false, message:'Failed to export products' });
+    res.status(500).json({ success: false, message: 'Failed to export products' });
   }
 };
-
