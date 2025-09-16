@@ -140,16 +140,16 @@ const Contact: React.FC = () => {
       title: 'Visit Our Store',
       details: [
         { text: 'Building No.3372, Gali No.2, Christian Colony' },
-        { text: 'Electronics Market, Karol Bagh' },
-        { text: 'Karol Bagh New Delhi – 110005' },
+        { text: ' Karol Bagh Near baptist church , 110005' },
+        
       ],
     },
     {
       icon: Phone,
       title: 'Call Us',
       details: [
-        { text: '+91 9876543210', href: 'tel:+919876543210' },
-        { text: '+91 9667960044', href: 'tel:9667960044' },
+        { text: '+91 9650516703', href: 'tel:+919050516703' },
+        { text: '+91 9667960044', href: 'tel:+919667960044' },
         { text: 'Tue–Sun: 11:00 AM – 8:00 PM' },
       ],
     },
@@ -157,7 +157,7 @@ const Contact: React.FC = () => {
       icon: Mail,
       title: 'Email Us',
       details: [
-        { text: 'nakodamobile150579@gmail.com', href: 'mailto:nakodamobile150579@gmail.com' },
+        
         { text: 'support@nakodamobile.in', href: 'mailto:info@nakodamobile.in' },
         { text: 'oem@nakodamobile.com', href: 'mailto:nakodaoem@gmail.com' },
       ],
@@ -168,7 +168,7 @@ const Contact: React.FC = () => {
       details: [
         { text: 'Tuesday – Sunday: 11:00 AM – 8:00 PM' },
         
-        { text: '24/7 Online Support' },
+        { text: 'Monday: Closed' },
       ],
     },
   ];
@@ -227,13 +227,13 @@ const Contact: React.FC = () => {
       image: 'https://nakodamobile.in/favicon-512.png',
       address: {
         '@type': 'PostalAddress',
-        streetAddress: 'Near Church Gali No. 2, Electronics Market, Karol Bagh',
+        streetAddress: ' Building No.3372/2, Gali No. 2 Christian Colony Karol Bagh Near baptist church , Karol Bagh',
         addressLocality: 'New Delhi',
         postalCode: '110055',
         addressCountry: 'IN',
       },
-      telephone: '+919876543210',
-      email: 'support@nakodamobile.com',
+      telephone: '+919667960044',
+      email: 'support@nakodamobile.in',
       openingHours: ['Tu-Sa 11:00-20:00', 'Su 10:00-18:00'],
       sameAs: [
         'https://facebook.com/',
@@ -582,13 +582,13 @@ const Contact: React.FC = () => {
                 <p className="mb-4">For urgent inquiries, call us directly or chat with our support team.</p>
                 <div className="flex flex-col sm:flex-row gap-3">
                   <a
-                    href="tel:+919876543210"
+                    href="tel:+919667960044"
                     className="bg-white text-blue-600 px-4 py-2 rounded-lg font-medium hover:bg-gray-100 transition-colors duration-200 text-center"
                   >
                     Call Now
                   </a>
                   <a
-                    href="https://wa.me/919876543210"
+                    href="https://wa.me/+919667960044"
                     className="border-2 border-white text-white px-4 py-2 rounded-lg font-medium hover:bg-white hover:text-blue-600 transition-colors duration-200 text-center"
                   >
                     WhatsApp

@@ -7,7 +7,7 @@ import {
   Play, Shield, Truck, Headphones,
   ChevronLeft, ChevronRight, Quote,
   Instagram, Twitter, Facebook, Sparkles, Flame, Clock,
-  Factory, Package, BadgeCheck, Boxes, Wrench, Globe, Phone, DollarSign
+  Factory, Package, BadgeCheck, Boxes, Wrench, Globe, Phone, DollarSign,IndianRupee
 } from 'lucide-react';
 import HeroSlider from '../components/Layout/HeroSlider';
 import PromoSlider from '../components/Layout/PromoSlider';
@@ -61,9 +61,9 @@ const Home: React.FC = () => {
     { id: 'bluetooth-neckband', name: 'Bluetooth Neckband', icon: '🎧', gradient: 'from-blue-500 to-purple-500', description: 'Premium wireless neckbands', color: 'bg-blue-500' },
     { id: 'true-wireless-stereo', name: 'True Wireless Stereo', icon: '🎵', gradient: 'from-purple-500 to-pink-500', description: 'High-quality TWS earbuds', color: 'bg-purple-500' },
     { id: 'data-cable', name: 'Data Cable', icon: '🔌', gradient: 'from-green-500 to-teal-500', description: 'Fast charging & sync cables', color: 'bg-green-500' },
-    { id: 'mobile-charger', name: 'Mobile Charger', icon: '⚡', gradient: 'from-yellow-500 to-orange-500', description: 'Quick & safe charging solutions', color: 'bg-yellow-500' },
+    { id: 'Wall-charger', name: 'Wall Charger', icon: '⚡', gradient: 'from-yellow-500 to-orange-500', description: 'Quick & safe charging solutions', color: 'bg-yellow-500' },
     { id: 'car-charger', name: 'Car Charger', icon: '🚗', gradient: 'from-gray-600 to-gray-800', description: 'On-the-go charging solutions', color: 'bg-gray-600' },
-    { id: 'mobile-ic', name: 'Mobile IC', icon: '🔧', gradient: 'from-red-500 to-rose-500', description: 'Integrated circuits & components', color: 'bg-red-500' },
+    { id: 'mobile-ic', name: 'Mobile IC', icon: '🔧', gradient: 'from-red-500 to-rose-500', description: 'Integrated circuits & Semi-Conductor', color: 'bg-red-500' },
     { id: 'mobile-repairing-tools', name: 'Mobile Repairing Tools', icon: '🛠️', gradient: 'from-indigo-500 to-blue-500', description: 'Professional repair toolkit', color: 'bg-indigo-500' },
     
   ];
@@ -236,25 +236,17 @@ const Home: React.FC = () => {
       >
         <div className="space-y-4 text-blue-100 leading-relaxed">
        <p className="text-lg">
-  <span className="font-semibold text-white">Welcome to Nakoda Mobile</span>, your trusted partner in high-quality 
-  <span className="font-semibold text-white">mobile accessories</span>. We specialize in a wide range of products — 
-  fast chargers, car chargers, data cables, neckbands, aux cables, Bluetooth speakers, TWS earbuds, headphones, 
-  and power banks. Every accessory we provide is designed to deliver durability, performance, and value, whether 
-  you are a retailer, wholesaler, or brand owner.
+  <span className="font-semibold text-white">Nakoda Mobile</span> – Trusted Partner for 
+  <span className="font-semibold text-white">. Accessories & Tools</span>.
+
+We supply high-quality mobile accessories — chargers, cables, TWS, neckbands, speakers, power banks & more — built for durability and everyday performance.
+
+For mobile repair shops, we also provide reliable tools, from hand tools to advanced diagnostic equipment.
+
+With strict quality checks and honest pricing, Nakoda Mobile is here to support your growth, not just sell products.
 </p>
 
-<p>
-  Along with accessories, we also understand the needs of <span className="font-semibold text-white">mobile repair 
-  professionals</span>. That’s why we offer carefully crafted tools — from basic hand tools to advanced diagnostic 
-  equipment — to help technicians work with precision and confidence. We know every tool in your kit plays a 
-  crucial role in bringing devices back to life, and our mission is to supply products you can rely on every single time.
-</p>
 
-<p>
-  At Nakoda Mobile, we don’t just sell products – <span className="font-semibold text-white">we build trust</span>. 
-  Each accessory and tool goes through strict quality checks to meet your expectations. For us, it’s not only about 
-  delivering goods; it’s about being a part of your success story and helping your business grow.
-</p>
 
 
         </div>
@@ -262,7 +254,7 @@ const Home: React.FC = () => {
         {/* Quick highlights */}
         <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-4">
           {[
-            { title: 'Best Quality', desc: 'Real-world tested by technicians' },
+            { title: 'Best Quality', desc: 'Tested and Quality Check' },
           { title: 'Best Price', desc: 'Transparent and reliable pricing' },
             { title: 'Fast Delivery', desc: 'Consistent stock & quick dispatch' },
             { title: 'Execellent Support', desc: 'Providing the pre and post support' },
@@ -352,60 +344,122 @@ const Home: React.FC = () => {
     
 
       {/* ===================== Services We Offer ===================== */}
-      <section className="py-16 bg-gradient-to-br from-gray-900 via-blue-900 to-gray-900 text-white">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <motion.div className="text-center mb-12" initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }}>
-            <h2 className="text-3xl md:text-4xl font-bold mb-3">Services We Offer</h2>
-            <p className="text-blue-100 max-w-2xl mx-auto">
-              End-to-end OEM solutions—from sourcing to branding, packaging, QC and last-mile delivery.
-            </p>
-          </motion.div>
+     <section className="py-16 bg-gradient-to-br from-gray-900 via-blue-900 to-gray-900 text-white">
+  <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    {/* Section Heading */}
+    <motion.div
+      className="text-center mb-12"
+      initial={{ opacity: 0, y: 20 }}
+      whileInView={{ opacity: 1, y: 0 }}
+    >
+      <h2 className="text-3xl md:text-4xl font-bold mb-3">Services We Offer</h2>
+      <p className="text-blue-100 max-w-2xl mx-auto">
+        End-to-end OEM solutions—from sourcing to branding, packaging, QC and last-mile delivery.
+      </p>
+    </motion.div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-            {[
-              { icon: Factory, title: 'OEM & Private Label', desc: 'Custom molds, finishes, and brand identity across SKUs.' },
-              { icon: Package, title: 'Custom Packaging', desc: 'Retail-ready boxes, inserts, stickers, and compliance barcodes.' },
-              { icon: Boxes, title: 'Universal Packaging', desc: 'Providing the universal packaging of the product ' },
-              
-              { icon: Shield, title: 'Quality & Compliance', desc: 'AQL checks, burn-in tests, BIS/IS standards guidance.' },
-              { icon: Truck, title: 'Fulfilment & Logistics', desc: 'Pan-India shipping, tracking, and B2B dispatch workflows.' },
-              { icon: Wrench, title: 'After-Sales & Support', desc: 'Warranty flows, spares, and structured returns handling.' },
-              { icon: Globe, title: 'Imported in China', desc: 'Factory vetting, sample runs, and price benchmarking.' },
-              { icon: DollarSign, title: 'B2B Pricing ', desc: 'Tiered wholesale pricing and eligible credit terms.' },
-              { icon: Phone, title: 'Dedicated Support', desc: 'Account manager + technical support for your brand.' },
-            ].map((svc, i) => (
-              <motion.div
-                key={svc.title}
-                initial={{ opacity: 0, y: 20 }}
-                whileInView={{ opacity: 1, y: 0 }}
-                transition={{ delay: i * 0.05 }}
-                className="group rounded-2xl border border-white/10 bg-white/5 p-6 backdrop-blur hover:bg-white/10 hover:border-white/20 transition"
-              >
-                <div className="flex items-start gap-4">
-                  <div className="rounded-xl bg-white/10 p-3">
-                    <svc.icon className="w-6 h-6 text-white" />
-                  </div>
-                  <div>
-                    <h3 className="text-lg font-semibold">{svc.title}</h3>
-                    <p className="text-sm text-blue-100 mt-1">{svc.desc}</p>
-                  </div>
-                </div>
-              </motion.div>
-            ))}
-          </div>
-
-          <div className="text-center mt-10">
-            <div className="inline-flex flex-col sm:flex-row gap-3">
-              <Link to="/oem" className="rounded-lg bg-white text-gray-900 px-6 py-3 font-semibold hover:bg-gray-100 inline-flex items-center justify-center">
-                Explore OEM <ArrowRight className="ml-2 w-4 h-4" />
-              </Link>
-              <Link to="/contact" className="rounded-lg border border-white/30 px-6 py-3 font-semibold hover:bg-white/10 inline-flex items-center justify-center text-white">
-                Contact Sales
-              </Link>
+    {/* Pyramid Layout 3–2–2 */}
+    <div className="space-y-8">
+      {/* Row 1: 3 cards */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
+        {[
+          { icon: Factory, title: 'OEM & Private Label', desc: 'Custom molds, finishes, and brand identity across SKUs.' },
+          { icon: Boxes, title: 'Universal Packaging', desc: 'Universal packaging solutions for consistent shelf presence.' },
+          { icon: Shield, title: 'Quality & Compliance', desc: 'Careful quality checks and reliability tests for every product.' },
+        ].map((svc, i) => (
+          <motion.div
+            key={svc.title}
+            initial={{ opacity: 0, y: 20 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            transition={{ delay: i * 0.05 }}
+            className="group rounded-2xl border border-white/10 bg-white/5 p-6 backdrop-blur hover:bg-white/10 hover:border-white/20 transition"
+          >
+            <div className="flex items-start gap-4">
+              <div className="rounded-xl bg-white/10 p-3">
+                <svc.icon className="w-6 h-6 text-white" />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold">{svc.title}</h3>
+                <p className="text-sm text-blue-100 mt-1">{svc.desc}</p>
+              </div>
             </div>
-          </div>
-        </div>
-      </section>
+          </motion.div>
+        ))}
+      </div>
+
+      {/* Row 2: 2 cards */}
+      <div className="mx-auto max-w-5xl grid grid-cols-1 sm:grid-cols-2 gap-6 lg:justify-items-center">
+        {[
+          { icon: Truck, title: 'Fulfilment & Logistics', desc: 'Pan-India shipping, tracking, and B2B dispatch workflows.' },
+          { icon: Wrench, title: 'After-Sales & Support', desc: 'Damage checks, spare availability, and ongoing support for smooth operations.' },
+        ].map((svc, i) => (
+          <motion.div
+            key={svc.title}
+            initial={{ opacity: 0, y: 20 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            transition={{ delay: (i + 3) * 0.05 }}
+            className="group rounded-2xl border border-white/10 bg-white/5 p-6 backdrop-blur hover:bg-white/10 hover:border-white/20 transition"
+          >
+            <div className="flex items-start gap-4">
+              <div className="rounded-xl bg-white/10 p-3">
+                <svc.icon className="w-6 h-6 text-white" />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold">{svc.title}</h3>
+                <p className="text-sm text-blue-100 mt-1">{svc.desc}</p>
+              </div>
+            </div>
+          </motion.div>
+        ))}
+      </div>
+
+      {/* Row 3: 2 cards */}
+      <div className="mx-auto max-w-5xl grid grid-cols-1 sm:grid-cols-2 gap-6 lg:justify-items-center">
+        {[
+          { icon: Globe, title: 'Imported From China', desc: 'Factory tie-ups and thorough product testing before import.' },
+          { icon: IndianRupee, title: 'B2B Pricing', desc: 'Flexible wholesale pricing with credit options for businesses.' },
+        ].map((svc, i) => (
+          <motion.div
+            key={svc.title}
+            initial={{ opacity: 0, y: 20 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            transition={{ delay: (i + 5) * 0.05 }}
+            className="group rounded-2xl border border-white/10 bg-white/5 p-6 backdrop-blur hover:bg-white/10 hover:border-white/20 transition"
+          >
+            <div className="flex items-start gap-4">
+              <div className="rounded-xl bg-white/10 p-3">
+                <svc.icon className="w-6 h-6 text-white" />
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold">{svc.title}</h3>
+                <p className="text-sm text-blue-100 mt-1">{svc.desc}</p>
+              </div>
+            </div>
+          </motion.div>
+        ))}
+      </div>
+    </div>
+
+    {/* CTA Buttons */}
+    <div className="text-center mt-12">
+      <div className="inline-flex flex-col sm:flex-row gap-3">
+        <Link
+          to="/oem"
+          className="rounded-lg bg-white text-gray-900 px-6 py-3 font-semibold hover:bg-gray-100 inline-flex items-center justify-center"
+        >
+          Explore OEM <ArrowRight className="ml-2 w-4 h-4" />
+        </Link>
+        <Link
+          to="/contact"
+          className="rounded-lg border border-white/30 px-6 py-3 font-semibold hover:bg-white/10 inline-flex items-center justify-center text-white"
+        >
+          Contact Sales
+        </Link>
+      </div>
+    </div>
+  </div>
+</section>
+
       {/* ===================== /Services ===================== */}
 
       {/* Categories */}
@@ -473,9 +527,9 @@ const Home: React.FC = () => {
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-8">
             {[
-              { icon: <Shield className="h-8 w-8" />, title: "Quality Guaranteed", description: "All products come with manufacturer warranty and quality assurance" },
+              { icon: <Shield className="h-8 w-8" />, title: "Quality Guaranteed", description: "Every product is quality-checked and supported with counter warranty approval." },
               { icon: <Truck className="h-8 w-8" />, title: "Fast Delivery", description: "Quick delivery across India with real-time tracking" },
-              { icon: <Headphones className="h-8 w-8" />, title: "Expert Support", description: "24/7 customer support from our technical experts" },
+              { icon: <Headphones className="h-8 w-8" />, title: "Expert Support", description: " customer support from our technical experts" },
               { icon: <Award className="h-8 w-8" />, title: "Best Prices", description: "Competitive wholesale prices with bulk discounts" }
             ].map((benefit, index) => (
               <motion.div key={index} initial={{ opacity: 0, y: 30 }} whileInView={{ opacity: 1, y: 0 }} transition={{ delay: index * 0.1 }} className="text-center group">
@@ -662,7 +716,7 @@ const Home: React.FC = () => {
               <span className="text-sm font-semibold">🏭 OEM Services Available</span>
             </motion.div>
             <h2 className="text-3xl md:text-4xl font-bold mb-6">Need Bulk Orders or Custom Branding?</h2>
-            <p className="text-xl mb-8 max-w-3xl mx-auto">We provide comprehensive OEM services including bulk manufacturing, custom branding, and specialized packaging solutions for businesses.</p>
+            <p className="text-xl mb-8 max-w-3xl mx-auto">We provide comprehensive OEM services including bulk manufacturing, custom branding, and  packaging solutions for businesses.</p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
               <Link to="/oem" className="bg-white text-blue-600 px-8 py-3 rounded-lg font-semibold hover:bg-gray-100 transition-colors duration-200 inline-flex items-center justify-center">
                 <span>Learn More</span>

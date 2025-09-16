@@ -629,10 +629,10 @@ const OEM: React.FC = () => {
           <p className="text-xl mb-8 max-w-3xl mx-auto">Join hundreds of businesses worldwide who trust Nakoda Mobile.</p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
             <a href="tel:+919876543210" className="bg-white text-blue-600 px-8 py-3 rounded-lg font-semibold hover:bg-gray-100 inline-flex items-center justify-center">
-              <Phone className="h-5 w-5 mr-2" /> Call Now: +91 98765 43210
+              <Phone className="h-5 w-5 mr-2" /> Call Now: +919667960044
             </a>
             <a href="mailto:oem@nakodamobile.com" className="border-2 border-white text-white px-8 py-3 rounded-lg font-semibold hover:bg-white hover:text-blue-600 inline-flex items-center justify-center">
-              <Mail className="h-5 w-5 mr-2" /> Email: oem@nakodamobile.com
+              <Mail className="h-5 w-5 mr-2" /> Email: support@nakodamobile.in
             </a>
           </div>
         </div>
