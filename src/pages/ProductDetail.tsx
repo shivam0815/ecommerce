@@ -403,6 +403,28 @@ const ProductDetail: React.FC = () => {
       toast.error(err.message || 'Failed to add to cart');
     }
   };
+  const handleBuyNow = async () => {
+  if (!product) return;
+  try {
+    const productId: string = (product as any)._id || (product as any).id;
+    if (!productId) {
+      toast.error('Product ID not found');
+      return;
+    }
+    const moq = getMOQ(product as any);
+    const maxQty = Math.min(
+      MAX_PER_LINE,
+      Number((product as any).stockQuantity ?? MAX_PER_LINE) || MAX_PER_LINE
+    );
+    const finalQty = Math.max(moq, Math.min(maxQty, quantity));
+
+    await addToCart(productId, finalQty);
+    navigate('/checkout'); // <- go straight to checkout
+  } catch (err: any) {
+    toast.error(err?.message || 'Could not proceed to checkout');
+  }
+};
+
 
   const handleWishlistToggle = async () => {
     if (!product) return;
@@ -667,19 +689,20 @@ const ProductDetail: React.FC = () => {
   </motion.button>
 
   {/* Buy Now */}
-  <motion.button
-    whileHover={{ scale: 1.05 }}
-    whileTap={{ scale: 0.95 }}
-    onClick={async () => { /* same logic as before */ }}
-    disabled={!(product as any).inStock || isLoading}
-    className="col-span-2 sm:col-auto h-11 px-4 rounded-lg font-medium
-               inline-flex items-center justify-center gap-2 bg-gray-900 text-white hover:bg-black
-               disabled:opacity-60"
-    aria-label="Buy Now"
-  >
-    <CreditCard className="h-5 w-5" />
-    <span>Buy Now</span>
-  </motion.button>
+<motion.button
+  whileHover={{ scale: 1.05 }}
+  whileTap={{ scale: 0.95 }}
+  onClick={handleBuyNow}                     // ✅ use the real handler
+  disabled={!(product as any).inStock || isLoading}
+  className="col-span-2 sm:col-auto h-11 px-4 rounded-lg font-medium
+             inline-flex items-center justify-center gap-2 bg-gray-900 text-white hover:bg-black
+             disabled:opacity-60"
+  aria-label="Buy Now"
+>
+  <CreditCard className="h-5 w-5" />
+  <span>Buy Now</span>
+</motion.button>
+
 
   {/* icons row – always new line on mobile */}
   <div className="col-span-2 flex items-center gap-2 mt-1 sm:mt-0">
@@ -916,27 +939,13 @@ const ProductDetail: React.FC = () => {
             <ShoppingCart className="h-4 w-4" /> Add
           </button>
           <button
-            onClick={async () => {
-              try {
-                const pid = (product as any)._id || (product as any).id;
-                const finalQty = Math.max(
-                  getMOQ(product as any),
-                  Math.min(
-                    Math.min(MAX_PER_LINE, Number((product as any).stockQuantity ?? MAX_PER_LINE) || MAX_PER_LINE),
-                    quantity
-                  )
-                );
-                await addToCart(pid, finalQty);
-                navigate('/cart');
-              } catch (e: any) {
-                toast.error(e?.message || 'Could not proceed to checkout');
-              }
-            }}
-            disabled={!(product as any).inStock || isLoading}
-            className="h-10 px-4 rounded-lg font-medium inline-flex items-center justify-center gap-2 bg-gray-900 text-white"
-          >
-            <CreditCard className="h-4 w-4" /> Buy
-          </button>
+  onClick={handleBuyNow}                     // ✅ reuse the same logic
+  disabled={!(product as any).inStock || isLoading}
+  className="h-10 px-4 rounded-lg font-medium inline-flex items-center justify-center gap-2 bg-gray-900 text-white"
+>
+  <CreditCard className="h-4 w-4" /> Buy
+</button>
+
         </div>
       </div>
     </div>
