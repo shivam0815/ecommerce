@@ -39,6 +39,8 @@ import shiprocketRoutes from './routes/shiprocketRoutes';
 import { authenticate, adminOnly } from './middleware/auth';
 import phoneAuthRoutes from './routes/auth.phone';
 import webhookRouter from './routes/webhooks';
+// S3 presign & delete routes
+import uploadsS3 from './routes/uploadsS3';
 
 
 const app = express();
@@ -335,7 +337,7 @@ app.use('/api/uploads', uploads);
 
 // Shiprocket protected (single mount; no unprotected duplicate)
 app.use('/api/shiprocket', authenticate, adminOnly, shiprocketRoutes);
-
+app.use("/api/uploads/s3", uploadsS3);
 // Health
 app.get('/api/health', async (_req, res): Promise<void> => {
   let dbStatus = 'Unknown';
