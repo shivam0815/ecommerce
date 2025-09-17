@@ -41,7 +41,7 @@ import phoneAuthRoutes from './routes/auth.phone';
 import webhookRouter from './routes/webhooks';
 // S3 presign & delete routes
 import uploadsS3 from './routes/uploadsS3';
-
+import shipping from './routes/shipping';
 
 const app = express();
 const server = http.createServer(app);
@@ -334,7 +334,7 @@ app.use('/api/shipping', shippingRoutes);
 // src/index.ts (or your app bootstrap)
 import uploads from './routes/uploads';
 app.use('/api/uploads', uploads);
-
+app.use('/api/shipping', shipping);
 // Shiprocket protected (single mount; no unprotected duplicate)
 app.use('/api/shiprocket', authenticate, adminOnly, shiprocketRoutes);
 app.use("/api/uploads/s3", uploadsS3);
