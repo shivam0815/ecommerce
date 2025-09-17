@@ -12,7 +12,7 @@ import { Toaster } from 'react-hot-toast';
 import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 // import
-
+import ScrollToTop from './components/Layout/ScrollToTop';
 
 // inside <Routes>
 <Route path="/order-success" element={<OrderSuccess />} />
@@ -86,6 +86,7 @@ function GuardedProfileRoute() {
 function App() {
   return (
     <Router>
+       <ScrollToTop />
       <div className="min-h-screen flex flex-col">
         <Routes>
           {/* ADMIN */}

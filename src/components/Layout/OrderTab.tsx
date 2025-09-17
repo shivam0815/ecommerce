@@ -279,6 +279,40 @@ function getGstView(o?: IOrderFull) {
   };
 }
 
+// helper inside OrdersTab component (top-level, before return)
+async function presign(file: File) {
+  const qs = new URLSearchParams({
+    filename: file.name,
+    contentType: file.type,
+    size: String(file.size),
+  });
+  const r = await fetch(`/api/uploads/s3/sign?${qs.toString()}`, { credentials: "include" });
+  if (!r.ok) throw new Error("Sign failed");
+  return r.json(); // { uploadUrl, publicUrl }
+}
+
+async function putWithProgress(url: string, file: File, onProgress?: (pct:number)=>void) {
+  // Plain fetch doesn't expose progress; use XHR for progress bar
+  await new Promise<void>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open("PUT", url, true);
+    xhr.setRequestHeader("Content-Type", file.type);
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable && onProgress) onProgress(Math.round((e.loaded/e.total)*100));
+    };
+    xhr.onload = () => (xhr.status >= 200 && xhr.status < 300 ? resolve() : reject(new Error("Upload failed")));
+    xhr.onerror = () => reject(new Error("Upload error"));
+    xhr.send(file);
+  });
+}
+
+async function deleteS3(url: string) {
+  const qs = new URLSearchParams({ url });
+  const r = await fetch(`/api/uploads/s3?${qs.toString()}`, { method: "DELETE", credentials: "include" });
+  if (!r.ok) throw new Error("Delete failed");
+}
+
+
 /* =========================
    Small UI helpers
 ========================= */
@@ -1733,41 +1767,71 @@ const OrdersTab: React.FC = () => {
                       </div>
 
                       {/* Images */}
-                      <div className="text-sm">
-                        <div className="text-gray-600 mb-1">Pack photos (max 5)</div>
-                        <div className="flex gap-2 flex-wrap">
-                          {(selected.shippingPackage?.images || []).map((u, i) => (
-                            <img key={i} src={u} className="w-20 h-20 object-cover rounded border" />
-                          ))}
-                        </div>
-                        <button
-                          className="mt-2 px-3 py-1.5 rounded-xl border hover:bg-gray-50"
-                          onClick={async () => {
-                            const inp = document.createElement('input');
-                            inp.type = 'file'; inp.accept = 'image/*'; inp.multiple = true;
-                            inp.onchange = async () => {
-                              const files = Array.from(inp.files || []).slice(0, 5);
-                              const urls: string[] = [];
-                              for (const f of files) {
-                                const sign = await fetch(
-                                  `/api/uploads/s3/sign?contentType=${encodeURIComponent(f.type)}&filename=${encodeURIComponent(f.name)}`
-                                );
-                                const { uploadUrl, publicUrl } = await sign.json();
-                                await fetch(uploadUrl, {
-                                  method: 'PUT',
-                                  headers: { 'Content-Type': f.type },
-                                  body: f
-                                });
-                                urls.push(publicUrl);
-                              }
-                              await savePackAndLink(selected._id, {
-                                images: [ ...(selected.shippingPackage?.images || []), ...urls ]
-                              });
-                            };
-                            inp.click();
-                          }}
-                        >Upload photos</button>
-                      </div>
+                      {/* Images */}
+<div className="text-sm">
+  <div className="text-gray-600 mb-1 flex items-center justify-between">
+    <span>Pack photos (max 5)</span>
+    <span className="text-xs text-gray-400">{(selected.shippingPackage?.images || []).length}/5</span>
+  </div>
+
+  <div className="flex gap-2 flex-wrap">
+    {(selected.shippingPackage?.images || []).map((u, i) => (
+      <div key={i} className="relative">
+        <img src={u} className="w-20 h-20 object-cover rounded border" />
+        <button
+          className="absolute -top-2 -right-2 bg-white/90 border rounded-full px-1 text-xs"
+          title="Remove"
+          onClick={async (e) => {
+            e.stopPropagation();
+            if (!confirm("Remove this photo?")) return;
+            try {
+              await deleteS3(u); // optional: ignore if you prefer to keep on S3
+            } catch {}
+            await savePackAndLink(selected._id, {
+              images: (selected.shippingPackage?.images || []).filter((x: string) => x !== u),
+            });
+          }}
+        >✕</button>
+      </div>
+    ))}
+  </div>
+
+  <button
+    className="mt-2 px-3 py-1.5 rounded-xl border hover:bg-gray-50"
+    onClick={async () => {
+      const inp = document.createElement('input');
+      inp.type = 'file'; inp.accept = 'image/*'; inp.multiple = true;
+      inp.onchange = async () => {
+        const existing = selected.shippingPackage?.images || [];
+        const files = Array.from(inp.files || []);
+        const allowed = Math.max(0, 5 - existing.length);
+        const toUpload = files.slice(0, allowed);
+
+        if (!toUpload.length) { alert("Limit reached (5)"); return; }
+
+        const newUrls: string[] = [];
+        // lightweight modal/progress; here we just alert at the end
+        for (const f of toUpload) {
+          if (f.size > 10 * 1024 * 1024) { alert(`${f.name}: too large (>10MB)`); continue; }
+          if (!/^image\//.test(f.type)) { alert(`${f.name}: not an image`); continue; }
+
+          const { uploadUrl, publicUrl } = await presign(f);
+          await putWithProgress(uploadUrl, f, (pct) => {
+            // optional: show pct in UI; for brevity we skip rendering a bar here
+            // console.log(`${f.name}: ${pct}%`);
+          });
+          newUrls.push(publicUrl);
+        }
+
+        if (newUrls.length) {
+          await savePackAndLink(selected._id, { images: [...existing, ...newUrls] });
+        }
+      };
+      inp.click();
+    }}
+  >Upload photos</button>
+</div>
+>
 
                       {/* Save + link */}
                       <div className="flex items-center gap-2">
