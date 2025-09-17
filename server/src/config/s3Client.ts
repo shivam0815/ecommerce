@@ -9,5 +9,5 @@ export const S3_PUBLIC_BASE =
 
 export const s3 = new S3Client({
   region: S3_REGION,
-  requestChecksumCalculation: "NEVER" as RequestChecksumCalculation, // <-- key line
+  requestChecksumCalculation: "NEVER" as RequestChecksumCalculation, 
 });

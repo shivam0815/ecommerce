@@ -177,7 +177,8 @@ const getAdminToken = () =>
 
 /** NOTE: keep base the same to avoid breaking existing API wiring */
 const API_BASE = '/api/orders';
-const API_SHIPROCKET_BASE = (import.meta.env.VITE_API_URL || '/api').replace(/\/+$/, ''); // our backend mount for shiprocket routes
+const API_SHIPROCKET_BASE = (((import.meta as any).env?.VITE_API_URL) || '/api').replace(/\/+$/, '');
+ // our backend mount for shiprocket routes
 
 function useDebounced<T>(value: T, delay = 300) {
   const [v, setV] = useState(value);
