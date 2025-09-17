@@ -1,4 +1,4 @@
-// src/pages/Cart.tsx
+// src/pages/Cart.tsx — compact, fully responsive
 import React, { useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -59,11 +59,9 @@ const Cart: React.FC = () => {
 
   // ✅ Guarantee a fresh load when visiting /cart
   useEffect(() => {
-    // no await needed; context should manage isLoading internally
     refreshCart(true);
   }, [refreshCart]);
 
-  // If you ever want the programmatic route instead of Link, keep this around:
   const handleCheckout = () => {
     if (!user) {
       navigate('/login', { state: { from: '/checkout' } });
@@ -110,13 +108,15 @@ const Cart: React.FC = () => {
     const altText = String(productData.name || item.name || 'Product');
 
     return (
-      <div className="w-16 h-16 rounded-md overflow-hidden bg-gray-100 flex items-center justify-center">
+      <div className="w-14 h-14 sm:w-16 sm:h-16 rounded-md overflow-hidden bg-gray-100 flex items-center justify-center">
         {imageUrl ? (
           <>
             <img
               src={String(imageUrl)}
               alt={altText}
               className="w-full h-full object-cover"
+              loading="lazy"
+              decoding="async"
               onError={(e) => {
                 const target = e.currentTarget as HTMLImageElement;
                 target.style.display = 'none';
@@ -137,10 +137,10 @@ const Cart: React.FC = () => {
 
   if (isLoading && (!cartItems || cartItems.length === 0)) {
     return (
-      <div className="min-h-screen bg-gray-50 flex items-center justify-center">
+      <div className="min-h-screen bg-gray-50 flex items-center justify-center p-6">
         <div className="text-center">
-          <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Loading your cart...</p>
+          <div className="animate-spin rounded-full h-10 w-10 border-b-2 border-blue-600 mx-auto" />
+          <p className="mt-3 text-gray-600 text-sm">Loading your cart...</p>
         </div>
       </div>
     );
@@ -150,12 +150,12 @@ const Cart: React.FC = () => {
     return (
       <div className="min-h-screen bg-gray-50">
         <div className="max-w-2xl mx-auto px-4 py-16 text-center">
-          <ShoppingBag className="h-16 w-16 text-gray-400 mx-auto mb-4" />
-          <h2 className="text-2xl font-bold text-gray-900 mb-2">Your cart is empty</h2>
-          <p className="text-gray-600 mb-8">Looks like you haven't added any items to your cart yet.</p>
+          <ShoppingBag className="h-14 w-14 text-gray-400 mx-auto mb-3" />
+          <h2 className="text-2xl font-semibold text-gray-900 mb-2">Your cart is empty</h2>
+          <p className="text-gray-600 mb-6 text-sm">Looks like you haven't added any items to your cart yet.</p>
           <Link
             to="/products"
-            className="inline-flex items-center px-6 py-3 border border-transparent text-base font-medium rounded-md text-white bg-blue-600 hover:bg-blue-700 transition-colors"
+            className="inline-flex items-center px-5 py-2.5 rounded-md text-white bg-blue-600 hover:bg-blue-700 text-sm font-medium"
           >
             Continue Shopping
           </Link>
@@ -164,37 +164,39 @@ const Cart: React.FC = () => {
     );
   }
 
+  const totalPrice = getTotalPrice();
+  const totalItems = getTotalItems();
+
   return (
-    <div className="min-h-screen bg-gray-50">
-      <div className="max-w-4xl mx-auto px-4 py-8">
+    <div className="min-h-screen bg-gray-50 pb-24 sm:pb-8">
+      <div className="max-w-5xl mx-auto px-3 sm:px-4 md:px-6 py-4 sm:py-6">
         {/* Header */}
-        <div className="flex items-center justify-between mb-8">
-          <div className="flex items-center">
-            <Link to="/products" className="mr-4 p-2 rounded-md hover:bg-gray-200 transition-colors">
+        <div className="flex items-center justify-between mb-4 sm:mb-6">
+          <div className="flex items-center gap-2">
+            <Link to="/products" className="p-2 rounded-md hover:bg-gray-200 transition-colors">
               <ArrowLeft className="h-5 w-5" />
             </Link>
-            <h1 className="text-3xl font-bold text-gray-900">Shopping Cart</h1>
+            <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Cart</h1>
           </div>
+          <div className="text-xs sm:text-sm text-gray-600">{totalItems} {totalItems === 1 ? 'item' : 'items'}</div>
         </div>
 
         {error && (
-          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-md">
+          <div className="mb-4 sm:mb-6 p-3 sm:p-4 bg-red-50 border border-red-200 rounded-md text-sm">
             <p className="text-red-600">{String(error)}</p>
           </div>
         )}
 
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
           {/* Cart Items */}
           <div className="lg:col-span-2">
-            <div className="bg-white rounded-lg shadow-sm border">
-              <div className="p-4 border-b">
-                <h2 className="text-lg font-medium text-gray-900">
-                  {getTotalItems()} {getTotalItems() === 1 ? 'item' : 'items'} in your cart
-                </h2>
+            <div className="bg-white rounded-xl shadow-sm border">
+              <div className="p-3 sm:p-4 border-b">
+                <h2 className="text-base sm:text-lg font-semibold text-gray-900">Items</h2>
               </div>
 
-              <div className="p-4 space-y-4">
-                <AnimatePresence>
+              <div className="p-3 sm:p-4 space-y-3">
+                <AnimatePresence initial={false}>
                   {cartItems.map((item: any, index: number) => {
                     let itemId = '';
                     let productName = '';
@@ -218,7 +220,7 @@ const Cart: React.FC = () => {
                       itemQuantity = Number(item.quantity || 0);
                     } catch {
                       return (
-                        <div key={`error-${index}`} className="p-4 bg-red-50 border border-red-200 rounded-md">
+                        <div key={`error-${index}`} className="p-3 bg-red-50 border border-red-200 rounded-md text-sm">
                           <p className="text-red-600">Error loading item. Please refresh the page.</p>
                         </div>
                       );
@@ -227,7 +229,7 @@ const Cart: React.FC = () => {
                     const uniqueKey = itemId ? `${itemId}-${index}` : `fallback-${index}`;
                     if (!itemId || !productName) {
                       return (
-                        <div key={`err-${index}`} className="p-4 bg-red-50 border border-red-200 rounded-md">
+                        <div key={`err-${index}`} className="p-3 bg-red-50 border border-red-200 rounded-md text-sm">
                           <p className="text-red-600">Error loading item. Please refresh the page.</p>
                         </div>
                       );
@@ -243,74 +245,83 @@ const Cart: React.FC = () => {
                       <motion.div
                         key={uniqueKey}
                         layout
-                        initial={{ opacity: 0, y: 20 }}
+                        initial={{ opacity: 0, y: 16 }}
                         animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: -20 }}
-                        className="bg-white rounded-lg shadow-sm border p-4"
+                        exit={{ opacity: 0, y: -16 }}
+                        className="bg-white rounded-lg border p-3 sm:p-4"
                       >
-                        <div className="flex items-center space-x-4">
+                        {/* Row layout: image | info | qty+price | remove */}
+                        <div className="flex items-center gap-3 sm:gap-4">
                           {/* Product Image */}
                           <div className="flex-shrink-0">{renderProductImage(item)}</div>
 
-                          {/* Product Details */}
+                          {/* Product */}
                           <div className="flex-1 min-w-0">
-                            <h3 className="text-lg font-medium text-gray-900 truncate">{productName}</h3>
-                            {productCategory && <p className="text-sm text-gray-500">{productCategory}</p>}
-                            <p className="text-lg font-bold text-blue-600 mt-1">₹{productPrice.toLocaleString()}</p>
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="min-w-0">
+                                <h3 className="text-sm sm:text-base font-medium text-gray-900 truncate">{productName}</h3>
+                                {productCategory && (
+                                  <p className="text-[11px] sm:text-xs text-gray-500 mt-0.5 truncate">{productCategory}</p>
+                                )}
+                              </div>
+                              {/* Price (top-right on wide) */}
+                              <div className="hidden sm:block text-right">
+                                <p className="text-base font-semibold text-gray-900">₹{productPrice.toLocaleString()}</p>
+                              </div>
+                            </div>
+
+                            {/* Controls row (mobile-first) */}
+                            <div className="mt-2 flex items-center justify-between gap-3">
+                              {/* Qty stepper */}
+                              <div className="inline-flex items-center rounded-md border bg-white">
+                                <button
+                                  type="button"
+                                  onClick={() => handleQuantityUpdate(item, itemQuantity - 1)}
+                                  className="p-1.5 sm:p-2 disabled:opacity-50 hover:bg-gray-50"
+                                  disabled={isLoading || atMin}
+                                  aria-label="Decrease quantity"
+                                  title={atMin ? undefined : 'Decrease'}
+                                >
+                                  <Minus className="h-4 w-4" />
+                                </button>
+                                <span className="px-2 sm:px-3 py-1 text-sm font-medium min-w-[2rem] text-center">{itemQuantity}</span>
+                                <button
+                                  type="button"
+                                  onClick={() => handleQuantityUpdate(item, itemQuantity + 1)}
+                                  className="p-1.5 sm:p-2 disabled:opacity-50 hover:bg-gray-50"
+                                  disabled={isLoading || atMax}
+                                  aria-label="Increase quantity"
+                                  title={atMax ? undefined : 'Increase'}
+                                >
+                                  <Plus className="h-4 w-4" />
+                                </button>
+                              </div>
+
+                              {/* Line total */}
+                              <div className="text-right">
+                                <p className="text-base sm:text-lg font-bold text-gray-900">₹{(productPrice * itemQuantity).toLocaleString()}</p>
+                              </div>
+
+                              {/* Remove */}
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveItem(itemId)}
+                                className="p-2 text-red-500 hover:bg-red-50 rounded-md transition-colors disabled:opacity-50"
+                                disabled={isLoading}
+                                title="Remove item"
+                              >
+                                <Trash2 className="h-4 w-4" />
+                              </button>
+                            </div>
+
+                            {/* MOQ guidance */}
+                            {moq > 1 && itemQuantity < moq ? (
+                              <p className="mt-1.5 text-[11px] sm:text-xs text-amber-600">
+                                Minimum order quantity is {moq}. Quantity will be adjusted at checkout.
+                              </p>
+                            ) : null}
                           </div>
-
-                          {/* Quantity Controls */}
-                          <div className="flex items-center space-x-2">
-                            <button
-                              type="button"
-                              onClick={() => handleQuantityUpdate(item, itemQuantity - 1)}
-                              className="p-1 rounded-md hover:bg-gray-100 transition-colors disabled:opacity-50"
-                              disabled={isLoading || atMin}
-                              aria-label="Decrease quantity"
-                              title={atMin ? undefined : 'Decrease'}
-                            >
-                              <Minus className="h-4 w-4" />
-                            </button>
-
-                            <span className="mx-3 font-medium min-w-[2rem] text-center">{itemQuantity}</span>
-
-                            <button
-                              type="button"
-                              onClick={() => handleQuantityUpdate(item, itemQuantity + 1)}
-                              className="p-1 rounded-md hover:bg-gray-100 transition-colors disabled:opacity-50"
-                              disabled={isLoading || atMax}
-                              aria-label="Increase quantity"
-                              title={atMax ? undefined : 'Increase'}
-                            >
-                              <Plus className="h-4 w-4" />
-                            </button>
-                          </div>
-
-                          {/* Item Total */}
-                          <div className="text-right">
-                            <p className="text-lg font-bold text-gray-900">
-                              ₹{(productPrice * itemQuantity).toLocaleString()}
-                            </p>
-                          </div>
-
-                          {/* Remove Button */}
-                          <button
-                            type="button"
-                            onClick={() => handleRemoveItem(itemId)}
-                            className="p-2 text-red-500 hover:bg-red-50 rounded-md transition-colors disabled:opacity-50"
-                            disabled={isLoading}
-                            title="Remove item"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
                         </div>
-
-                        {/* MOQ guidance */}
-                        {moq > 1 && itemQuantity < moq ? (
-                          <p className="mt-2 text-xs text-amber-600">
-                            Minimum order quantity for this product is {moq}. Your quantity will be adjusted at checkout.
-                          </p>
-                        ) : null}
                       </motion.div>
                     );
                   })}
@@ -319,35 +330,31 @@ const Cart: React.FC = () => {
             </div>
           </div>
 
-          {/* Order Summary */}
-          <div className="lg:col-span-1">
-            <div className="bg-white rounded-lg shadow-sm border p-6 sticky top-4">
-              <h2 className="text-lg font-medium text-gray-900 mb-4">Order Summary</h2>
-
-              <div className="space-y-3">
+          {/* Order Summary (desktop/tablet) */}
+          <div className="lg:col-span-1 hidden lg:block">
+            <div className="bg-white rounded-xl shadow-sm border p-5 sticky top-4">
+              <h2 className="text-lg font-semibold text-gray-900 mb-4">Order Summary</h2>
+              <div className="space-y-3 text-sm">
                 <div className="flex justify-between">
                   <span className="text-gray-600">Subtotal</span>
-                  <span className="font-medium">₹{getTotalPrice().toLocaleString()}</span>
+                  <span className="font-medium">₹{totalPrice.toLocaleString()}</span>
                 </div>
-
                 <div className="flex justify-between">
                   <span className="text-gray-600">Shipping</span>
                   <span className="font-medium text-green-600">Free</span>
                 </div>
-
                 <div className="border-t pt-3">
-                  <div className="flex justify-between">
-                    <span className="text-lg font-medium text-gray-900">Total</span>
-                    <span className="text-lg font-bold text-gray-900">₹{getTotalPrice().toLocaleString()}</span>
+                  <div className="flex justify-between items-center">
+                    <span className="text-base font-medium text-gray-900">Total</span>
+                    <span className="text-lg font-bold text-gray-900">₹{totalPrice.toLocaleString()}</span>
                   </div>
                 </div>
               </div>
 
-              {/* ✅ Use Link so navigation cannot be blocked by disabled/onClick issues */}
               {user ? (
                 <Link
                   to="/checkout"
-                  className="w-full mt-6 block text-center bg-blue-600 text-white py-3 px-4 rounded-md hover:bg-blue-700 transition-colors font-medium"
+                  className="w-full mt-5 block text-center bg-blue-600 text-white py-2.5 px-4 rounded-md hover:bg-blue-700 transition-colors font-medium"
                 >
                   Proceed to Checkout
                 </Link>
@@ -355,26 +362,50 @@ const Cart: React.FC = () => {
                 <Link
                   to="/login"
                   state={{ from: '/checkout' }}
-                  className="w-full mt-6 block text-center bg-blue-600 text-white py-3 px-4 rounded-md hover:bg-blue-700 transition-colors font-medium"
+                  className="w-full mt-5 block text-center bg-blue-600 text-white py-2.5 px-4 rounded-md hover:bg-blue-700 transition-colors font-medium"
                 >
                   Proceed to Checkout
-                  <span className="block text-sm text-blue-200 mt-1">(You'll be redirected to login first)</span>
+                  <span className="block text-xs text-blue-100 mt-1">(Login required)</span>
                 </Link>
               )}
 
-              <div className="mt-4">
+              <div className="mt-3">
                 <Link
                   to="/products"
-                  className="w-full block text-center text-blue-600 hover:text-blue-700 font-medium transition-colors"
+                  className="w-full block text-center text-blue-600 hover:text-blue-700 font-medium text-sm"
                 >
                   Continue Shopping
                 </Link>
               </div>
-
-              {/* If you insist on a button instead of Link, keep this as a fallback: */}
-              {/* <button type="button" onClick={handleCheckout} className="hidden" /> */}
             </div>
           </div>
+        </div>
+      </div>
+
+      {/* Mobile sticky footer summary */}
+      <div className="lg:hidden fixed bottom-0 inset-x-0 z-40 border-t bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/80">
+        <div className="max-w-5xl mx-auto px-3 py-2.5 flex items-center justify-between gap-3">
+          <div>
+            <div className="text-[11px] text-gray-500">Total</div>
+            <div className="text-base font-semibold">₹{totalPrice.toLocaleString()}</div>
+          </div>
+
+          {user ? (
+            <Link
+              to="/checkout"
+              className="flex-1 ml-2 inline-flex items-center justify-center gap-2 bg-blue-600 text-white py-2 rounded-md hover:bg-blue-700 text-sm font-medium"
+            >
+              Proceed to Checkout
+            </Link>
+          ) : (
+            <Link
+              to="/login"
+              state={{ from: '/checkout' }}
+              className="flex-1 ml-2 inline-flex items-center justify-center gap-2 bg-blue-600 text-white py-2 rounded-md hover:bg-blue-700 text-sm font-medium"
+            >
+              Login to Checkout
+            </Link>
+          )}
         </div>
       </div>
     </div>
@@ -388,7 +419,6 @@ export default Cart;
    If you need a runtime schema, define it elsewhere or rename.
 ----------------------------------- */
 
-// Helper type if you want stricter narrowing inside this file (optional)
 export type CartItemWithProduct = CartItem & {
   productId?: {
     _id?: string;
