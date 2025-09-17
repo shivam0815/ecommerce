@@ -1,4 +1,4 @@
-// src/pages/ProductDetail.tsx
+// src/pages/ProductDetail.tsx — fully responsive & compact
 import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
@@ -233,9 +233,9 @@ const MiniCard: React.FC<{ p: Product }> = ({ p }) => {
 const ProductRail: React.FC<{ title: string; items: Product[]; to?: string }> = ({ title, items, to }) => {
   if (!items?.length) return null;
   return (
-    <section className="mt-10">
+    <section className="mt-8 sm:mt-10">
       <div className="flex items-center justify-between mb-3">
-        <h3 className="text-lg font-semibold text-gray-900">{title}</h3>
+        <h3 className="text-base sm:text-lg font-semibold text-gray-900">{title}</h3>
         {to && (
           <Link to={to} className="text-sm text-blue-600 hover:text-blue-700 inline-flex items-center gap-1">
             View all <ChevronRight className="h-4 w-4" />
@@ -249,7 +249,7 @@ const ProductRail: React.FC<{ title: string; items: Product[]; to?: string }> = 
           {items.map((p: Product) => {
             const idKey: string = (p as any)._id || (p as any).id;
             return (
-              <div className="snap-start min-w-[56%]" key={idKey}>
+              <div className="snap-start min-w-[64%]" key={idKey}>
                 <MiniCard p={p} />
               </div>
             );
@@ -258,7 +258,7 @@ const ProductRail: React.FC<{ title: string; items: Product[]; to?: string }> = 
       </div>
 
       {/* desktop grid */}
-      <div className="hidden sm:grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
+      <div className="hidden sm:grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-4">
         {items.slice(0, 10).map((p: Product) => {
           const idKey: string = (p as any)._id || (p as any).id;
           return <MiniCard key={idKey} p={p} />;
@@ -514,23 +514,22 @@ const ProductDetail: React.FC = () => {
 
   /* -------------------------------- Render -------------------------------- */
   return (
-    <div className="min-h-screen bg-gray-50 py-8">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+    <div className="min-h-screen bg-gray-50 pb-24 sm:pb-10">{/* leave space for mobile sticky bar */}
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
         {/* Breadcrumb */}
-       <Breadcrumbs
-  items={[
-    { label: "Home", to: "/" },
-    { label: "Products", to: "/products" },
-    { label: product.name } // current page (no link)
-  ]}
-/>
+        <Breadcrumbs
+          items={[
+            { label: 'Home', to: '/' },
+            { label: 'Products', to: '/products' },
+            { label: product.name },
+          ]}
+        />
 
-
-        <div className="bg-white rounded-xl shadow-lg overflow-hidden">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 p-6">
+        <div className="bg-white rounded-xl shadow-sm sm:shadow-lg overflow-hidden mt-3 sm:mt-4">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 sm:gap-8 p-4 sm:p-6">
             {/* Image Gallery */}
-            <div className="space-y-4">
-              <div className="aspect-square bg-gray-100 rounded-xl overflow-hidden relative">
+            <div className="space-y-3 sm:space-y-4">
+              <div className="aspect-[4/4] sm:aspect-square bg-gray-100 rounded-xl overflow-hidden relative">
                 {currentImage ? (
                   <img
                     src={safeImage(currentImage)}
@@ -541,7 +540,7 @@ const ProductDetail: React.FC = () => {
                 ) : (
                   <div className="w-full h-full flex items-center justify-center text-gray-400">
                     <div className="text-center">
-                      <div className="text-6xl mb-2">📷</div>
+                      <div className="text-5xl sm:text-6xl mb-2">📷</div>
                       <div>No Image Available</div>
                     </div>
                   </div>
@@ -549,18 +548,19 @@ const ProductDetail: React.FC = () => {
               </div>
 
               {hasMultipleImages && (
-                <div className="flex space-x-2 overflow-x-auto pb-2">
+                <div className="flex gap-2 overflow-x-auto pb-1 snap-x [scrollbar-width:none] [-ms-overflow-style:none]">
                   {validImages.map((img: string, index: number) => (
                     <button
                       key={index}
                       onClick={() => setSelectedImage(index)}
-                      className={`flex-shrink-0 w-20 h-20 rounded-lg overflow-hidden border-2 transition-all ${selectedImage === index ? 'border-blue-500 shadow-md' : 'border-gray-200 hover:border-gray-300'}`}
+                      className={`flex-shrink-0 w-16 h-16 sm:w-20 sm:h-20 rounded-lg overflow-hidden border-2 transition-all snap-start ${selectedImage === index ? 'border-blue-500 shadow-md' : 'border-gray-200 hover:border-gray-300'}`}
+                      aria-label={`View image ${index + 1}`}
                     >
                       <img
-                        src={safeImage(img, 80, 80)}
+                        src={safeImage(img, 160, 160)}
                         alt={`${product.name} view ${index + 1}`}
                         className="w-full h-full object-cover"
-                        onError={(e) => { (e.target as HTMLImageElement).src = safeImage(undefined, 80, 80); }}
+                        onError={(e) => { (e.target as HTMLImageElement).src = safeImage(undefined, 160, 160); }}
                       />
                     </button>
                   ))}
@@ -569,24 +569,24 @@ const ProductDetail: React.FC = () => {
             </div>
 
             {/* Product Info */}
-            <div className="space-y-6">
+            <div className="space-y-4 sm:space-y-6">
               <div>
-                <h1 className="text-3xl font-bold text-gray-900 mb-2">{product.name}</h1>
-                <div className="flex items-center space-x-2 text-sm text-gray-600">
-                  <span className="bg-blue-100 text-blue-800 px-2 py-1 rounded-full">{product.category}</span>
+                <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-1 sm:mb-2 leading-snug">{product.name}</h1>
+                <div className="flex flex-wrap items-center gap-2 text-xs sm:text-sm text-gray-600">
+                  <span className="bg-blue-100 text-blue-800 px-2 py-0.5 rounded-full">{product.category}</span>
                   {(product as any).brand && (
-                    <span className="bg-gray-100 text-gray-700 px-2 py-1 rounded-full">{(product as any).brand}</span>
+                    <span className="bg-gray-100 text-gray-700 px-2 py-0.5 rounded-full">{(product as any).brand}</span>
                   )}
                 </div>
               </div>
 
               {/* Price */}
-              <div className="flex items-center space-x-4">
-                <span className="text-3xl font-bold text-gray-900">₹{product.price?.toLocaleString('en-IN')}</span>
+              <div className="flex items-center flex-wrap gap-2 sm:gap-4">
+                <span className="text-2xl sm:text-3xl font-bold text-gray-900">₹{product.price?.toLocaleString('en-IN')}</span>
                 {(product as any).originalPrice && (product as any).originalPrice > (product.price ?? 0) && (
                   <>
-                    <span className="text-xl text-gray-500 line-through">₹{(product as any).originalPrice.toLocaleString('en-IN')}</span>
-                    <span className="bg-red-100 text-red-800 text-sm font-semibold px-3 py-1 rounded-full">
+                    <span className="text-lg sm:text-xl text-gray-500 line-through">₹{(product as any).originalPrice.toLocaleString('en-IN')}</span>
+                    <span className="bg-red-100 text-red-800 text-xs sm:text-sm font-semibold px-2.5 py-1 rounded-full">
                       {Math.round((((product as any).originalPrice - (product.price ?? 0)) / (product as any).originalPrice) * 100)}% OFF
                     </span>
                   </>
@@ -594,27 +594,28 @@ const ProductDetail: React.FC = () => {
               </div>
 
               {/* Stock */}
-              <div className="flex items-center space-x-3">
-                <div className={`flex items-center space-x-2 px-3 py-1 rounded-full text-sm font-medium ${
+              <div className="flex items-center flex-wrap gap-2 sm:gap-3">
+                <div className={`flex items-center gap-2 px-2.5 py-1 rounded-full text-xs sm:text-sm font-medium ${
                   (product as any).inStock ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
                 }`}>
-                  <div className={`w-2 h-2 rounded-full ${(product as any).inStock ? 'bg-green-500' : 'bg-red-500'}`}></div>
+                  <span className={`w-2 h-2 rounded-full ${(product as any).inStock ? 'bg-green-500' : 'bg-red-500'}`}></span>
                   <span>{(product as any).inStock ? 'In Stock' : 'Out of Stock'}</span>
                 </div>
                 {(product as any).stockQuantity ? (
-                  <span className="text-gray-500 text-sm">{(product as any).stockQuantity} available</span>
+                  <span className="text-gray-500 text-xs sm:text-sm">{(product as any).stockQuantity} available</span>
                 ) : null}
               </div>
 
-              {/* Quantity (MOQ enforced silently, max 50) */}
+              {/* Quantity (MOQ enforced silently) */}
               {(product as any).inStock && (
-                <div className="flex items-center space-x-4">
-                  <label className="text-gray-700 font-medium">Quantity:</label>
+                <div className="flex items-center gap-3 sm:gap-4">
+                  <label className="text-gray-700 text-sm sm:text-base font-medium">Qty</label>
                   <div className="flex items-center border border-gray-300 rounded-lg">
                     <button
                       onClick={() => setQuantity(q => Math.max(moq, q - 1))}
-                      className="p-2 hover:bg-gray-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="p-2 sm:p-2.5 hover:bg-gray-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                       disabled={quantity <= moq}
+                      aria-label="Decrease quantity"
                     >
                       <Minus className="h-4 w-4" />
                     </button>
@@ -630,12 +631,14 @@ const ProductDetail: React.FC = () => {
                         setQuantity(clamped);
                       }}
                       onBlur={() => setQuantity(q => Math.max(moq, Math.min(maxQty, q)))}
-                      className="w-16 text-center border-0 focus:ring-0 focus:outline-none"
+                      className="w-14 sm:w-16 text-center text-sm sm:text-base border-0 focus:ring-0 focus:outline-none"
+                      aria-label="Quantity"
                     />
                     <button
                       onClick={() => setQuantity(q => Math.min(maxQty, q + 1))}
-                      className="p-2 hover:bg-gray-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      className="p-2 sm:p-2.5 hover:bg-gray-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                       disabled={quantity >= maxQty}
+                      aria-label="Increase quantity"
                     >
                       <Plus className="h-4 w-4" />
                     </button>
@@ -643,132 +646,124 @@ const ProductDetail: React.FC = () => {
                 </div>
               )}
 
-              {/* Actions */}
               {/* Actions — single row on all breakpoints */}
-<div className="flex items-stretch gap-2 sm:gap-3">
-  {/* Add to Cart */}
-  <motion.button
-    whileHover={{ scale: 1.02 }}
-    whileTap={{ scale: 0.98 }}
-    onClick={handleAddToCart}
-    disabled={!(product as any).inStock || isLoading}
-    className={`flex-1 sm:flex-none sm:min-w-[168px] h-12 sm:h-11 px-4 rounded-lg font-medium
-      inline-flex items-center justify-center gap-2 transition-all duration-200
-      ${
-        (product as any).inStock && !isLoading
-          ? 'bg-blue-600 text-white hover:bg-blue-700 shadow-md hover:shadow-lg'
-          : 'bg-gray-300 text-gray-500 cursor-not-allowed'
-      }`}
-    aria-label="Add to Cart"
-  >
-    <ShoppingCart className="h-5 w-5" />
-    <span className="whitespace-nowrap text-sm sm:text-base">
-      {!(product as any).inStock ? 'Out of Stock' : isLoading ? 'Adding...' : 'Add to Cart'}
-    </span>
-  </motion.button>
+              <div className="flex items-stretch gap-2 sm:gap-3">
+                {/* Add to Cart */}
+                <motion.button
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  onClick={handleAddToCart}
+                  disabled={!(product as any).inStock || isLoading}
+                  className={`flex-1 sm:flex-none sm:min-w-[160px] h-11 sm:h-11 px-4 rounded-lg font-medium inline-flex items-center justify-center gap-2 transition-all duration-200 ${
+                    (product as any).inStock && !isLoading
+                      ? 'bg-blue-600 text-white hover:bg-blue-700 shadow-sm hover:shadow'
+                      : 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                  }`}
+                  aria-label="Add to Cart"
+                >
+                  <ShoppingCart className="h-5 w-5" />
+                  <span className="whitespace-nowrap text-sm sm:text-base">
+                    {!(product as any).inStock ? 'Out of Stock' : isLoading ? 'Adding…' : 'Add to Cart'}
+                  </span>
+                </motion.button>
 
-  {/* Buy Now */}
-  <motion.button
-    whileHover={{ scale: 1.05 }}
-    whileTap={{ scale: 0.95 }}
-    onClick={async () => {
-      try {
-        const pid = (product as any)._id || (product as any).id;
-        const finalQty = Math.max(
-          moq,
-          Math.min(
-            Math.min(MAX_PER_LINE, Number((product as any).stockQuantity ?? MAX_PER_LINE) || MAX_PER_LINE),
-            quantity
-          )
-        );
-        await addToCart(pid, finalQty);
-        navigate('/cart');
-      } catch (e: any) {
-        toast.error(e?.message || 'Could not proceed to checkout');
-      }
-    }}
-    disabled={!(product as any).inStock || isLoading}
-    className="flex-1 sm:flex-none sm:min-w-[168px] h-12 sm:h-11 px-4 rounded-lg font-medium
-               inline-flex items-center justify-center gap-2 bg-gray-900 text-white hover:bg-black
-               disabled:opacity-60"
-    aria-label="Buy Now"
-  >
-    <CreditCard className="h-5 w-5" />
-    <span className="whitespace-nowrap text-sm sm:text-base">Buy Now</span>
-  </motion.button>
+                {/* Buy Now */}
+                <motion.button
+                  whileHover={{ scale: 1.03 }}
+                  whileTap={{ scale: 0.97 }}
+                  onClick={async () => {
+                    try {
+                      const pid = (product as any)._id || (product as any).id;
+                      const finalQty = Math.max(
+                        moq,
+                        Math.min(
+                          Math.min(MAX_PER_LINE, Number((product as any).stockQuantity ?? MAX_PER_LINE) || MAX_PER_LINE),
+                          quantity
+                        )
+                      );
+                      await addToCart(pid, finalQty);
+                      navigate('/cart');
+                    } catch (e: any) {
+                      toast.error(e?.message || 'Could not proceed to checkout');
+                    }
+                  }}
+                  disabled={!(product as any).inStock || isLoading}
+                  className="flex-1 sm:flex-none sm:min-w-[160px] h-11 sm:h-11 px-4 rounded-lg font-medium inline-flex items-center justify-center gap-2 bg-gray-900 text-white hover:bg-black disabled:opacity-60"
+                  aria-label="Buy Now"
+                >
+                  <CreditCard className="h-5 w-5" />
+                  <span className="whitespace-nowrap text-sm sm:text-base">Buy Now</span>
+                </motion.button>
 
-  {/* Wishlist */}
-  <motion.button
-    whileHover={{ scale: 1.05 }}
-    whileTap={{ scale: 0.95 }}
-    onClick={handleWishlistToggle}
-    disabled={wishlistLoading}
-    className={`w-12 h-12 sm:w-11 sm:h-11 p-0 border rounded-lg transition-all duration-200
-      inline-flex items-center justify-center
-      ${inWishlist ? 'border-red-300 bg-red-50 text-red-600 hover:bg-red-100' : 'border-gray-300 hover:bg-gray-50 hover:text-red-600'}`}
-    title={inWishlist ? 'Remove from wishlist' : 'Add to wishlist'}
-    aria-label={inWishlist ? 'Remove from wishlist' : 'Add to wishlist'}
-  >
-    <Heart className={`h-5 w-5 ${inWishlist ? 'fill-current' : ''}`} />
-  </motion.button>
+                {/* Wishlist */}
+                <motion.button
+                  whileHover={{ scale: 1.03 }}
+                  whileTap={{ scale: 0.97 }}
+                  onClick={handleWishlistToggle}
+                  disabled={wishlistLoading}
+                  className={`w-11 h-11 p-0 border rounded-lg transition-all duration-200 inline-flex items-center justify-center ${
+                    inWishlist ? 'border-red-300 bg-red-50 text-red-600 hover:bg-red-100' : 'border-gray-300 hover:bg-gray-50 hover:text-red-600'
+                  }`}
+                  title={inWishlist ? 'Remove from wishlist' : 'Add to wishlist'}
+                  aria-label={inWishlist ? 'Remove from wishlist' : 'Add to wishlist'}
+                >
+                  <Heart className={`h-5 w-5 ${inWishlist ? 'fill-current' : ''}`} />
+                </motion.button>
 
-  {/* Share */}
-  <motion.button
-    whileHover={{ scale: 1.05 }}
-    whileTap={{ scale: 0.95 }}
-    className="w-12 h-12 sm:w-11 sm:h-11 p-0 border border-gray-300 rounded-lg hover:bg-gray-50
-               inline-flex items-center justify-center"
-    onClick={() => {
-      const url = window.location.href;
-      const text = `${product.name} - ${product.description ?? ''}`.slice(0, 180);
-      if ((navigator as any).share) {
-        (navigator as any).share({ title: product.name, text, url }).catch(() => {
-          navigator.clipboard.writeText(url);
-          toast.success('Product link copied to clipboard!');
-        });
-      } else {
-        navigator.clipboard.writeText(url);
-        toast.success('Product link copied to clipboard!');
-      }
-    }}
-    title="Share"
-    aria-label="Share"
-  >
-    <Share2 className="h-5 w-5" />
-  </motion.button>
+                {/* Share */}
+                <motion.button
+                  whileHover={{ scale: 1.03 }}
+                  whileTap={{ scale: 0.97 }}
+                  className="w-11 h-11 p-0 border border-gray-300 rounded-lg hover:bg-gray-50 inline-flex items-center justify-center"
+                  onClick={() => {
+                    const url = window.location.href;
+                    const text = `${product.name} - ${product.description ?? ''}`.slice(0, 180);
+                    if ((navigator as any).share) {
+                      (navigator as any).share({ title: product.name, text, url }).catch(() => {
+                        navigator.clipboard.writeText(url);
+                        toast.success('Product link copied to clipboard!');
+                      });
+                    } else {
+                      navigator.clipboard.writeText(url);
+                      toast.success('Product link copied to clipboard!');
+                    }
+                  }}
+                  title="Share"
+                  aria-label="Share"
+                >
+                  <Share2 className="h-5 w-5" />
+                </motion.button>
 
-  {/* Chat (WhatsApp) */}
-  <a
-    href={`https://wa.me/?text=${encodeURIComponent(`${product.name} ${window.location.href}`)}`}
-    target="_blank"
-    rel="noreferrer"
-    className="w-12 h-12 sm:w-11 sm:h-11 p-0 border border-green-300 rounded-lg hover:bg-green-50
-               text-green-700 inline-flex items-center justify-center"
-    title="Chat on WhatsApp"
-    aria-label="Chat on WhatsApp"
-  >
-    <MessageCircle className="h-5 w-5" />
-  </a>
-</div>
-
+                {/* Chat (WhatsApp) */}
+                <a
+                  href={`https://wa.me/?text=${encodeURIComponent(`${product.name} ${window.location.href}`)}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="w-11 h-11 p-0 border border-green-300 rounded-lg hover:bg-green-50 text-green-700 inline-flex items-center justify-center"
+                  title="Chat on WhatsApp"
+                  aria-label="Chat on WhatsApp"
+                >
+                  <MessageCircle className="h-5 w-5" />
+                </a>
+              </div>
 
               {/* Trust Badges */}
-              <div className="border-t pt-6">
-                <div className="grid grid-cols-3 gap-4 text-center">
-                  <div className="flex flex-col items-center space-y-2">
-                    <div className="bg-blue-100 p-2 rounded-full"><Truck className="h-6 w-6 text-blue-600" /></div>
-                    <span className="text-sm font-medium text-gray-700">Free Delivery</span>
-                    <span className="text-xs text-gray-500">On orders above ₹499</span>
+              <div className="border-t pt-4 sm:pt-6">
+                <div className="grid grid-cols-3 gap-3 sm:gap-4 text-center">
+                  <div className="flex flex-col items-center space-y-1.5 sm:space-y-2">
+                    <div className="bg-blue-100 p-2 rounded-full"><Truck className="h-5 w-5 sm:h-6 sm:w-6 text-blue-600" /></div>
+                    <span className="text-xs sm:text-sm font-medium text-gray-700">Free Delivery</span>
+                    <span className="text-[11px] sm:text-xs text-gray-500">On orders above ₹499</span>
                   </div>
-                  <div className="flex flex-col items-center space-y-2">
-                    <div className="bg-green-100 p-2 rounded-full"><Shield className="h-6 w-6 text-green-600" /></div>
-                    <span className="text-sm font-medium text-gray-700">1 Year Warranty</span>
-                    <span className="text-xs text-gray-500">Manufacturer warranty</span>
+                  <div className="flex flex-col items-center space-y-1.5 sm:space-y-2">
+                    <div className="bg-green-100 p-2 rounded-full"><Shield className="h-5 w-5 sm:h-6 sm:w-6 text-green-600" /></div>
+                    <span className="text-xs sm:text-sm font-medium text-gray-700">1 Year Warranty</span>
+                    <span className="text-[11px] sm:text-xs text-gray-500">Manufacturer warranty</span>
                   </div>
-                  <div className="flex flex-col items-center space-y-2">
-                    <div className="bg-orange-100 p-2 rounded-full"><RotateCcw className="h-6 w-6 text-orange-600" /></div>
-                    <span className="text-sm font-medium text-gray-700">Easy Returns</span>
-                    <span className="text-xs text-gray-500">7 day return policy</span>
+                  <div className="flex flex-col items-center space-y-1.5 sm:space-y-2">
+                    <div className="bg-orange-100 p-2 rounded-full"><RotateCcw className="h-5 w-5 sm:h-6 sm:w-6 text-orange-600" /></div>
+                    <span className="text-xs sm:text-sm font-medium text-gray-700">Easy Returns</span>
+                    <span className="text-[11px] sm:text-xs text-gray-500">7 day return policy</span>
                   </div>
                 </div>
               </div>
@@ -777,12 +772,12 @@ const ProductDetail: React.FC = () => {
 
           {/* Tabs */}
           <div className="border-t">
-            <div className="flex border-b overflow-x-auto">
+            <div className="flex border-b overflow-x-auto sticky top-0 sm:top-[60px] z-10 bg-white">{/* sticky helps on mobile */}
               {(['description', 'specifications', 'reviews'] as const).map((tab) => (
                 <button
                   key={tab}
                   onClick={() => setActiveTab(tab)}
-                  className={`px-6 py-4 font-medium capitalize transition-colors whitespace-nowrap ${
+                  className={`px-4 sm:px-6 py-3 sm:py-4 text-sm sm:text-base font-medium capitalize transition-colors whitespace-nowrap ${
                     activeTab === tab ? 'border-b-2 border-blue-600 text-blue-600 bg-blue-50' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-50'
                   }`}
                 >
@@ -791,21 +786,21 @@ const ProductDetail: React.FC = () => {
               ))}
             </div>
 
-            <div className="p-6">
+            <div className="p-4 sm:p-6">
               {activeTab === 'description' && (
                 <div className="prose max-w-none">
-                  <div className="text-gray-700 leading-relaxed whitespace-pre-line">
+                  <div className="text-gray-700 leading-relaxed whitespace-pre-line text-sm sm:text-base">
                     {product.description || 'No description available for this product.'}
                   </div>
 
                   {(product as any).features && (product as any).features.length > 0 && (
-                    <div className="mt-8">
-                      <h3 className="text-xl font-semibold mb-4 text-gray-900">Key Features</h3>
-                      <div className="grid gap-3">
+                    <div className="mt-6 sm:mt-8">
+                      <h3 className="text-lg sm:text-xl font-semibold mb-3 sm:mb-4 text-gray-900">Key Features</h3>
+                      <div className="grid gap-2 sm:gap-3">
                         {(product as any).features.map((feature: string, index: number) => (
-                          <div key={index} className="flex items-start space-x-3">
-                            <div className="w-2 h-2 bg-blue-600 rounded-full mt-2 flex-shrink-0"></div>
-                            <span className="text-gray-700">{feature}</span>
+                          <div key={index} className="flex items-start gap-2 sm:gap-3">
+                            <div className="w-1.5 h-1.5 sm:w-2 sm:h-2 bg-blue-600 rounded-full mt-2 flex-shrink-0"></div>
+                            <span className="text-gray-700 text-sm sm:text-base">{feature}</span>
                           </div>
                         ))}
                       </div>
@@ -818,13 +813,13 @@ const ProductDetail: React.FC = () => {
                 <div>
                   {(product as any).specifications && Object.keys((product as any).specifications).length > 0 ? (
                     <div className="overflow-x-auto">
-                      <table className="w-full">
+                      <table className="w-full text-sm sm:text-base">
                         <tbody className="divide-y divide-gray-200">
                           {Object.entries((product as any).specifications as Record<string, unknown>).map(
                             ([key, value]: [string, unknown]) => (
                               <tr key={key} className="hover:bg-gray-50">
-                                <td className="py-3 px-4 font-medium text-gray-900 bg-gray-50 w-1/3">{prettyKey(key)}</td>
-                                <td className="py-3 px-4 text-gray-700">{renderSpecValue(value)}</td>
+                                <td className="py-2 sm:py-3 px-3 sm:px-4 font-medium text-gray-900 bg-gray-50 w-1/3">{prettyKey(key)}</td>
+                                <td className="py-2 sm:py-3 px-3 sm:px-4 text-gray-700">{renderSpecValue(value)}</td>
                               </tr>
                             )
                           )}
@@ -832,10 +827,10 @@ const ProductDetail: React.FC = () => {
                       </table>
                     </div>
                   ) : (
-                    <div className="text-center py-12">
-                      <div className="text-gray-400 text-6xl mb-4">📋</div>
-                      <h3 className="text-lg font-medium text-gray-900 mb-2">No Specifications</h3>
-                      <p className="text-gray-600">Technical specifications are not available for this product.</p>
+                    <div className="text-center py-10 sm:py-12">
+                      <div className="text-gray-400 text-5xl sm:text-6xl mb-3 sm:mb-4">📋</div>
+                      <h3 className="text-base sm:text-lg font-medium text-gray-900 mb-1 sm:mb-2">No Specifications</h3>
+                      <p className="text-gray-600 text-sm sm:text-base">Technical specifications are not available for this product.</p>
                     </div>
                   )}
                 </div>
@@ -843,15 +838,15 @@ const ProductDetail: React.FC = () => {
 
               {activeTab === 'reviews' && (
                 <div id="reviews">
-                  <div className="flex items-center justify-between mb-4">
-                    <h3 className="text-lg font-semibold text-gray-900">Customer Reviews</h3>
+                  <div className="flex items-center justify-between mb-3 sm:mb-4">
+                    <h3 className="text-base sm:text-lg font-semibold text-gray-900">Customer Reviews</h3>
                     <button
                       onClick={() => {
                         setActiveTab('reviews');
                         window.location.hash = '#reviews';
                         setTimeout(() => { document.getElementById('review-textarea')?.focus(); }, 250);
                       }}
-                      className="bg-blue-600 text-white px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors font-medium"
+                      className="bg-blue-600 text-white px-3 sm:px-4 py-2 rounded-lg hover:bg-blue-700 transition-colors font-medium text-sm"
                     >
                       Write a Review
                     </button>
@@ -864,11 +859,11 @@ const ProductDetail: React.FC = () => {
         </div>
 
         {/* Product rails */}
-        <div className="mt-6">
+        <div className="mt-6 sm:mt-8">
           {railsLoading && (
-            <div className="animate-pulse grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
+            <div className="animate-pulse grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-3 sm:gap-4">
               {Array.from({ length: 10 }).map((_, i: number) => (
-                <div key={i} className="h-72 bg-white rounded-xl border border-gray-200" />
+                <div key={i} className="h-64 sm:h-72 bg-white rounded-xl border border-gray-200" />
               ))}
             </div>
           )}
@@ -893,7 +888,6 @@ const ProductDetail: React.FC = () => {
         {/* SEO: product structured data */}
         <script
           type="application/ld+json"
-          // eslint-disable-next-line react/no-danger
           dangerouslySetInnerHTML={{
             __html: JSON.stringify({
               '@context': 'https://schema.org/',
@@ -914,6 +908,47 @@ const ProductDetail: React.FC = () => {
             }),
           }}
         />
+      </div>
+
+      {/* Sticky mobile checkout bar */}
+      <div className="fixed inset-x-0 bottom-0 sm:hidden border-t bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/60 z-40">
+        <div className="max-w-7xl mx-auto px-4 py-2 flex items-center gap-3">
+          <div className="flex-1">
+            <div className="text-xs text-gray-500">Total</div>
+            <div className="text-lg font-semibold text-gray-900">₹{product.price?.toLocaleString('en-IN')}</div>
+          </div>
+          <button
+            onClick={handleAddToCart}
+            disabled={!(product as any).inStock || isLoading}
+            className={`h-10 px-4 rounded-lg font-medium inline-flex items-center justify-center gap-2 ${
+              (product as any).inStock && !isLoading ? 'bg-blue-600 text-white' : 'bg-gray-300 text-gray-500'
+            }`}
+          >
+            <ShoppingCart className="h-4 w-4" /> Add
+          </button>
+          <button
+            onClick={async () => {
+              try {
+                const pid = (product as any)._id || (product as any).id;
+                const finalQty = Math.max(
+                  getMOQ(product as any),
+                  Math.min(
+                    Math.min(MAX_PER_LINE, Number((product as any).stockQuantity ?? MAX_PER_LINE) || MAX_PER_LINE),
+                    quantity
+                  )
+                );
+                await addToCart(pid, finalQty);
+                navigate('/cart');
+              } catch (e: any) {
+                toast.error(e?.message || 'Could not proceed to checkout');
+              }
+            }}
+            disabled={!(product as any).inStock || isLoading}
+            className="h-10 px-4 rounded-lg font-medium inline-flex items-center justify-center gap-2 bg-gray-900 text-white"
+          >
+            <CreditCard className="h-4 w-4" /> Buy
+          </button>
+        </div>
       </div>
     </div>
   );
