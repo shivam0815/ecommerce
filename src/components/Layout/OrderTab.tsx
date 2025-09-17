@@ -1831,7 +1831,7 @@ const OrdersTab: React.FC = () => {
     }}
   >Upload photos</button>
 </div>
->
+
 
                       {/* Save + link */}
                       <div className="flex items-center gap-2">
