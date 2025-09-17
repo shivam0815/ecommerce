@@ -12,4 +12,5 @@ export const S3_PUBLIC_BASE =
 // Uses default credential chain (EC2 role, ~/.aws/credentials, env vars, etc.)
 export const s3 = new S3Client({
   region: S3_REGION,
+    
 });

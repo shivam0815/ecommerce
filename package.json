@@ -12,6 +12,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "3.890.0",
+    "@aws-sdk/s3-request-presigner": "3.890.0",
     "@cloudinary/react": "^1.14.3",
     "@cloudinary/url-gen": "^1.21.0",
     "@headlessui/react": "^2.2.4",
