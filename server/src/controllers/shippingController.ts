@@ -2,18 +2,31 @@
 import { Request, Response } from 'express';
 import Razorpay from '../config/razorpay';
 import Order, { IOrder } from '../models/Order';
-import email from '../config/emailService'; // default export is the instance
+import email from '../config/emailService';
 
 const asNum = (v: any) => (v === '' || v == null ? undefined : Number(v));
+const isHttp = (s: any) => typeof s === 'string' && /^https?:\/\//i.test(s);
 
-/**
- * Admin sets package dims/weight/images and (optionally) creates a shipping Payment Link.
- * Body:
- * {
- *   lengthCm, breadthCm, heightCm, weightKg, notes, images: string[],
- *   amount, currency, createPaymentLink: boolean
- * }
- */
+function customerFromOrder(order: IOrder) {
+  const ship = (order as any)?.shippingAddress || {};
+  const user  = (order as any)?.userId || {};
+  return {
+    name: ship.fullName || user.name || 'Customer',
+    email: ship.email || user.email || undefined,
+    contact: ship.phoneNumber || undefined,
+  };
+}
+
+function ensureRazorpayEnv() {
+  const keyId = process.env.RAZORPAY_KEY_ID;
+  const keySecret = process.env.RAZORPAY_KEY_SECRET;
+  if (!keyId || !keySecret) {
+    const msg = 'Razorpay keys missing on server';
+    return { ok: false as const, msg };
+  }
+  return { ok: true as const };
+}
+
 export async function setPackageAndMaybeLink(req: Request, res: Response) {
   try {
     const { id } = req.params;
@@ -25,51 +38,78 @@ export async function setPackageAndMaybeLink(req: Request, res: Response) {
     const order = (await Order.findById(id)) as IOrder | null;
     if (!order) return res.status(404).json({ success: false, message: 'Order not found' });
 
-    // Save package
+    // Save package (safe coercions)
     order.shippingPackage = {
       lengthCm: asNum(lengthCm),
       breadthCm: asNum(breadthCm),
       heightCm: asNum(heightCm),
       weightKg: asNum(weightKg),
       notes,
-      images: Array.isArray(images) ? images.slice(0, 5) : order.shippingPackage?.images || [],
+      images: Array.isArray(images) ? images.filter(isHttp).slice(0, 5) : (order.shippingPackage?.images || []),
       packedAt: new Date(),
     };
 
-    // Optionally create/refresh payment link
-    if (createPaymentLink && Number(amount) > 0) {
-      const link = await Razorpay.paymentLink.create({
-        amount: Math.round(Number(amount) * 100),
+    // If no link requested, persist and return now
+    if (!createPaymentLink) {
+      await order.save();
+      return res.json({ success: true, order });
+    }
+
+    // Validate amount
+    const amt = Number(amount);
+    if (!Number.isFinite(amt) || amt <= 0) {
+      return res.status(400).json({ success: false, message: 'Amount must be > 0' });
+    }
+
+    // Validate env
+    const env = ensureRazorpayEnv();
+    if (!env.ok) {
+      // do not throw — return clear error
+      await order.save();
+      return res.status(500).json({ success: false, message: env.msg });
+    }
+
+    // Create payment link
+    const customer = customerFromOrder(order);
+    // Optional callback — only if configured & looks like a URL
+    const base = process.env.APP_BASE_URL;
+    const callback_url = base && /^https?:\/\//i.test(base) ? `${base.replace(/\/+$/,'')}/orders/${String(order._id)}` : undefined;
+
+    let link;
+    try {
+      link = await Razorpay.paymentLink.create({
+        amount: Math.round(amt * 100),
         currency,
         accept_partial: false,
-        description: `Shipping charges for order ${order.orderNumber}`,
-        customer: {
-          name: order.shippingAddress.fullName,
-          email: order.shippingAddress.email,
-          contact: order.shippingAddress.phoneNumber,
-        },
+        description: `Shipping charges for order ${order.orderNumber || String(order._id)}`,
+        customer,
         notify: { sms: true, email: true },
-        // 👇 FIX: coerce _id (unknown) to string
         notes: { orderId: String(order._id), purpose: 'shipping_payment' },
         reminder_enable: true,
-        // 👇 FIX: coerce _id (unknown) to string
-        callback_url: `${process.env.APP_BASE_URL}/orders/${String(order._id)}`,
-        callback_method: 'get',
+        ...(callback_url ? { callback_url, callback_method: 'get' } : {}),
       });
+    } catch (e: any) {
+      // Surface Razorpay error clearly
+      await order.save();
+      return res.status(502).json({ success: false, message: 'Razorpay error', detail: e?.message || String(e) });
+    }
 
-      order.shippingPayment = {
-        linkId: link.id,
-        shortUrl: link.short_url,
-        status: 'pending',
-        currency,
-        amount: Number(amount),
-        amountPaid: 0,
-        paymentIds: [],
-      };
+    order.shippingPayment = {
+      linkId: link.id,
+      shortUrl: link.short_url,
+      status: 'pending',
+      currency,
+      amount: amt,
+      amountPaid: 0,
+      paymentIds: [],
+    };
 
-      // email+SMS with full payload (dimensions, weight, photos)
+    await order.save();
+
+    // Send email/SMS — do NOT fail the API if mailer throws
+    try {
       await email.sendShippingPaymentLink(order, {
-        amount: Number(amount),
+        amount: amt,
         currency,
         shortUrl: link.short_url,
         linkId: link.id,
@@ -78,76 +118,89 @@ export async function setPackageAndMaybeLink(req: Request, res: Response) {
         heightCm: asNum(heightCm),
         weightKg: asNum(weightKg),
         notes,
-        images: Array.isArray(images) ? images.slice(0, 5) : undefined,
+        images: Array.isArray(images) ? images.filter(isHttp).slice(0, 5) : undefined,
       });
+    } catch (mailErr: any) {
+      console.warn('[shipping] email.sendShippingPaymentLink failed:', mailErr?.message || mailErr);
     }
 
-    await order.save();
-    res.json({ success: true, order });
+    return res.json({ success: true, order });
   } catch (e: any) {
-    res.status(500).json({ success: false, message: e.message });
+    console.error('[shipping] setPackageAndMaybeLink error:', e);
+    return res.status(500).json({ success: false, message: e?.message || 'Internal error' });
   }
 }
 
-/** Create/refresh the shipping payment link explicitly */
 export async function createShippingPaymentLink(req: Request, res: Response) {
   try {
     const { id } = req.params;
-    const { amount, currency = 'INR' } = req.body ?? {};
-    if (!(Number(amount) > 0)) return res.status(400).json({ message: 'amount required' });
+    const amt = Number(req.body?.amount);
+    const currency = (req.body?.currency || 'INR') as string;
+
+    if (!Number.isFinite(amt) || amt <= 0) {
+      return res.status(400).json({ success: false, message: 'Amount must be > 0' });
+    }
 
     const order = (await Order.findById(id)) as IOrder | null;
-    if (!order) return res.status(404).json({ message: 'Order not found' });
+    if (!order) return res.status(404).json({ success: false, message: 'Order not found' });
 
-    const link = await Razorpay.paymentLink.create({
-      amount: Math.round(Number(amount) * 100),
-      currency,
-      accept_partial: false,
-      description: `Shipping charges for order ${order.orderNumber}`,
-      customer: {
-        name: order.shippingAddress.fullName,
-        email: order.shippingAddress.email,
-        contact: order.shippingAddress.phoneNumber,
-      },
-      notify: { sms: true, email: true },
-      // 👇 FIX: coerce _id (unknown) to string
-      notes: { orderId: String(order._id), purpose: 'shipping_payment' },
-      reminder_enable: true,
-      // 👇 FIX: coerce _id (unknown) to string
-      callback_url: `${process.env.APP_BASE_URL}/orders/${String(order._id)}`,
-      callback_method: 'get',
-    });
+    const env = ensureRazorpayEnv();
+    if (!env.ok) return res.status(500).json({ success: false, message: env.msg });
+
+    const customer = customerFromOrder(order);
+    const base = process.env.APP_BASE_URL;
+    const callback_url = base && /^https?:\/\//i.test(base) ? `${base.replace(/\/+$/,'')}/orders/${String(order._id)}` : undefined;
+
+    let link;
+    try {
+      link = await Razorpay.paymentLink.create({
+        amount: Math.round(amt * 100),
+        currency,
+        accept_partial: false,
+        description: `Shipping charges for order ${order.orderNumber || String(order._id)}`,
+        customer,
+        notify: { sms: true, email: true },
+        notes: { orderId: String(order._id), purpose: 'shipping_payment' },
+        reminder_enable: true,
+        ...(callback_url ? { callback_url, callback_method: 'get' } : {}),
+      });
+    } catch (e: any) {
+      return res.status(502).json({ success: false, message: 'Razorpay error', detail: e?.message || String(e) });
+    }
 
     order.shippingPayment = {
       linkId: link.id,
       shortUrl: link.short_url,
       status: 'pending',
       currency,
-      amount: Number(amount),
+      amount: amt,
       amountPaid: 0,
       paymentIds: [],
     };
-
     await order.save();
 
-    // include package info if already saved, so the email shows dims/photos
-    const pkg = order.shippingPackage || {};
-    await email.sendShippingPaymentLink(order, {
-      amount: Number(amount),
-      currency,
-      shortUrl: link.short_url,
-      linkId: link.id,
-      lengthCm: pkg.lengthCm,
-      breadthCm: pkg.breadthCm,
-      heightCm: pkg.heightCm,
-      weightKg: pkg.weightKg,
-      notes: pkg.notes,
-      images: (pkg.images || []).slice(0, 5),
-    });
+    // Non-blocking email
+    try {
+      const pkg = order.shippingPackage || {};
+      await email.sendShippingPaymentLink(order, {
+        amount: amt,
+        currency,
+        shortUrl: link.short_url,
+        linkId: link.id,
+        lengthCm: pkg.lengthCm,
+        breadthCm: pkg.breadthCm,
+        heightCm: pkg.heightCm,
+        weightKg: pkg.weightKg,
+        notes: pkg.notes,
+        images: (pkg.images || []).filter(isHttp).slice(0, 5),
+      });
+    } catch (mailErr: any) {
+      console.warn('[shipping] email.sendShippingPaymentLink failed:', mailErr?.message || mailErr);
+    }
 
-    // 👇 FIX: coerce _id (unknown) to string in response payload
-    res.json({ success: true, link: { id: link.id, shortUrl: link.short_url }, orderId: String(order._id) });
+    return res.json({ success: true, link: { id: link.id, shortUrl: link.short_url }, orderId: String(order._id) });
   } catch (e: any) {
-    res.status(500).json({ success: false, message: e.message });
+    console.error('[shipping] createShippingPaymentLink error:', e);
+    return res.status(500).json({ success: false, message: e?.message || 'Internal error' });
   }
 }
