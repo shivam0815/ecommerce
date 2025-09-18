@@ -10,21 +10,21 @@ import type { CartItem } from '../types';
 
 /* -------- Category-wise MOQ fallback (used if product.minOrderQty is absent) -------- */
 const CATEGORY_MOQ: Record<string, number> = {
-  'Car Chargers': 50,
-  'Bluetooth Neckbands': 50,
-  'TWS': 50,
-  'Data Cables': 50,
-  'Mobile Chargers': 50,
-  'Bluetooth Speakers': 50,
-  'Power Banks': 50,
-  'Mobile ICs': 50,
-  'Mobile Repairing Tools': 50,
-  'Electronics': 50,
-  'Accessories': 50,
-  'Others': 50,
+  'Car Chargers': 10,
+  'Bluetooth Neckbands': 10,
+  'TWS': 10,
+  'Data Cables': 10,
+  'Mobile Chargers': 10,
+  'Bluetooth Speakers': 10,
+  'Power Banks': 10,
+  'Mobile ICs': 10,
+  'Mobile Repairing Tools': 10,
+  'Electronics': 10,
+  'Accessories': 10,
+  'Others': 10,
 };
 
-const MAX_PER_LINE = 500;
+const MAX_PER_LINE = 1000;
 const clampCartQty = (q: number) => Math.max(1, Math.min(Math.floor(q || 1), MAX_PER_LINE));
 
 const getMOQFromItem = (item: any): number => {

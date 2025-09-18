@@ -20,21 +20,21 @@ interface AuthenticatedUser {
 
 /* ───────────────── Business Rules: MAX & MOQ ───────────────── */
 
-const MAX_ORDER_QTY = 500;
+const MAX_ORDER_QTY = 1000;
 
 const CATEGORY_MOQ: Record<string, number> = {
-  "Car Chargers": 50,
-  "Bluetooth Neckbands": 50,
-  "TWS": 30,
-  "Data Cables": 50,
-  "Mobile Chargers": 20,
-  "Bluetooth Speakers": 20,
-  "Power Banks": 20,
-  "Integrated Circuits & Chips": 50,
-  "Mobile Repairing Tools": 50,
-  Electronics: 50,
-  Accessories: 50,
-  Others: 50,
+  "Car Chargers": 10,
+  "Bluetooth Neckbands": 10,
+  "TWS": 10,
+  "Data Cables": 10,
+  "Mobile Chargers": 10,
+  "Bluetooth Speakers": 10,
+  "Power Banks": 10,
+  "Integrated Circuits & Chips": 10,
+  "Mobile Repairing Tools": 10,
+  Electronics: 10,
+  Accessories: 10,
+  Others: 10,
 };
 
 const getEffectiveMOQ = (product: any): number => {
@@ -49,13 +49,25 @@ const getEffectiveMOQ = (product: any): number => {
 };
 
 /** Clamp helper: enforces [MOQ … min(stock, MAX_ORDER_QTY)] silently */
+/** Clamp helper: snap to multiples of MOQ within [MOQ … min(stock, MAX_ORDER_QTY)] */
 const clampQty = (desired: number, product: any): number => {
-  const moq = getEffectiveMOQ(product);
+  const moq = getEffectiveMOQ(product);      // e.g., 10
+  const step = moq;                           // step = MOQ
   const stockCap = Math.max(0, Number(product?.stockQuantity ?? 0));
-  const maxCap = Math.max(0, Math.min(stockCap, MAX_ORDER_QTY));
+  const hardMax = Math.max(0, Math.min(stockCap, MAX_ORDER_QTY));
+  if (hardMax < moq) return 0;                // not enough stock for MOQ
+
   const want = Math.max(1, Number(desired || 0));
-  if (maxCap <= 0) return 0;
-  return Math.max(moq, Math.min(want, maxCap));
+
+  // round UP to next multiple of step
+  let snapped = Math.ceil(want / step) * step;
+
+  // cap by hardMax; if exceeds, fall back to largest valid multiple
+  if (snapped > hardMax) {
+    snapped = Math.floor(hardMax / step) * step;
+  }
+
+  return snapped >= moq ? snapped : 0;
 };
 
 /* ───────────────── Small helpers ───────────────── */

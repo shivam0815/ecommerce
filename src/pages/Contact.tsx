@@ -329,14 +329,14 @@ const Contact: React.FC = () => {
                         {d.href ? (
                           <>
                             <a
-                              href={d.href}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="text-blue-600 hover:text-blue-700 break-all"
-                              aria-label={`${info.title}: ${d.text}`}
-                            >
-                              {d.text}
-                            </a>
+  href={d.href}
+  target="_blank"
+  rel="noopener noreferrer"
+  className="text-blue-600 hover:text-blue-700 break-words whitespace-normal"
+>
+  {d.text}
+</a>
+
                             <button
                               type="button"
                               onClick={() => handleCopy(d.text)}

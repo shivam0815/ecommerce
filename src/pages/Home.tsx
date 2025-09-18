@@ -237,7 +237,7 @@ const Home: React.FC = () => {
         <div className="space-y-4 text-blue-100 leading-relaxed">
        <p className="text-lg">
   <span className="font-semibold text-white">Nakoda Mobile</span> – Trusted Partner for 
-  <span className="font-semibold text-white">. Accessories & Tools</span>
+  <span className="font-semibold text-white">Accessories & Tools</span>
 
 We supply high-quality mobile accessories — chargers, cables, TWS, neckbands, speakers, power banks & more — built for durability and everyday performance.
 
