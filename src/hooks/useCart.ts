@@ -1,4 +1,4 @@
-// src/hooks/useCart.ts
+// src/hooks/useCart.ts — FIXED: no singleton guard, hydrate from cache immediately
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { cartService } from '../services/cartService';
 import type { CartItem } from '../types';
@@ -9,7 +9,7 @@ interface UseCartReturn {
   totalAmount: number;
   isLoading: boolean;
   error: string | null;
-  addToCart: (productId: string, quantity?: number, price?: number, name?: string) => Promise<void>;
+  addToCart: (productId: string, quantity?: number) => Promise<void>;
   updateQuantity: (productId: string, quantity: number) => Promise<void>;
   removeFromCart: (productId: string) => Promise<void>;
   clearCart: () => Promise<void>;
@@ -18,8 +18,7 @@ interface UseCartReturn {
   getTotalPrice: () => number;
 }
 
-const isAuthed = () =>
-  !!(localStorage.getItem('nakoda-token') && localStorage.getItem('nakoda-user'));
+const isAuthed = () => !!(localStorage.getItem('nakoda-token') && localStorage.getItem('nakoda-user'));
 
 const readCache = (): { items: CartItem[]; totalAmount: number } => {
   try {
@@ -35,29 +34,20 @@ const readCache = (): { items: CartItem[]; totalAmount: number } => {
   }
 };
 
-const writeCache = (items: CartItem[]) => {
-  const amount = items.reduce(
-    (sum, it) => sum + (Number(it.price) || 0) * (Number(it.quantity) || 0),
-    0
-  );
-  localStorage.setItem('nakoda-cart', JSON.stringify({ items, totalAmount: amount }));
-  return amount;
-};
-
-// ✅ Normalize quantity (min 10, step of 10)
-const normalizeQty = (qty: number) => Math.max(10, Math.ceil(qty / 10) * 10);
-
 export const useCart = (): UseCartReturn => {
+  // ✅ Hydrate immediately from cache so Checkout never mounts “empty”
   const cached = readCache();
   const [cart, setCart] = useState<CartItem[]>(cached.items);
   const [totalAmount, setTotalAmount] = useState(cached.totalAmount);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // fetch guards
   const isFetchingRef = useRef(false);
   const lastFetchRef = useRef(0);
 
   const fetchCart = useCallback(async (force = false) => {
+    // Guests: serve cache only (don’t throw, don’t blank)
     if (!isAuthed()) {
       const c = readCache();
       setCart(c.items);
@@ -75,7 +65,7 @@ export const useCart = (): UseCartReturn => {
       setIsLoading(true);
       setError(null);
 
-      const resp = await cartService.getCart();
+      const resp = await cartService.getCart(); // should be soft-safe per earlier fix
       const items = Array.isArray(resp?.cart?.items) ? resp.cart.items : [];
       const amount = Number(resp?.cart?.totalAmount ?? 0);
 
@@ -83,12 +73,14 @@ export const useCart = (): UseCartReturn => {
       setTotalAmount(amount);
       localStorage.setItem('nakoda-cart', JSON.stringify({ items, totalAmount: amount }));
     } catch (e: any) {
+      // ❗ Don’t nuke existing UI on non-401 errors
       if (e?.response?.status === 401) {
         const c = readCache();
         setCart(c.items);
         setTotalAmount(c.totalAmount);
       } else {
         setError(e?.message || 'Failed to fetch cart');
+        // keep whatever we already had (likely from cache)
       }
     } finally {
       isFetchingRef.current = false;
@@ -96,122 +88,67 @@ export const useCart = (): UseCartReturn => {
     }
   }, []);
 
+  // Always fetch on mount (no global singleton). Service coalescing prevents bursts.
   useEffect(() => {
     fetchCart(false);
   }, [fetchCart]);
 
-  // ✅ Add to cart with min 10 step logic
-  const addToCart = useCallback(
-    async (productId: string, quantity = 1, price = 0, name = '') => {
-      const normalizedQty = normalizeQty(quantity);
+  const addToCart = useCallback(async (productId: string, quantity = 1) => {
+    if (!isAuthed()) {
+      setError('Please login to add items to cart');
+      return;
+    }
+    try {
+      setIsLoading(true);
+      setError(null);
+      await cartService.addToCart(productId, quantity);
+      await fetchCart(true);
+    } catch (e: any) {
+      setError(e?.response?.data?.message || e?.message || 'Failed to add item to cart');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [fetchCart]);
 
-      if (!isAuthed()) {
-        const current = readCache();
-        const idx = current.items.findIndex((it) => it.productId === productId);
+  const updateQuantity = useCallback(async (productId: string, quantity: number) => {
+    if (!isAuthed()) {
+      setError('Please login to update cart');
+      return;
+    }
+    try {
+      setIsLoading(true);
+      setError(null);
+      await cartService.updateCartItem(productId, quantity);
+      await fetchCart(true);
+    } catch (e: any) {
+      setError(e?.response?.data?.message || e?.message || 'Failed to update cart item');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [fetchCart]);
 
-        if (idx > -1) {
-          current.items[idx].quantity = normalizeQty(current.items[idx].quantity + quantity);
-        } else {
-          current.items.push({
-            id: productId,
-            productId,
-            quantity: normalizedQty,
-            price,
-            name,
-            product: null as any,
-          } as CartItem);
-        }
-
-        const amount = writeCache(current.items);
-        setCart(current.items);
-        setTotalAmount(amount);
-        return;
-      }
-
-      try {
-        setIsLoading(true);
-        setError(null);
-        await cartService.addToCart(productId, normalizedQty);
-        await fetchCart(true);
-      } catch (e: any) {
-        setError(
-          e?.response?.data?.message || e?.message || 'Failed to add item to cart'
-        );
-      } finally {
-        setIsLoading(false);
-      }
-    },
-    [fetchCart]
-  );
-
-  // ✅ Update quantity with min 10 step logic
-  const updateQuantity = useCallback(
-    async (productId: string, quantity: number) => {
-      const normalizedQty = normalizeQty(quantity);
-
-      if (!isAuthed()) {
-        const current = readCache();
-        const idx = current.items.findIndex((it) => it.productId === productId);
-        if (idx > -1) {
-          current.items[idx].quantity = normalizedQty;
-          const amount = writeCache(current.items);
-          setCart(current.items);
-          setTotalAmount(amount);
-        }
-        return;
-      }
-
-      try {
-        setIsLoading(true);
-        setError(null);
-        await cartService.updateCartItem(productId, normalizedQty);
-        await fetchCart(true);
-      } catch (e: any) {
-        setError(
-          e?.response?.data?.message || e?.message || 'Failed to update cart item'
-        );
-      } finally {
-        setIsLoading(false);
-      }
-    },
-    [fetchCart]
-  );
-
-  const removeFromCart = useCallback(
-    async (productId: string) => {
-      if (!isAuthed()) {
-        const current = readCache();
-        const newItems = current.items.filter((it) => it.productId !== productId);
-        const amount = writeCache(newItems);
-        setCart(newItems);
-        setTotalAmount(amount);
-        return;
-      }
-
-      try {
-        setIsLoading(true);
-        setError(null);
-        await cartService.removeFromCart(productId);
-        await fetchCart(true);
-      } catch (e: any) {
-        setError(
-          e?.response?.data?.message || e?.message || 'Failed to remove item from cart'
-        );
-      } finally {
-        setIsLoading(false);
-      }
-    },
-    [fetchCart]
-  );
+  const removeFromCart = useCallback(async (productId: string) => {
+    if (!isAuthed()) {
+      setError('Please login to remove items from cart');
+      return;
+    }
+    try {
+      setIsLoading(true);
+      setError(null);
+      await cartService.removeFromCart(productId);
+      await fetchCart(true);
+    } catch (e: any) {
+      setError(e?.response?.data?.message || e?.message || 'Failed to remove item from cart');
+    } finally {
+      setIsLoading(false);
+    }
+  }, [fetchCart]);
 
   const clearCart = useCallback(async () => {
     if (!isAuthed()) {
-      setCart([]);
-      setTotalAmount(0);
-      localStorage.removeItem('nakoda-cart');
+      setError('Please login to clear cart');
       return;
     }
-
     try {
       setIsLoading(true);
       setError(null);
@@ -220,19 +157,14 @@ export const useCart = (): UseCartReturn => {
       setTotalAmount(0);
       localStorage.removeItem('nakoda-cart');
     } catch (e: any) {
-      setError(
-        e?.response?.data?.message || e?.message || 'Failed to clear cart'
-      );
+      setError(e?.response?.data?.message || e?.message || 'Failed to clear cart');
     } finally {
       setIsLoading(false);
     }
   }, []);
 
   const getTotalPrice = useCallback(() => {
-    return (cart || []).reduce(
-      (sum, it) => sum + (Number(it.price) || 0) * (Number(it.quantity) || 0),
-      0
-    );
+    return (cart || []).reduce((sum, it) => sum + (Number(it.price) || 0) * (Number(it.quantity) || 0), 0);
   }, [cart]);
 
   const getTotalItems = useCallback(() => {
