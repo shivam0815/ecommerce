@@ -1,4 +1,4 @@
-// src/pages/Cart.tsx — compact, fully responsive (MOQ=10, step=10)
+// src/pages/Cart.tsx — compact, fully responsive
 import React, { useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -24,22 +24,19 @@ const CATEGORY_MOQ: Record<string, number> = {
   'Others': 50,
 };
 
-const DEFAULT_MOQ = 10;        // <- global fallback
-const STEP = 10;               // <- always change by 10
 const MAX_PER_LINE = 500;
-
 const clampCartQty = (q: number) => Math.max(1, Math.min(Math.floor(q || 1), MAX_PER_LINE));
 
 const getMOQFromItem = (item: any): number => {
   const p = item?.productId || item || {};
   if (typeof p?.minOrderQty === 'number' && p.minOrderQty >= 1) return p.minOrderQty;
-  return CATEGORY_MOQ[p?.category || ''] ?? DEFAULT_MOQ;
+  return CATEGORY_MOQ[p?.category || ''] ?? 1;
 };
 
 const getMaxQtyFromItem = (item: any): number => {
   const p = item?.productId || item || {};
   const stock = Number(p?.stockQuantity ?? item?.stockQuantity ?? 0);
-  return stock > 0 ? stock : 999; // generous cap if unknown
+  return stock > 0 ? stock : 99;
 };
 
 const getItemId = (item: any): string =>
@@ -73,28 +70,22 @@ const Cart: React.FC = () => {
     navigate('/checkout');
   };
 
-  // ✅ Normalize to multiples of 10 with MOQ & stock
-  const normalizeQty = (qty: number, moq: number) => {
-    // round up to nearest 10
-    const rounded = Math.ceil(qty / STEP) * STEP;
-    return Math.max(moq, rounded);
-  };
-
-  const handleQuantityUpdate = (item: any, requestedQty: number) => {
+  const handleQuantityUpdate = (item: any, newQuantity: number) => {
     const itemId = getItemId(item);
     if (!itemId || itemId === 'undefined' || itemId === 'null') {
       toast.error('Unable to update item. Please refresh the page.');
       return;
     }
 
-    const clamped = clampCartQty(requestedQty);
-    const moq = getMOQFromItem(item) || DEFAULT_MOQ;
+    const clamped = clampCartQty(newQuantity);
+    const moq = getMOQFromItem(item);
     const maxQty = getMaxQtyFromItem(item);
 
-    const normalizedQty = normalizeQty(clamped, moq);
-    const finalQty = Math.min(normalizedQty, maxQty);
+    // Respect MOQ and Stock silently
+    const finalQty = Math.max(moq, Math.min(clamped, maxQty));
 
-    if (finalQty < moq) {
+    // If result falls below 1, remove item
+    if (finalQty < 1) {
       handleRemoveItem(itemId);
       return;
     }
@@ -245,12 +236,10 @@ const Cart: React.FC = () => {
                     }
 
                     // MOQ & Stock for controls
-                    const moq = getMOQFromItem(item) || DEFAULT_MOQ;
+                    const moq = getMOQFromItem(item);
                     const maxQty = getMaxQtyFromItem(item);
                     const atMin = itemQuantity <= moq;
                     const atMax = itemQuantity >= maxQty;
-
-                    const lineTotal = (productPrice * itemQuantity) || 0;
 
                     return (
                       <motion.div
@@ -283,11 +272,11 @@ const Cart: React.FC = () => {
 
                             {/* Controls row (mobile-first) */}
                             <div className="mt-2 flex items-center justify-between gap-3">
-                              {/* Qty stepper (step = 10) */}
+                              {/* Qty stepper */}
                               <div className="inline-flex items-center rounded-md border bg-white">
                                 <button
                                   type="button"
-                                  onClick={() => handleQuantityUpdate(item, itemQuantity - STEP)} // step 10 down
+                                  onClick={() => handleQuantityUpdate(item, itemQuantity - 1)}
                                   className="p-1.5 sm:p-2 disabled:opacity-50 hover:bg-gray-50"
                                   disabled={isLoading || atMin}
                                   aria-label="Decrease quantity"
@@ -295,12 +284,10 @@ const Cart: React.FC = () => {
                                 >
                                   <Minus className="h-4 w-4" />
                                 </button>
-                                <span className="px-2 sm:px-3 py-1 text-sm font-medium min-w-[2rem] text-center">
-                                  {itemQuantity}
-                                </span>
+                                <span className="px-2 sm:px-3 py-1 text-sm font-medium min-w-[2rem] text-center">{itemQuantity}</span>
                                 <button
                                   type="button"
-                                  onClick={() => handleQuantityUpdate(item, itemQuantity + STEP)} // step 10 up
+                                  onClick={() => handleQuantityUpdate(item, itemQuantity + 1)}
                                   className="p-1.5 sm:p-2 disabled:opacity-50 hover:bg-gray-50"
                                   disabled={isLoading || atMax}
                                   aria-label="Increase quantity"
@@ -312,9 +299,7 @@ const Cart: React.FC = () => {
 
                               {/* Line total */}
                               <div className="text-right">
-                                <p className="text-base sm:text-lg font-bold text-gray-900">
-                                  ₹{lineTotal.toLocaleString()}
-                                </p>
+                                <p className="text-base sm:text-lg font-bold text-gray-900">₹{(productPrice * itemQuantity).toLocaleString()}</p>
                               </div>
 
                               {/* Remove */}
