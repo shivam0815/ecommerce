@@ -275,15 +275,27 @@ const Cart: React.FC = () => {
                               {/* Qty stepper */}
                               <div className="inline-flex items-center rounded-md border bg-white">
                                 <button
-                                  type="button"
-                                  onClick={() => handleQuantityUpdate(item, itemQuantity - 1)}
-                                  className="p-1.5 sm:p-2 disabled:opacity-50 hover:bg-gray-50"
-                                  disabled={isLoading || atMin}
-                                  aria-label="Decrease quantity"
-                                  title={atMin ? undefined : 'Decrease'}
-                                >
-                                  <Minus className="h-4 w-4" />
-                                </button>
+  type="button"
+  onClick={() => handleQuantityUpdate(item, itemQuantity - moq)}  // ← step DOWN by MOQ
+  className="p-1.5 sm:p-2 disabled:opacity-50 hover:bg-gray-50"
+  disabled={isLoading || atMin}
+  aria-label="Decrease quantity"
+  title={atMin ? undefined : 'Decrease'}
+>
+  <Minus className="h-4 w-4" />
+</button>
+...
+<button
+  type="button"
+  onClick={() => handleQuantityUpdate(item, itemQuantity + moq)}  // ← step UP by MOQ
+  className="p-1.5 sm:p-2 disabled:opacity-50 hover:bg-gray-50"
+  disabled={isLoading || atMax}
+  aria-label="Increase quantity"
+  title={atMax ? undefined : 'Increase'}
+>
+  <Plus className="h-4 w-4" />
+</button>
+
                                 <span className="px-2 sm:px-3 py-1 text-sm font-medium min-w-[2rem] text-center">{itemQuantity}</span>
                                 <button
                                   type="button"

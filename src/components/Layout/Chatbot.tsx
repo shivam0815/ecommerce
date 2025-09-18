@@ -506,7 +506,7 @@ const ChatBot: React.FC<{ suggestions?: string[] }>= () => {
             )}>
               <div className="flex items-center gap-2">
                 <Sparkles className="h-5 w-5" />
-                <div className="font-semibold">Clara • Smart Shopping Assistant</div>
+                <div className="font-semibold">Artha • Smart Shopping Assistant</div>
               </div>
               <div className="flex items-center gap-1">
                 {loading ? (
@@ -532,7 +532,7 @@ const ChatBot: React.FC<{ suggestions?: string[] }>= () => {
                 {messages.length ? (
                   <span>{messages[messages.length - 1]?.text?.slice(0, 80) || "Ask Clara anything."}…</span>
                 ) : (
-                  <span>{getGreeting()}! Ask Clara for the right accessories.</span>
+                  <span>{getGreeting()}! Ask Artha for the right accessories.</span>
                 )}
               </div>
             ) : (
@@ -542,7 +542,7 @@ const ChatBot: React.FC<{ suggestions?: string[] }>= () => {
                   {/* Empty state: show categories */}
                   {messages.length === 0 && (
                     <div className="text-sm text-gray-700">
-                      <div className="mb-3">{getGreeting()}! I’m <b>Clara</b>. Browse by category or ask by price/specs.</div>
+                      <div className="mb-3">{getGreeting()}! I’m <b>Artha</b>. Browse by category or ask by price/specs.</div>
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                         {Array.from(CATEGORIES).map((c) => (
                           <button key={c} onClick={() => onSuggestion(`Show ${c}`)} className="text-left border border-gray-200 bg-white hover:bg-gray-100 rounded-xl px-3 py-2">
@@ -565,7 +565,7 @@ const ChatBot: React.FC<{ suggestions?: string[] }>= () => {
 
                   {(typing || loading) && (
                     <div className="flex items-center gap-2 text-sm text-gray-500">
-                      <Loader2 className="h-4 w-4 animate-spin" /> Clara is thinking…
+                      <Loader2 className="h-4 w-4 animate-spin" /> Artha is thinking…
                     </div>
                   )}
 
