@@ -558,11 +558,12 @@ With strict quality checks and honest pricing, Nakoda Mobile is here to support 
         </div>
       </div>
       <Link
-        to="/Shop Now"
-        className="text-indigo-600 hover:text-indigo-700 font-semibold"
-      >
-        Request custom sample →
-      </Link>
+  to="/samples"   // ← CHANGE
+  className="text-indigo-600 hover:text-indigo-700 font-semibold"
+>
+  Request custom sample →
+</Link>
+
     </div>
 
     {(() => {
@@ -602,7 +603,8 @@ With strict quality checks and honest pricing, Nakoda Mobile is here to support 
       }
 
       const sampleLink = (p: Product) =>
-        `/Shop Now =${encodeURIComponent(p.slug || p._id)}`;
+  `/product/${encodeURIComponent(p.slug || p._id)}?sample=1`;  // ← CHANGE
+
 
       return (
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-6">
