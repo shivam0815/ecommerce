@@ -5,7 +5,7 @@ import { motion } from 'framer-motion';
 import {
   Star,
   ShoppingCart,
-  Heart,
+  
   Share2,
   ChevronLeft,
   Plus,
@@ -17,7 +17,7 @@ import {
 import { productService } from '../services/productService';
 import type { Product } from '../types';
 import { useCart } from '../hooks/useCart';
-import { useWishlist } from '../hooks/useWishlist';
+
 import { resolveImageUrl } from '../utils/imageUtils';
 import toast from 'react-hot-toast';
 import SEO from '../components/Layout/SEO';
@@ -423,21 +423,7 @@ const ProductDetail: React.FC = () => {
     }
   };
 
-  const { addToWishlist, removeFromWishlist, isInWishlist, isLoading: wishlistLoading } = useWishlist();
-  const productId = useMemo<string | undefined>(() => (product ? ((product as any)._id || (product as any).id) : undefined), [product]);
-  const inWishlist = productId ? isInWishlist(productId) : false;
-
-  const handleWishlistToggle = async () => {
-    if (!product) return;
-    try {
-      const pid: string = (product as any)._id || (product as any).id;
-      if (!pid) return toast.error('Product ID not found');
-      if (inWishlist) await removeFromWishlist(pid);
-      else await addToWishlist(pid);
-    } catch (err: any) {
-      toast.error(err.message || 'Wishlist operation failed');
-    }
-  };
+ 
 
   /* ---------------------------- Render guards ---------------------------- */
   if (loading) {
@@ -678,18 +664,7 @@ const ProductDetail: React.FC = () => {
 
                 {/* icons row */}
                 <div className="col-span-2 flex items-center gap-2 mt-1 sm:mt-0">
-                  <motion.button
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
-                    onClick={handleWishlistToggle}
-                    disabled={wishlistLoading}
-                    className={`w-10 h-10 sm:w-11 sm:h-11 shrink-0 p-0 border rounded-lg
-                      ${inWishlist ? 'border-red-300 bg-red-50 text-red-600 hover:bg-red-100' : 'border-gray-300 hover:bg-gray-50'}`}
-                    title={inWishlist ? 'Remove from wishlist' : 'Add to wishlist'}
-                    aria-label={inWishlist ? 'Remove from wishlist' : 'Add to wishlist'}
-                  >
-                    <Heart className={`h-5 w-5 ${inWishlist ? 'fill-current' : ''}`} />
-                  </motion.button>
+                  
 
                   <motion.button
                     whileHover={{ scale: 1.05 }}
