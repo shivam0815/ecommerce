@@ -237,7 +237,7 @@ const Home: React.FC = () => {
         <div className="space-y-4 text-blue-100 leading-relaxed">
        <p className="text-lg">
   <span className="font-semibold text-white">Nakoda Mobile</span> – Trusted Partner for 
-  <span className="font-semibold text-white">. Accessories & Tools</span>.
+  <span className="font-semibold text-white">. Accessories & Tools</span>
 
 We supply high-quality mobile accessories — chargers, cables, TWS, neckbands, speakers, power banks & more — built for durability and everyday performance.
 
@@ -558,7 +558,7 @@ With strict quality checks and honest pricing, Nakoda Mobile is here to support 
         </div>
       </div>
       <Link
-        to="/oem#contact-form"
+        to="/Shop Now"
         className="text-indigo-600 hover:text-indigo-700 font-semibold"
       >
         Request custom sample →
@@ -602,7 +602,7 @@ With strict quality checks and honest pricing, Nakoda Mobile is here to support 
       }
 
       const sampleLink = (p: Product) =>
-        `/oem#contact-form?sample=${encodeURIComponent(p.slug || p._id)}`;
+        `/Shop Now =${encodeURIComponent(p.slug || p._id)}`;
 
       return (
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-6">

@@ -1,4 +1,4 @@
-// src/pages/ProductDetail.tsx — fully responsive & compact
+// src/pages/ProductDetail.tsx — fully responsive & compact (badges/stock hidden, qty steps of 10)
 import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
@@ -10,9 +10,6 @@ import {
   ChevronLeft,
   Plus,
   Minus,
-  Truck,
-  Shield,
-  RotateCcw,
   ChevronRight,
   MessageCircle,
   CreditCard,
@@ -30,6 +27,7 @@ import Breadcrumbs from './Breadcrumbs';
 
 /* ------------------------- MOQ + MAX helpers ------------------------- */
 const MAX_PER_LINE = 500;
+const STEP = 10; // 👈 jump in 10s
 const CATEGORY_MOQ: Record<string, number> = {
   'Car Chargers': 50,
   'Bluetooth Neckbands': 50,
@@ -180,8 +178,6 @@ const MiniCard: React.FC<{ p: Product }> = ({ p }) => {
       </div>
       <div className="p-3 space-y-2">
         <div className="text-sm font-medium line-clamp-2 text-gray-900">{p.name}</div>
-
-        {/* Price + MRP */}
         <div className="flex items-center gap-2">
           <span className="text-base font-semibold text-gray-900">{fmtINR(p.price)}</span>
           {(p as any).originalPrice && (p as any).originalPrice > (p.price ?? 0) && (
@@ -195,8 +191,6 @@ const MiniCard: React.FC<{ p: Product }> = ({ p }) => {
             </>
           )}
         </div>
-
-        {/* Live rating row – hidden when count = 0 */}
         {count > 0 && (
           <div className="flex items-center gap-1 text-xs text-gray-600">
             {Array.from({ length: 5 }).map((_, i) => (
@@ -205,8 +199,6 @@ const MiniCard: React.FC<{ p: Product }> = ({ p }) => {
             <span className="ml-1">({count} reviews)</span>
           </div>
         )}
-
-        {/* Actions */}
         <div className="flex gap-2 pt-1">
           <button
             onClick={add}
@@ -277,14 +269,14 @@ const ProductDetail: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [selectedImage, setSelectedImage] = useState<number>(0);
 
-  // initialize with 1; will bump to MOQ after product loads
-  const [quantity, setQuantity] = useState<number>(1);
+  // initialize with STEP; will bump to MOQ after load
+  const [quantity, setQuantity] = useState<number>(STEP);
   const [activeTab, setActiveTab] = useState<'description' | 'specifications' | 'reviews'>('description');
 
   const { addToCart, isLoading } = useCart();
-  const { addToWishlist, removeFromWishlist, isInWishlist, isLoading: wishlistLoading } = useWishlist();
+  
 
-  /* Normalize images (string URLs or object {secure_url}) → string[] */
+  /* Normalize images */
   const normalizedImages = useMemo<string[]>(() => {
     const raw = (product as any)?.images;
     const arr: unknown[] = Array.isArray(raw) ? raw : [];
@@ -300,7 +292,7 @@ const ProductDetail: React.FC = () => {
       .filter((s: string) => typeof s === 'string' && s.trim() !== '' && s !== 'undefined' && s !== 'null');
   }, [product]);
 
-  // Related rails state
+  // Rails states
   const [similarByCategory, setSimilarByCategory] = useState<Product[]>([]);
   const [moreFromBrand, setMoreFromBrand] = useState<Product[]>([]);
   const [trending, setTrending] = useState<Product[]>([]);
@@ -331,7 +323,7 @@ const ProductDetail: React.FC = () => {
     fetchProduct();
   }, [id]);
 
-  /* Ensure quantity respects MOQ and MAX whenever product changes */
+  /* Ensure qty respects MOQ, MAX and STEP whenever product changes */
   useEffect(() => {
     if (!product) return;
     const moq = getMOQ(product as any);
@@ -339,7 +331,11 @@ const ProductDetail: React.FC = () => {
       MAX_PER_LINE,
       Number((product as any).stockQuantity ?? MAX_PER_LINE) || MAX_PER_LINE
     );
-    setQuantity((q) => Math.max(moq, Math.min(stockCap, q || moq)));
+
+    // snap to a multiple of STEP and ≥ MOQ
+    const base = Math.max(moq, STEP);
+    const snapped = Math.ceil(base / STEP) * STEP;
+    setQuantity(Math.min(stockCap, snapped));
   }, [product]);
 
   /* Fetch rails after product is loaded */
@@ -364,7 +360,7 @@ const ProductDetail: React.FC = () => {
         setMoreFromBrand(Array.isArray(relBrand) ? (relBrand as Product[]) : []);
         setTrending(Array.isArray(top) ? (top as Product[]) : []);
       } catch {
-        // swallow rails errors
+        // ignore rails errors
       } finally {
         setRailsLoading(false);
       }
@@ -387,65 +383,61 @@ const ProductDetail: React.FC = () => {
     if (!product) return;
     try {
       const productId: string = (product as any)._id || (product as any).id;
-      if (!productId) {
-        toast.error('Product ID not found');
-        return;
-      }
+      if (!productId) return toast.error('Product ID not found');
+
       const moq = getMOQ(product as any);
       const maxQty = Math.min(
         MAX_PER_LINE,
         Number((product as any).stockQuantity ?? MAX_PER_LINE) || MAX_PER_LINE
       );
-      const finalQty = Math.max(moq, Math.min(maxQty, quantity));
+
+      // clamp and snap to STEP
+      const base = Math.max(moq, Math.min(maxQty, quantity));
+      const finalQty = Math.ceil(base / STEP) * STEP;
+
       await addToCart(productId, finalQty);
       toast.success(`Added ${finalQty} ${finalQty === 1 ? 'item' : 'items'} to cart!`);
     } catch (err: any) {
       toast.error(err.message || 'Failed to add to cart');
     }
   };
+
   const handleBuyNow = async () => {
-  if (!product) return;
-  try {
-    const productId: string = (product as any)._id || (product as any).id;
-    if (!productId) {
-      toast.error('Product ID not found');
-      return;
+    if (!product) return;
+    try {
+      const productId: string = (product as any)._id || (product as any).id;
+      if (!productId) return toast.error('Product ID not found');
+
+      const moq = getMOQ(product as any);
+      const maxQty = Math.min(
+        MAX_PER_LINE,
+        Number((product as any).stockQuantity ?? MAX_PER_LINE) || MAX_PER_LINE
+      );
+      const base = Math.max(moq, Math.min(maxQty, quantity));
+      const finalQty = Math.ceil(base / STEP) * STEP;
+
+      await addToCart(productId, finalQty);
+      navigate('/checkout');
+    } catch (err: any) {
+      toast.error(err?.message || 'Could not proceed to checkout');
     }
-    const moq = getMOQ(product as any);
-    const maxQty = Math.min(
-      MAX_PER_LINE,
-      Number((product as any).stockQuantity ?? MAX_PER_LINE) || MAX_PER_LINE
-    );
-    const finalQty = Math.max(moq, Math.min(maxQty, quantity));
+  };
 
-    await addToCart(productId, finalQty);
-    navigate('/checkout'); // <- go straight to checkout
-  } catch (err: any) {
-    toast.error(err?.message || 'Could not proceed to checkout');
-  }
-};
-
+  const { addToWishlist, removeFromWishlist, isInWishlist, isLoading: wishlistLoading } = useWishlist();
+  const productId = useMemo<string | undefined>(() => (product ? ((product as any)._id || (product as any).id) : undefined), [product]);
+  const inWishlist = productId ? isInWishlist(productId) : false;
 
   const handleWishlistToggle = async () => {
     if (!product) return;
     try {
-      const productId: string = (product as any)._id || (product as any).id;
-      if (!productId) {
-        toast.error('Product ID not found');
-        return;
-      }
-      if (isInWishlist(productId)) {
-        await removeFromWishlist(productId);
-      } else {
-        await addToWishlist(productId);
-      }
+      const pid: string = (product as any)._id || (product as any).id;
+      if (!pid) return toast.error('Product ID not found');
+      if (inWishlist) await removeFromWishlist(pid);
+      else await addToWishlist(pid);
     } catch (err: any) {
       toast.error(err.message || 'Wishlist operation failed');
     }
   };
-
-  const productId = useMemo<string | undefined>(() => (product ? ((product as any)._id || (product as any).id) : undefined), [product]);
-  const inWishlist = productId ? isInWishlist(productId) : false;
 
   /* ---------------------------- Render guards ---------------------------- */
   if (loading) {
@@ -467,12 +459,7 @@ const ProductDetail: React.FC = () => {
           title="Shop Products"
           description="Browse TWS, Bluetooth neckbands, data cables, chargers, ICs, and tools."
           canonicalPath="/products"
-          jsonLd={{
-            '@context': 'https://schema.org',
-            '@type': 'CollectionPage',
-            name: 'Products',
-            url: 'https://nakodamobile.in/products',
-          }}
+          jsonLd={{ '@context': 'https://schema.org', '@type': 'CollectionPage', name: 'Products', url: 'https://nakodamobile.in/products' }}
         />
         <div className="text-center max-w-md mx-auto p-6">
           <div className="text-6xl mb-4">{invalidId ? '🔍' : '⚠️'}</div>
@@ -536,7 +523,7 @@ const ProductDetail: React.FC = () => {
 
   /* -------------------------------- Render -------------------------------- */
   return (
-    <div className="min-h-screen bg-gray-50 pb-24 sm:pb-10">{/* leave space for mobile sticky bar */}
+    <div className="min-h-screen bg-gray-50 pb-24 sm:pb-10">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
         {/* Breadcrumb */}
         <Breadcrumbs
@@ -615,168 +602,128 @@ const ProductDetail: React.FC = () => {
                 )}
               </div>
 
-              {/* Stock */}
-              <div className="flex items-center flex-wrap gap-2 sm:gap-3">
-                <div className={`flex items-center gap-2 px-2.5 py-1 rounded-full text-xs sm:text-sm font-medium ${
-                  (product as any).inStock ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800'
-                }`}>
-                  <span className={`w-2 h-2 rounded-full ${(product as any).inStock ? 'bg-green-500' : 'bg-red-500'}`}></span>
-                  <span>{(product as any).inStock ? 'In Stock' : 'Out of Stock'}</span>
+              {/* (Stock UI removed as requested) */}
+
+              {/* Quantity (MOQ + step=10) */}
+              <div className="flex items-center gap-3 sm:gap-4">
+                <label className="text-gray-700 text-sm sm:text-base font-medium">Qty</label>
+                <div className="flex items-center border border-gray-300 rounded-lg">
+                  <button
+                    onClick={() => setQuantity(q => Math.max(moq, q - STEP))}
+                    className="p-2 sm:p-2.5 hover:bg-gray-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    disabled={quantity <= moq}
+                    aria-label="Decrease quantity"
+                  >
+                    <Minus className="h-4 w-4" />
+                  </button>
+                  <input
+                    type="number"
+                    step={STEP}
+                    min={moq}
+                    max={maxQty}
+                    value={quantity}
+                    onChange={(e) => {
+                      const raw = parseInt(e.target.value, 10);
+                      if (!Number.isFinite(raw)) return;
+                      const clamped = Math.max(moq, Math.min(maxQty, raw));
+                      // snap to nearest multiple of STEP
+                      const snapped = Math.round(clamped / STEP) * STEP;
+                      setQuantity(Math.max(moq, Math.min(maxQty, snapped)));
+                    }}
+                    onBlur={() => {
+                      setQuantity(q => {
+                        const clamped = Math.max(moq, Math.min(maxQty, q));
+                        return Math.round(clamped / STEP) * STEP;
+                      });
+                    }}
+                    className="w-16 sm:w-20 text-center text-sm sm:text-base border-0 focus:ring-0 focus:outline-none"
+                    aria-label="Quantity"
+                  />
+                  <button
+                    onClick={() => setQuantity(q => Math.min(maxQty, q + STEP))}
+                    className="p-2 sm:p-2.5 hover:bg-gray-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    disabled={quantity >= maxQty}
+                    aria-label="Increase quantity"
+                  >
+                    <Plus className="h-4 w-4" />
+                  </button>
                 </div>
-                {(product as any).stockQuantity ? (
-                  <span className="text-gray-500 text-xs sm:text-sm">{(product as any).stockQuantity} available</span>
-                ) : null}
               </div>
 
-              {/* Quantity (MOQ enforced silently) */}
-              {(product as any).inStock && (
-                <div className="flex items-center gap-3 sm:gap-4">
-                  <label className="text-gray-700 text-sm sm:text-base font-medium">Qty</label>
-                  <div className="flex items-center border border-gray-300 rounded-lg">
-                    <button
-                      onClick={() => setQuantity(q => Math.max(moq, q - 1))}
-                      className="p-2 sm:p-2.5 hover:bg-gray-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                      disabled={quantity <= moq}
-                      aria-label="Decrease quantity"
-                    >
-                      <Minus className="h-4 w-4" />
-                    </button>
-                    <input
-                      type="number"
-                      min={moq}
-                      max={maxQty}
-                      value={quantity}
-                      onChange={(e) => {
-                        const raw = parseInt(e.target.value, 10);
-                        const next = Number.isFinite(raw) ? raw : moq;
-                        const clamped = Math.max(moq, Math.min(maxQty, next));
-                        setQuantity(clamped);
-                      }}
-                      onBlur={() => setQuantity(q => Math.max(moq, Math.min(maxQty, q)))}
-                      className="w-14 sm:w-16 text-center text-sm sm:text-base border-0 focus:ring-0 focus:outline-none"
-                      aria-label="Quantity"
-                    />
-                    <button
-                      onClick={() => setQuantity(q => Math.min(maxQty, q + 1))}
-                      className="p-2 sm:p-2.5 hover:bg-gray-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                      disabled={quantity >= maxQty}
-                      aria-label="Increase quantity"
-                    >
-                      <Plus className="h-4 w-4" />
-                    </button>
-                  </div>
-                </div>
-              )}
+              {/* Actions — mobile-first */}
+              <div className="grid grid-cols-2 gap-2 sm:flex sm:items-stretch sm:gap-3">
+                <motion.button
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.98 }}
+                  onClick={handleAddToCart}
+                  disabled={isLoading}
+                  className="col-span-2 sm:col-auto h-11 px-4 rounded-lg font-medium inline-flex items-center justify-center gap-2 bg-blue-600 text-white hover:bg-blue-700 shadow-md hover:shadow-lg disabled:opacity-60"
+                  aria-label="Add to Cart"
+                >
+                  <ShoppingCart className="h-5 w-5" />
+                  <span>Add to Cart</span>
+                </motion.button>
 
-             
-              {/* Actions — mobile-first (icons visible) */}
-<div className="grid grid-cols-2 gap-2 sm:flex sm:items-stretch sm:gap-3">
-  {/* Add to Cart */}
-  <motion.button
-    whileHover={{ scale: 1.02 }}
-    whileTap={{ scale: 0.98 }}
-    onClick={handleAddToCart}
-    disabled={!(product as any).inStock || isLoading}
-    className={`col-span-2 sm:col-auto h-11 px-4 rounded-lg font-medium
-      inline-flex items-center justify-center gap-2 transition-all
-      ${(product as any).inStock && !isLoading
-        ? 'bg-blue-600 text-white hover:bg-blue-700 shadow-md hover:shadow-lg'
-        : 'bg-gray-300 text-gray-500 cursor-not-allowed'}`}
-    aria-label="Add to Cart"
-  >
-    <ShoppingCart className="h-5 w-5" />
-    <span>Add to Cart</span>
-  </motion.button>
+                <motion.button
+                  whileHover={{ scale: 1.05 }}
+                  whileTap={{ scale: 0.95 }}
+                  onClick={handleBuyNow}
+                  disabled={isLoading}
+                  className="col-span-2 sm:col-auto h-11 px-4 rounded-lg font-medium inline-flex items-center justify-center gap-2 bg-gray-900 text-white hover:bg-black disabled:opacity-60"
+                  aria-label="Buy Now"
+                >
+                  <CreditCard className="h-5 w-5" />
+                  <span>Buy Now</span>
+                </motion.button>
 
-  {/* Buy Now */}
-<motion.button
-  whileHover={{ scale: 1.05 }}
-  whileTap={{ scale: 0.95 }}
-  onClick={handleBuyNow}                     // ✅ use the real handler
-  disabled={!(product as any).inStock || isLoading}
-  className="col-span-2 sm:col-auto h-11 px-4 rounded-lg font-medium
-             inline-flex items-center justify-center gap-2 bg-gray-900 text-white hover:bg-black
-             disabled:opacity-60"
-  aria-label="Buy Now"
->
-  <CreditCard className="h-5 w-5" />
-  <span>Buy Now</span>
-</motion.button>
+                {/* icons row */}
+                <div className="col-span-2 flex items-center gap-2 mt-1 sm:mt-0">
+                  <motion.button
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    onClick={handleWishlistToggle}
+                    disabled={wishlistLoading}
+                    className={`w-10 h-10 sm:w-11 sm:h-11 shrink-0 p-0 border rounded-lg
+                      ${inWishlist ? 'border-red-300 bg-red-50 text-red-600 hover:bg-red-100' : 'border-gray-300 hover:bg-gray-50'}`}
+                    title={inWishlist ? 'Remove from wishlist' : 'Add to wishlist'}
+                    aria-label={inWishlist ? 'Remove from wishlist' : 'Add to wishlist'}
+                  >
+                    <Heart className={`h-5 w-5 ${inWishlist ? 'fill-current' : ''}`} />
+                  </motion.button>
 
+                  <motion.button
+                    whileHover={{ scale: 1.05 }}
+                    whileTap={{ scale: 0.95 }}
+                    className="w-10 h-10 sm:w-11 sm:h-11 shrink-0 p-0 border border-gray-300 rounded-lg hover:bg-gray-50"
+                    onClick={() => {
+                      const url = window.location.href;
+                      const text = `${product.name} - ${product.description ?? ''}`.slice(0, 180);
+                      if ((navigator as any).share) (navigator as any).share({ title: product.name, text, url }).catch(() => {
+                        navigator.clipboard.writeText(url);
+                        toast.success('Product link copied to clipboard!');
+                      });
+                      else {
+                        navigator.clipboard.writeText(url);
+                        toast.success('Product link copied to clipboard!');
+                      }
+                    }}
+                    title="Share"
+                    aria-label="Share"
+                  >
+                    <Share2 className="h-5 w-5" />
+                  </motion.button>
 
-  {/* icons row – always new line on mobile */}
-  <div className="col-span-2 flex items-center gap-2 mt-1 sm:mt-0">
-    {/* Wishlist */}
-    <motion.button
-      whileHover={{ scale: 1.05 }}
-      whileTap={{ scale: 0.95 }}
-      onClick={handleWishlistToggle}
-      disabled={wishlistLoading}
-      className={`w-10 h-10 sm:w-11 sm:h-11 shrink-0 p-0 border rounded-lg
-        ${inWishlist ? 'border-red-300 bg-red-50 text-red-600 hover:bg-red-100' : 'border-gray-300 hover:bg-gray-50'}`}
-      title={inWishlist ? 'Remove from wishlist' : 'Add to wishlist'}
-      aria-label={inWishlist ? 'Remove from wishlist' : 'Add to wishlist'}
-    >
-      <Heart className={`h-5 w-5 ${inWishlist ? 'fill-current' : ''}`} />
-    </motion.button>
-
-    {/* Share */}
-    <motion.button
-      whileHover={{ scale: 1.05 }}
-      whileTap={{ scale: 0.95 }}
-      className="w-10 h-10 sm:w-11 sm:h-11 shrink-0 p-0 border border-gray-300 rounded-lg hover:bg-gray-50"
-      onClick={() => {
-        const url = window.location.href;
-        const text = `${product.name} - ${product.description ?? ''}`.slice(0, 180);
-        if ((navigator as any).share) (navigator as any).share({ title: product.name, text, url }).catch(() => {
-          navigator.clipboard.writeText(url);
-          toast.success('Product link copied to clipboard!');
-        });
-        else {
-          navigator.clipboard.writeText(url);
-          toast.success('Product link copied to clipboard!');
-        }
-      }}
-      title="Share"
-      aria-label="Share"
-    >
-      <Share2 className="h-5 w-5" />
-    </motion.button>
-
-    {/* WhatsApp */}
-    <a
-      href={`https://wa.me/?text=${encodeURIComponent(`${product.name} ${window.location.href}`)}`}
-      target="_blank"
-      rel="noreferrer"
-      className="w-10 h-10 sm:w-11 sm:h-11 shrink-0 p-0 border border-green-300 rounded-lg hover:bg-green-50
-                 text-green-700 inline-flex items-center justify-center"
-      title="Chat on WhatsApp"
-      aria-label="Chat on WhatsApp"
-    >
-      <MessageCircle className="h-5 w-5" />
-    </a>
-  </div>
-</div>
-
-
-              {/* Trust Badges */}
-              <div className="border-t pt-4 sm:pt-6">
-                <div className="grid grid-cols-3 gap-3 sm:gap-4 text-center">
-                  <div className="flex flex-col items-center space-y-1.5 sm:space-y-2">
-                    <div className="bg-blue-100 p-2 rounded-full"><Truck className="h-5 w-5 sm:h-6 sm:w-6 text-blue-600" /></div>
-                    <span className="text-xs sm:text-sm font-medium text-gray-700">Free Delivery</span>
-                    <span className="text-[11px] sm:text-xs text-gray-500">On orders above ₹499</span>
-                  </div>
-                  <div className="flex flex-col items-center space-y-1.5 sm:space-y-2">
-                    <div className="bg-green-100 p-2 rounded-full"><Shield className="h-5 w-5 sm:h-6 sm:w-6 text-green-600" /></div>
-                    <span className="text-xs sm:text-sm font-medium text-gray-700">1 Year Warranty</span>
-                    <span className="text-[11px] sm:text-xs text-gray-500">Manufacturer warranty</span>
-                  </div>
-                  <div className="flex flex-col items-center space-y-1.5 sm:space-y-2">
-                    <div className="bg-orange-100 p-2 rounded-full"><RotateCcw className="h-5 w-5 sm:h-6 sm:w-6 text-orange-600" /></div>
-                    <span className="text-xs sm:text-sm font-medium text-gray-700">Easy Returns</span>
-                    <span className="text-[11px] sm:text-xs text-gray-500">7 day return policy</span>
-                  </div>
+                  <a
+                    href={`https://wa.me/?text=${encodeURIComponent(`${product.name} ${window.location.href}`)}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="w-10 h-10 sm:w-11 sm:h-11 shrink-0 p-0 border border-green-300 rounded-lg hover:bg-green-50
+                               text-green-700 inline-flex items-center justify-center"
+                    title="Chat on WhatsApp"
+                    aria-label="Chat on WhatsApp"
+                  >
+                    <MessageCircle className="h-5 w-5" />
+                  </a>
                 </div>
               </div>
             </div>
@@ -784,7 +731,7 @@ const ProductDetail: React.FC = () => {
 
           {/* Tabs */}
           <div className="border-t">
-            <div className="flex border-b overflow-x-auto sticky top-0 sm:top-[60px] z-10 bg-white">{/* sticky helps on mobile */}
+            <div className="flex border-b overflow-x-auto sticky top-0 sm:top-[60px] z-10 bg-white">
               {(['description', 'specifications', 'reviews'] as const).map((tab) => (
                 <button
                   key={tab}
@@ -863,7 +810,7 @@ const ProductDetail: React.FC = () => {
                       Write a Review
                     </button>
                   </div>
-                  <Reviews productId={productId!} productName={product.name} />
+                  <Reviews productId={(product as any)._id || (product as any).id} productName={product.name} />
                 </div>
               )}
             </div>
@@ -897,7 +844,7 @@ const ProductDetail: React.FC = () => {
           <ProductRail title="Trending now" items={trending} to="/products?sort=trending" />
         </div>
 
-        {/* SEO: product structured data */}
+        {/* SEO structured data */}
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{
@@ -905,14 +852,13 @@ const ProductDetail: React.FC = () => {
               '@context': 'https://schema.org/',
               '@type': 'Product',
               name: product.name,
-              image: validImages?.map((i: string) => safeImage(i))?.slice(0, 6),
+              image: normalizedImages?.map((i: string) => safeImage(i))?.slice(0, 6),
               description: product.description,
-              sku: productId,
+              sku: (product as any)._id || (product as any).id,
               brand: (product as any).brand ? { '@type': 'Brand', name: (product as any).brand } : undefined,
               category: product.category,
               offers: {
                 '@type': 'Offer',
-                availability: (product as any).inStock ? 'https://schema.org/InStock' : 'https://schema.org/OutOfStock',
                 priceCurrency: 'INR',
                 price: product.price ?? undefined,
                 url: typeof window !== 'undefined' ? window.location.href : undefined,
@@ -931,21 +877,18 @@ const ProductDetail: React.FC = () => {
           </div>
           <button
             onClick={handleAddToCart}
-            disabled={!(product as any).inStock || isLoading}
-            className={`h-10 px-4 rounded-lg font-medium inline-flex items-center justify-center gap-2 ${
-              (product as any).inStock && !isLoading ? 'bg-blue-600 text-white' : 'bg-gray-300 text-gray-500'
-            }`}
+            disabled={isLoading}
+            className="h-10 px-4 rounded-lg font-medium inline-flex items-center justify-center gap-2 bg-blue-600 text-white disabled:opacity-60"
           >
             <ShoppingCart className="h-4 w-4" /> Add
           </button>
           <button
-  onClick={handleBuyNow}                     // ✅ reuse the same logic
-  disabled={!(product as any).inStock || isLoading}
-  className="h-10 px-4 rounded-lg font-medium inline-flex items-center justify-center gap-2 bg-gray-900 text-white"
->
-  <CreditCard className="h-4 w-4" /> Buy
-</button>
-
+            onClick={handleBuyNow}
+            disabled={isLoading}
+            className="h-10 px-4 rounded-lg font-medium inline-flex items-center justify-center gap-2 bg-gray-900 text-white disabled:opacity-60"
+          >
+            <CreditCard className="h-4 w-4" /> Buy
+          </button>
         </div>
       </div>
     </div>

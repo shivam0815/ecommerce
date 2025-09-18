@@ -21,6 +21,26 @@ import {
 import toast from 'react-hot-toast';
 import { contactService } from '../services/contactService';
 
+// ---------------- Contact constants (single source of truth)
+const ADDRESS_TEXT =
+  'Building No.3372, Gali No.2, Christian Colony, Karol Bagh Near Baptist Church, New Delhi, 110005';
+const MAPS_Q = encodeURIComponent(`${ADDRESS_TEXT} Nakoda Mobile`);
+const MAPS_VIEW = `https://www.google.com/maps?q=${MAPS_Q}`;
+const MAPS_EMBED = `${MAPS_VIEW}&output=embed`;
+
+const PHONE_PRIMARY = '9650516703';
+const PHONE_SECONDARY = '9667960044';
+const TEL_PRIMARY = `tel:+91${PHONE_PRIMARY}`;
+const TEL_SECONDARY = `tel:+91${PHONE_SECONDARY}`;
+
+// WhatsApp format: no plus sign in path; optional pre-filled message
+const WA_MSG = encodeURIComponent('Hi Nakoda Mobile, I have an enquiry.');
+const WA_PRIMARY = `https://wa.me/91${PHONE_PRIMARY}?text=${WA_MSG}`;
+
+const EMAIL_SUPPORT = 'support@nakodamobile.in';
+const EMAIL_OEM = 'nakodaoem@gmail.com';
+
+// ---------------- Types
 type DeptValue =
   | 'general'
   | 'support'
@@ -138,18 +158,15 @@ const Contact: React.FC = () => {
     {
       icon: MapPin,
       title: 'Visit Our Store',
-      details: [
-        { text: 'Building No.3372, Gali No.2, Christian Colony' },
-        { text: ' Karol Bagh Near baptist church , 110005' },
-        
-      ],
+      details: [{ text: ADDRESS_TEXT, href: MAPS_VIEW }],
     },
     {
       icon: Phone,
       title: 'Call Us',
       details: [
-        { text: '+91 9650516703', href: 'tel:+919050516703' },
-        { text: '+91 9667960044', href: 'tel:+919667960044' },
+        { text: `+91 ${PHONE_PRIMARY}`, href: TEL_PRIMARY },
+        { text: `+91 ${PHONE_SECONDARY}`, href: TEL_SECONDARY },
+        { text: `WhatsApp: +91 ${PHONE_PRIMARY}`, href: WA_PRIMARY },
         { text: 'Tue–Sun: 11:00 AM – 8:00 PM' },
       ],
     },
@@ -157,9 +174,8 @@ const Contact: React.FC = () => {
       icon: Mail,
       title: 'Email Us',
       details: [
-        
-        { text: 'support@nakodamobile.in', href: 'mailto:info@nakodamobile.in' },
-        { text: 'oem@nakodamobile.com', href: 'mailto:nakodaoem@gmail.com' },
+        { text: EMAIL_SUPPORT, href: `mailto:${EMAIL_SUPPORT}` },
+        { text: EMAIL_OEM, href: `mailto:${EMAIL_OEM}` },
       ],
     },
     {
@@ -167,7 +183,6 @@ const Contact: React.FC = () => {
       title: 'Business Hours',
       details: [
         { text: 'Tuesday – Sunday: 11:00 AM – 8:00 PM' },
-        
         { text: 'Monday: Closed' },
       ],
     },
@@ -227,19 +242,33 @@ const Contact: React.FC = () => {
       image: 'https://nakodamobile.in/favicon-512.png',
       address: {
         '@type': 'PostalAddress',
-        streetAddress: ' Building No.3372/2, Gali No. 2 Christian Colony Karol Bagh Near baptist church , Karol Bagh',
+        streetAddress:
+          'Building No.3372, Gali No.2, Christian Colony, Karol Bagh Near Baptist Church',
         addressLocality: 'New Delhi',
-        postalCode: '110055',
+        postalCode: '110005',
         addressCountry: 'IN',
       },
-      telephone: '+919667960044',
-      email: 'support@nakodamobile.in',
-      openingHours: ['Tu-Sa 11:00-20:00', 'Su 10:00-18:00'],
+      telephone: `+91${PHONE_SECONDARY}`,
+      email: EMAIL_SUPPORT,
+      openingHoursSpecification: [
+        {
+          '@type': 'OpeningHoursSpecification',
+          dayOfWeek: ['Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'],
+          opens: '11:00',
+          closes: '20:00',
+        },
+        {
+          '@type': 'OpeningHoursSpecification',
+          dayOfWeek: 'Monday',
+          opens: '00:00',
+          closes: '00:00',
+        }, // Closed
+      ],
       sameAs: [
-        'https://facebook.com/',
-        'https://twitter.com/',
-        'https://instagram.com/',
-        'https://youtube.com/',
+        'https://www.facebook.com/jitendra.kothari.121/',
+        'https://x.com/_nakodamobile_?t=yJpXFZwym_u7fbB_3ORckQ&s=08',
+        'https://www.instagram.com/v2m_nakoda_mobile/',
+        'https://www.youtube.com/@V2MNakodaMobile',
       ],
     }),
     []
@@ -248,7 +277,10 @@ const Contact: React.FC = () => {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Structured data */}
-      <script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }} />
+      <script
+        type="application/ld+json"
+        dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}
+      />
 
       {/* Hero Section */}
       <section className="bg-gradient-to-br from-blue-600 via-purple-600 to-blue-800 text-white py-20">
@@ -296,7 +328,13 @@ const Contact: React.FC = () => {
                       <div key={i} className="flex items-center justify-center gap-2 text-sm">
                         {d.href ? (
                           <>
-                            <a href={d.href} className="text-blue-600 hover:text-blue-700">
+                            <a
+                              href={d.href}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-blue-600 hover:text-blue-700 break-all"
+                              aria-label={`${info.title}: ${d.text}`}
+                            >
                               {d.text}
                             </a>
                             <button
@@ -305,7 +343,11 @@ const Contact: React.FC = () => {
                               className="inline-flex items-center rounded border border-gray-200 px-2 py-0.5 text-xs text-gray-600 hover:bg-gray-50"
                               title="Copy"
                             >
-                              {copied === d.text ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                              {copied === d.text ? (
+                                <Check className="w-3.5 h-3.5" />
+                              ) : (
+                                <Copy className="w-3.5 h-3.5" />
+                              )}
                             </button>
                           </>
                         ) : (
@@ -449,7 +491,14 @@ const Contact: React.FC = () => {
                           }
                         >
                           <option value="">Select department</option>
-                          {departments.map((dept) => (
+                          {[
+                            { value: 'general', label: 'General Inquiry' },
+                            { value: 'support', label: 'Customer Support' },
+                            { value: 'oem', label: 'OEM Services' },
+                            { value: 'wholesale', label: 'Wholesale Inquiry' },
+                            { value: 'technical', label: 'Technical Support' },
+                            { value: 'partnership', label: 'Partnership' },
+                          ].map((dept) => (
                             <option key={dept.value} value={dept.value}>
                               {dept.label}
                             </option>
@@ -519,7 +568,12 @@ const Contact: React.FC = () => {
             </motion.div>
 
             {/* Map & Additional Info */}
-            <motion.div initial={{ opacity: 0, x: 20 }} whileInView={{ opacity: 1, x: 0 }} transition={{ duration: 0.6 }} className="space-y-8">
+            <motion.div
+              initial={{ opacity: 0, x: 20 }}
+              whileInView={{ opacity: 1, x: 0 }}
+              transition={{ duration: 0.6 }}
+              className="space-y-8"
+            >
               {/* Map */}
               <div className="bg-white rounded-xl shadow-lg overflow-hidden">
                 <div className="h-64">
@@ -528,9 +582,7 @@ const Contact: React.FC = () => {
                     loading="lazy"
                     referrerPolicy="no-referrer-when-downgrade"
                     className="w-full h-full"
-                    src={
-                      'https://www.google.com/maps?q=Karol%20Bagh%20Electronics%20Market%20New%20Delhi%20110055&output=embed'
-                    }
+                    src={MAPS_EMBED}
                   />
                 </div>
                 <div className="p-6">
@@ -567,8 +619,10 @@ const Contact: React.FC = () => {
                     <a
                       key={index}
                       href={social.href}
+                      target="_blank"
+                      rel="noopener noreferrer"
                       className={`${social.bg} ${social.color} p-3 rounded-lg hover:scale-110 transition-transform duration-200`}
-                      aria-label={`Visit us on ${social.icon.displayName || 'social'}`}
+                      aria-label="Visit our social profile"
                     >
                       <social.icon className="h-6 w-6" />
                     </a>
@@ -582,13 +636,15 @@ const Contact: React.FC = () => {
                 <p className="mb-4">For urgent inquiries, call us directly or chat with our support team.</p>
                 <div className="flex flex-col sm:flex-row gap-3">
                   <a
-                    href="tel:+919667960044"
+                    href={TEL_SECONDARY}
                     className="bg-white text-blue-600 px-4 py-2 rounded-lg font-medium hover:bg-gray-100 transition-colors duration-200 text-center"
                   >
                     Call Now
                   </a>
                   <a
-                    href="https://wa.me/+919667960044"
+                    href={WA_PRIMARY}
+                    target="_blank"
+                    rel="noopener noreferrer"
                     className="border-2 border-white text-white px-4 py-2 rounded-lg font-medium hover:bg-white hover:text-blue-600 transition-colors duration-200 text-center"
                   >
                     WhatsApp
