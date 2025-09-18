@@ -2008,7 +2008,7 @@ const OrdersTab: React.FC = () => {
                     SR: Label
                   </button>
                   <button
-                    className="px-3 py-2 rounded-xl border hover:bg-gray-50"
+                    className="px-3 py-2 rounded-xl border hover:bg-gray-50"    
                     onClick={() => selected && srInvoice(selected._id)}
                     disabled={busyId === selected?._id || !selected.shipmentId}
                   >
