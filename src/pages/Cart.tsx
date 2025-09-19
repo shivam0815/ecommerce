@@ -27,10 +27,19 @@ const CATEGORY_MOQ: Record<string, number> = {
 const MAX_PER_LINE = 1000;
 const clampCartQty = (q: number) => Math.max(1, Math.min(Math.floor(q || 1), MAX_PER_LINE));
 
+/** Frontend MOQ rule mirrors backend:
+ *  effective MOQ = min(per-product MOQ, category MOQ); fallback to category or 1
+ */
 const getMOQFromItem = (item: any): number => {
   const p = item?.productId || item || {};
-  if (typeof p?.minOrderQty === 'number' && p.minOrderQty >= 1) return p.minOrderQty;
-  return CATEGORY_MOQ[p?.category || ''] ?? 1;
+  const catMOQ = CATEGORY_MOQ[p?.category || ''] ?? 1;
+
+  const pMOQ =
+    typeof p?.minOrderQty === 'number' && p.minOrderQty >= 1
+      ? p.minOrderQty
+      : undefined;
+
+  return typeof pMOQ === 'number' ? Math.min(pMOQ, catMOQ) : catMOQ;
 };
 
 const getMaxQtyFromItem = (item: any): number => {
@@ -40,7 +49,14 @@ const getMaxQtyFromItem = (item: any): number => {
 };
 
 const getItemId = (item: any): string =>
-  String(item?.productId?._id || item?.productId?.id || item?.productId || item?._id || item?.id || '');
+  String(
+    item?.productId?._id ||
+      item?.productId?.id ||
+      item?.productId ||
+      item?._id ||
+      item?.id ||
+      ''
+  );
 
 const Cart: React.FC = () => {
   const {
@@ -178,7 +194,9 @@ const Cart: React.FC = () => {
             </Link>
             <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">Cart</h1>
           </div>
-          <div className="text-xs sm:text-sm text-gray-600">{totalItems} {totalItems === 1 ? 'item' : 'items'}</div>
+          <div className="text-xs sm:text-sm text-gray-600">
+            {totalItems} {totalItems === 1 ? 'item' : 'items'}
+          </div>
         </div>
 
         {error && (
@@ -272,34 +290,26 @@ const Cart: React.FC = () => {
 
                             {/* Controls row (mobile-first) */}
                             <div className="mt-2 flex items-center justify-between gap-3">
-                              {/* Qty stepper */}
+                              {/* Qty stepper (NO stray text, single + button) */}
                               <div className="inline-flex items-center rounded-md border bg-white">
                                 <button
-  type="button"
-  onClick={() => handleQuantityUpdate(item, itemQuantity - moq)}  // ← step DOWN by MOQ
-  className="p-1.5 sm:p-2 disabled:opacity-50 hover:bg-gray-50"
-  disabled={isLoading || atMin}
-  aria-label="Decrease quantity"
-  title={atMin ? undefined : 'Decrease'}
->
-  <Minus className="h-4 w-4" />
-</button>
-...
-<button
-  type="button"
-  onClick={() => handleQuantityUpdate(item, itemQuantity + moq)}  // ← step UP by MOQ
-  className="p-1.5 sm:p-2 disabled:opacity-50 hover:bg-gray-50"
-  disabled={isLoading || atMax}
-  aria-label="Increase quantity"
-  title={atMax ? undefined : 'Increase'}
->
-  <Plus className="h-4 w-4" />
-</button>
+                                  type="button"
+                                  onClick={() => handleQuantityUpdate(item, itemQuantity - moq)}
+                                  className="p-1.5 sm:p-2 disabled:opacity-50 hover:bg-gray-50"
+                                  disabled={isLoading || atMin}
+                                  aria-label="Decrease quantity"
+                                  title={atMin ? undefined : 'Decrease'}
+                                >
+                                  <Minus className="h-4 w-4" />
+                                </button>
 
-                                <span className="px-2 sm:px-3 py-1 text-sm font-medium min-w-[2rem] text-center">{itemQuantity}</span>
+                                <span className="px-2 sm:px-3 py-1 text-sm font-medium min-w-[2rem] text-center">
+                                  {itemQuantity}
+                                </span>
+
                                 <button
                                   type="button"
-                                  onClick={() => handleQuantityUpdate(item, itemQuantity + 1)}
+                                  onClick={() => handleQuantityUpdate(item, itemQuantity + moq)}
                                   className="p-1.5 sm:p-2 disabled:opacity-50 hover:bg-gray-50"
                                   disabled={isLoading || atMax}
                                   aria-label="Increase quantity"
@@ -311,7 +321,9 @@ const Cart: React.FC = () => {
 
                               {/* Line total */}
                               <div className="text-right">
-                                <p className="text-base sm:text-lg font-bold text-gray-900">₹{(productPrice * itemQuantity).toLocaleString()}</p>
+                                <p className="text-base sm:text-lg font-bold text-gray-900">
+                                  ₹{(productPrice * itemQuantity).toLocaleString()}
+                                </p>
                               </div>
 
                               {/* Remove */}
