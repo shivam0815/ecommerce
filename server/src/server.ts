@@ -332,8 +332,7 @@ app.use('/api/admin',  adminRoutes);
 import shippingRoutes from './routes/shipping';
 app.use('/api/shipping', shippingRoutes);
 // src/index.ts (or your app bootstrap)
-import uploads from './routes/uploads';
-app.use('/api/uploads', uploads);
+
 app.use('/api/shipping', shipping);
 // Shiprocket protected (single mount; no unprotected duplicate)
 app.use('/api/shiprocket', authenticate, adminOnly, shiprocketRoutes);

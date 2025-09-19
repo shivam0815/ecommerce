@@ -297,7 +297,7 @@ async function putWithProgress(url: string, file: File, onProgress?: (pct:number
   await new Promise<void>((resolve, reject) => {
     const xhr = new XMLHttpRequest();
     xhr.open("PUT", url, true);
-  
+   xhr.setRequestHeader("Content-Type", file.type);
     xhr.upload.onprogress = (e) => {
       if (e.lengthComputable && onProgress) onProgress(Math.round((e.loaded/e.total)*100));
     };
