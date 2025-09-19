@@ -609,19 +609,7 @@ const ProductDetail: React.FC = () => {
                 </div>
 
                 {/* 🔷 B2B feature chips */}
-                <div className="flex flex-wrap gap-2 pt-2">
-                  {chips.map(({ icon: Icon, label }, i) => (
-                    <span
-                      key={i}
-                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] sm:text-xs
-                                 bg-gray-100 text-gray-800 border border-gray-200"
-                      title={label}
-                    >
-                      <Icon className="h-3.5 w-3.5" />
-                      {label}
-                    </span>
-                  ))}
-                </div>
+                
               </div>
 
               {/* Price */}
@@ -763,6 +751,19 @@ const ProductDetail: React.FC = () => {
                 </button>
               ))}
             </div>
+            <div className="flex flex-wrap gap-2 pt-2">
+                  {chips.map(({ icon: Icon, label }, i) => (
+                    <span
+                      key={i}
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] sm:text-xs
+                                 bg-gray-100 text-gray-800 border border-gray-200"
+                      title={label}
+                    >
+                      <Icon className="h-3.5 w-3.5" />
+                      {label}
+                    </span>
+                  ))}
+                </div>
 
             <div className="p-4 sm:p-6">
               {activeTab === 'description' && (
