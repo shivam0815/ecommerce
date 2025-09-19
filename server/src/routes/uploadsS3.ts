@@ -16,13 +16,8 @@ router.get("/sign", async (req, res) => {
     const filename = String(req.query.filename || "file");
     const contentType = String(req.query.contentType || "");
     const size = Number(req.query.size || 0);
-    
-    if (!ALLOWED.has(contentType)) {
-      return res.status(400).json({ error: "Unsupported type" });
-    }
-    if (size > MAX_BYTES) {
-      return res.status(400).json({ error: "File too large" });
-    }
+    if (!ALLOWED.has(contentType)) return res.status(400).json({ error: "Unsupported type" });
+    if (size > MAX_BYTES) return res.status(400).json({ error: "File too large" });
 
     const key = `${PREFIX}/${Date.now()}-${randomUUID().slice(0,8)}-${sanitize(filename)}`;
 
@@ -31,15 +26,11 @@ router.get("/sign", async (req, res) => {
       Key: key,
       ContentType: contentType,
       CacheControl: "public, max-age=31536000, immutable",
-      ACL: 'public-read', // ✅ MUST ADD THIS FOR PUBLIC ACCESS
+      // ❌ do NOT add ACL or Checksum* here
     });
 
     const uploadUrl = await getSignedUrl(s3, cmd, { expiresIn: 300 });
-    res.json({ 
-      uploadUrl, 
-      publicUrl: `${S3_PUBLIC_BASE}/${key}`, 
-      key 
-    });
+    res.json({ uploadUrl, publicUrl: `${S3_PUBLIC_BASE}/${key}`, key });
   } catch (e: any) {
     console.error("[S3 SIGN ERROR]", e);
     res.status(500).json({ error: e?.message || "Sign failed" });
