@@ -401,7 +401,7 @@ const ProductCard: React.FC<ProductCardProps> = ({
                 (inStock === false ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800')
               }
             >
-              {inStock === false ? 'Out of Stock' : 'In Stock'}
+              {inStock === false ? '' : ''}
             </span>
           </div>
 

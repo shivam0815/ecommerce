@@ -1,4 +1,4 @@
-// src/pages/ProductDetail.tsx — fully responsive & compact + AUTO BADGES
+// src/pages/ProductDetail.tsx — fully responsive & compact (badges/stock hidden, qty steps of 10)
 import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
@@ -13,15 +13,17 @@ import {
   MessageCircle,
   CreditCard,
 
-  // 🔥 badges/icons
-  Battery, Bluetooth, ShieldCheck, Zap, Waves,
-  Headphones, Cpu, Mic2, Droplets, Timer,
-  Truck, Award, Package, Usb, Wifi, Sparkles
+  // 👇 NEW: icons for Trust & Compliance strip
+  FileText,      // GST Invoice
+  Truck,         // Bulk Dispatch
+  Factory,       // OEM / Factory Tested
+  Package,       // Pan-India Shipping
+  ShieldCheck,   // QC Approved
 } from 'lucide-react';
-
 import { productService } from '../services/productService';
 import type { Product } from '../types';
 import { useCart } from '../hooks/useCart';
+
 import { resolveImageUrl } from '../utils/imageUtils';
 import toast from 'react-hot-toast';
 import SEO from '../components/Layout/SEO';
@@ -31,7 +33,7 @@ import Breadcrumbs from './Breadcrumbs';
 
 /* ------------------------- MOQ + MAX helpers ------------------------- */
 const MAX_PER_LINE = 1000;
-const STEP = 10; // qty jumps of 10
+const STEP = 10; // 👈 jump in 10s
 const CATEGORY_MOQ: Record<string, number> = {
   'Car Chargers': 10,
   'Bluetooth Neckbands': 10,
@@ -51,60 +53,7 @@ const getMOQ = (p: any): number => {
   return CATEGORY_MOQ[p?.category || ''] ?? 1;
 };
 
-/* ------------------------- B2B Auto-badge helper ------------------------- */
-type Badge = { icon: React.ComponentType<any>; label: string };
-
-const detectFeatureBadges = (p: any): Badge[] => {
-  const name = `${p?.name || ''} ${p?.description || ''}`.toLowerCase();
-  const specs = (p?.specifications && JSON.stringify(p.specifications).toLowerCase()) || '';
-  const has = (k: string | RegExp) =>
-    typeof k === 'string' ? name.includes(k) || specs.includes(k) : k.test(name) || k.test(specs);
-
-  const badges: Badge[] = [];
-
-  // Category-based defaults
-  switch (String(p?.category || '')) {
-    case 'TWS':
-      badges.push({ icon: Headphones, label: 'TWS' });
-      break;
-    case 'Bluetooth Neckbands':
-      badges.push({ icon: Bluetooth, label: 'Bluetooth' });
-      break;
-    case 'Data Cables':
-      badges.push({ icon: Usb, label: 'Fast Sync' });
-      break;
-    case 'Mobile Chargers':
-      badges.push({ icon: Zap, label: 'Fast Charge' });
-      break;
-    case 'Integrated Circuits & Chips':
-    case 'Mobile ICs':
-      badges.push({ icon: Cpu, label: 'IC / Chip' });
-      break;
-  }
-
-  // Keyword/spec detection
-  if (has(/(fast\s*charge|qc\s*3\.?0|pd\s*\d+|warp|dart)/)) badges.push({ icon: Zap, label: 'Fast Charge' });
-  if (has(/(enc|anc|noise\s*canc)/))                      badges.push({ icon: Mic2, label: 'Noise Cancel' });
-  if (has(/(water|sweat).*resist|ipx\d/i))               badges.push({ icon: Droplets, label: 'Water Resistant' });
-  if (has(/(low\s*latency|game|60ms|45ms|latency)/))      badges.push({ icon: Timer, label: 'Low Latency' });
-  if (has(/(bass|deep\s*bass)/))                          badges.push({ icon: Waves, label: 'Deep Bass' });
-  if (has(/(bluetooth|bt\s*\d\.\d)/))                     badges.push({ icon: Bluetooth, label: 'BT' });
-  if (has(/(battery|mah|play\s*time|hours)/))             badges.push({ icon: Battery, label: 'Long Battery' });
-  if (has(/(warranty|guarantee|qc\s*pass|tested)/))       badges.push({ icon: ShieldCheck, label: 'QC Passed' });
-  if (has(/(wifi|2\.4ghz|dual\s*band)/))                  badges.push({ icon: Wifi, label: 'Wi-Fi' });
-  if (has(/(premium|oem|brand)/))                         badges.push({ icon: Award, label: 'OEM Ready' });
-  if (has(/(stock|in\s*stock|ready|dispatch)/))           badges.push({ icon: Truck, label: 'Ready Stock' });
-  if (has(/(compact|mini|pocket)/))                       badges.push({ icon: Package, label: 'Compact' });
-
-  // Fallback
-  if (badges.length === 0) badges.push({ icon: Sparkles, label: 'Best Value' });
-
-  // De-dup by label & cap
-  const seen = new Set<string>();
-  return badges.filter(b => (seen.has(b.label) ? false : (seen.add(b.label), true))).slice(0, 6);
-};
-
-/* --------------------- Helpers for specs/rails/cards --------------------- */
+/* ------------------------- Helpers for specs ------------------------- */
 const normalizeSpecifications = (raw: unknown): Record<string, unknown> => {
   if (!raw) return {};
   if (raw instanceof Map) return Object.fromEntries(raw as Map<string, unknown>);
@@ -123,8 +72,10 @@ const normalizeSpecifications = (raw: unknown): Record<string, unknown> => {
   if (typeof raw === 'object') return raw as Record<string, unknown>;
   return {};
 };
+
 const prettyKey = (k: string) =>
   k.replace(/_/g, ' ').replace(/([a-z])([A-Z])/g, '$1 $2').replace(/\b\w/g, (c) => c.toUpperCase());
+
 const renderSpecValue = (val: unknown) => {
   if (val == null) return '—';
   if (typeof val === 'boolean') return val ? 'Yes' : 'No';
@@ -133,32 +84,44 @@ const renderSpecValue = (val: unknown) => {
   if (Array.isArray(val)) return (val as unknown[]).join(', ');
   return <code className="text-xs whitespace-pre-wrap break-words">{JSON.stringify(val, null, 2)}</code>;
 };
+
+/* --------------------- Helpers for product rails/cards --------------------- */
 const fmtINR = (v?: number) => (typeof v === 'number' ? `₹${v.toLocaleString('en-IN')}` : 'Contact for price');
+
 const safeImage = (src?: string | null, w = 400, h = 400) => {
   const resolved = resolveImageUrl(src ?? undefined);
   if (resolved) return resolved;
   return `https://images.unsplash.com/photo-1586953208448-b95a79798f07?w=${w}&h=${h}&fit=crop&crop=center&auto=format&q=60`;
 };
 
-/* Live review summary for cards */
+/** Hook: live review summary for a product card */
 const useReviewSummary = (productId?: string) => {
   const [avg, setAvg] = useState(0);
   const [count, setCount] = useState(0);
+
   const load = async (pid: string) => {
     try {
       const s = await reviewsService.summary(pid);
       setAvg(Number(s.averageRating || 0));
       setCount(Number(s.reviewCount || 0));
-    } catch { /* ignore */ }
+    } catch {/* ignore */}
   };
+
   useEffect(() => {
     if (!productId) return;
     let clean = false;
     load(productId);
-    const onChanged = (e: any) => { if (e?.detail?.productId === productId) load(productId); };
-    const onStorage = (e: StorageEvent) => { if (e.key === `reviews:changed:${productId}`) load(productId); };
+
+    const onChanged = (e: any) => {
+      if (e?.detail?.productId === productId) load(productId);
+    };
     window.addEventListener('reviews:changed', onChanged);
+
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === `reviews:changed:${productId}`) load(productId);
+    };
     window.addEventListener('storage', onStorage);
+
     return () => {
       if (clean) return;
       window.removeEventListener('reviews:changed', onChanged);
@@ -166,6 +129,7 @@ const useReviewSummary = (productId?: string) => {
       clean = true;
     };
   }, [productId]);
+
   return { avg, count };
 };
 
@@ -173,26 +137,35 @@ const useReviewSummary = (productId?: string) => {
 const MiniCard: React.FC<{ p: Product }> = ({ p }) => {
   const navigate = useNavigate();
   const { addToCart, isLoading } = useCart();
+
   const pid: string = (p as any)._id || (p as any).id;
   const firstImg =
     (Array.isArray(p.images) ? p.images.find((i: string) => i && i !== 'null' && i !== 'undefined') : '') || '';
 
   const { avg, count } = useReviewSummary(pid);
   const rounded = Math.round(avg);
+
   const moq = getMOQ(p);
 
   const add = async (e: React.MouseEvent) => {
     e.preventDefault();
-    try { await addToCart(pid, moq); toast.success('Added to cart!'); }
-    catch (err: any) { toast.error(err?.message || 'Failed to add to cart'); }
-  };
-  const buy = async (e: React.MouseEvent) => {
-    e.preventDefault();
-    try { await addToCart(pid, moq); navigate('/cart'); }
-    catch (err: any) { toast.error(err?.message || 'Could not proceed to checkout'); }
+    try {
+      await addToCart(pid, moq);
+      toast.success('Added to cart!');
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to add to cart');
+    }
   };
 
-  const chips = detectFeatureBadges(p);
+  const buy = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    try {
+      await addToCart(pid, moq);
+      navigate('/cart');
+    } catch (err: any) {
+      toast.error(err?.message || 'Could not proceed to checkout');
+    }
+  };
 
   return (
     <Link
@@ -204,20 +177,13 @@ const MiniCard: React.FC<{ p: Product }> = ({ p }) => {
           src={safeImage(firstImg, 300, 300)}
           alt={p.name}
           className="h-full w-full object-cover group-hover:scale-105 transition-transform duration-300"
-          onError={(e) => { (e.target as HTMLImageElement).src = safeImage(firstImg, 300, 300); }}
+          onError={(e) => {
+            (e.target as HTMLImageElement).src = safeImage(firstImg, 300, 300);
+          }}
         />
       </div>
       <div className="p-3 space-y-2">
         <div className="text-sm font-medium line-clamp-2 text-gray-900">{p.name}</div>
-
-        <div className="flex flex-wrap gap-1.5">
-          {chips.slice(0, 3).map(({ icon: Icon, label }, i) => (
-            <span key={i} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] bg-gray-100 border border-gray-200">
-              <Icon className="h-3 w-3" /> {label}
-            </span>
-          ))}
-        </div>
-
         <div className="flex items-center gap-2">
           <span className="text-base font-semibold text-gray-900">{fmtINR(p.price)}</span>
           {(p as any).originalPrice && (p as any).originalPrice > (p.price ?? 0) && (
@@ -231,7 +197,6 @@ const MiniCard: React.FC<{ p: Product }> = ({ p }) => {
             </>
           )}
         </div>
-
         {count > 0 && (
           <div className="flex items-center gap-1 text-xs text-gray-600">
             {Array.from({ length: 5 }).map((_, i) => (
@@ -240,7 +205,6 @@ const MiniCard: React.FC<{ p: Product }> = ({ p }) => {
             <span className="ml-1">({count} reviews)</span>
           </div>
         )}
-
         <div className="flex gap-2 pt-1">
           <button
             onClick={add}
@@ -372,6 +336,8 @@ const ProductDetail: React.FC = () => {
       MAX_PER_LINE,
       Number((product as any).stockQuantity ?? MAX_PER_LINE) || MAX_PER_LINE
     );
+
+    // snap to a multiple of STEP and ≥ MOQ
     const base = Math.max(moq, STEP);
     const snapped = Math.ceil(base / STEP) * STEP;
     setQuantity(Math.min(stockCap, snapped));
@@ -387,7 +353,8 @@ const ProductDetail: React.FC = () => {
 
         const [relCat, relBrand, top] = await Promise.all([
           (productService as any).getRelatedProducts?.(pid) ??
-            (productService as any).list?.({ category: product.category, limit: 12 }) ?? [],
+            (productService as any).list?.({ category: product.category, limit: 12 }) ??
+            [],
           (product as any).brand
             ? (productService as any).list?.({ brand: (product as any).brand, excludeId: pid, limit: 12 }) ?? []
             : [],
@@ -428,6 +395,8 @@ const ProductDetail: React.FC = () => {
         MAX_PER_LINE,
         Number((product as any).stockQuantity ?? MAX_PER_LINE) || MAX_PER_LINE
       );
+
+      // clamp and snap to STEP
       const base = Math.max(moq, Math.min(maxQty, quantity));
       const finalQty = Math.ceil(base / STEP) * STEP;
 
@@ -470,6 +439,7 @@ const ProductDetail: React.FC = () => {
       </div>
     );
   }
+
   if (error) {
     const invalidId = error.includes('Invalid product ID') || error.includes('Cast to ObjectId');
     return (
@@ -513,6 +483,7 @@ const ProductDetail: React.FC = () => {
       </div>
     );
   }
+
   if (!product) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -538,8 +509,6 @@ const ProductDetail: React.FC = () => {
     MAX_PER_LINE,
     Number((product as any).stockQuantity ?? MAX_PER_LINE) || MAX_PER_LINE
   );
-
-  const chips = detectFeatureBadges(product);
 
   /* -------------------------------- Render -------------------------------- */
   return (
@@ -607,9 +576,6 @@ const ProductDetail: React.FC = () => {
                     <span className="bg-gray-100 text-gray-700 px-2 py-0.5 rounded-full">{(product as any).brand}</span>
                   )}
                 </div>
-
-                {/* 🔷 B2B feature chips */}
-                
               </div>
 
               {/* Price */}
@@ -696,7 +662,7 @@ const ProductDetail: React.FC = () => {
                   <span>Buy Now</span>
                 </motion.button>
 
-                {/* icons row */}
+                {/* icons row (share / WhatsApp) */}
                 <div className="col-span-2 flex items-center gap-2 mt-1 sm:mt-0">
                   <motion.button
                     whileHover={{ scale: 1.05 }}
@@ -733,6 +699,39 @@ const ProductDetail: React.FC = () => {
                   </a>
                 </div>
               </div>
+
+              {/* 🔹 TRUST & COMPLIANCE STRIP — B2B badges row (below Add to Cart) */}
+              <motion.div
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.4 }}
+                className="mt-2 sm:mt-3"
+              >
+                <div className="grid grid-cols-2 sm:flex sm:flex-wrap gap-2 sm:gap-3">
+                  {/* Badge */}
+                  <div className="inline-flex items-center gap-2 px-3 py-2 rounded-full border border-gray-200 bg-gray-50 text-gray-800 text-xs sm:text-sm shadow-sm">
+                    <FileText className="h-4 w-4 text-blue-600" />
+                    <span className="font-medium">GST Invoice</span>
+                  </div>
+                  <div className="inline-flex items-center gap-2 px-3 py-2 rounded-full border border-gray-200 bg-gray-50 text-gray-800 text-xs sm:text-sm shadow-sm">
+                    <Truck className="h-4 w-4 text-blue-600" />
+                    <span className="font-medium">Bulk Dispatch 24h</span>
+                  </div>
+                  <div className="inline-flex items-center gap-2 px-3 py-2 rounded-full border border-gray-200 bg-gray-50 text-gray-800 text-xs sm:text-sm shadow-sm">
+                    <Factory className="h-4 w-4 text-blue-600" />
+                    <span className="font-medium">OEM / Factory Tested</span>
+                  </div>
+                  <div className="inline-flex items-center gap-2 px-3 py-2 rounded-full border border-gray-200 bg-gray-50 text-gray-800 text-xs sm:text-sm shadow-sm">
+                    <Package className="h-4 w-4 text-blue-600" />
+                    <span className="font-medium">Pan-India Shipping</span>
+                  </div>
+                  <div className="inline-flex items-center gap-2 px-3 py-2 rounded-full border border-gray-200 bg-gray-50 text-gray-800 text-xs sm:text-sm shadow-sm">
+                    <ShieldCheck className="h-4 w-4 text-blue-600" />
+                    <span className="font-medium">QC Approved</span>
+                  </div>
+                </div>
+              </motion.div>
+              {/* END strip */}
             </div>
           </div>
 
@@ -751,19 +750,6 @@ const ProductDetail: React.FC = () => {
                 </button>
               ))}
             </div>
-            <div className="flex flex-wrap gap-2 pt-2">
-                  {chips.map(({ icon: Icon, label }, i) => (
-                    <span
-                      key={i}
-                      className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] sm:text-xs
-                                 bg-gray-100 text-gray-800 border border-gray-200"
-                      title={label}
-                    >
-                      <Icon className="h-3.5 w-3.5" />
-                      {label}
-                    </span>
-                  ))}
-                </div>
 
             <div className="p-4 sm:p-6">
               {activeTab === 'description' && (
