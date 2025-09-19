@@ -240,7 +240,12 @@ const Header: React.FC = () => {
               <Link to="/products" className="text-gray-700 hover:text-blue-600 transition-colors duration-200 font-medium">
                 Shop Now
               </Link>
+              <Link to="/oem" className="text-gray-700 hover:text-blue-600 transition-colors duration-200 font-medium">
+              
+                Oem Services
+              </Link>
               <Link to="/contact" className="text-gray-700 hover:text-blue-600 transition-colors duration-200 font-medium">
+
                 Contact
               </Link>
               <Link to="/blog" className="text-gray-700 hover:text-blue-600 transition-colors duration-200 font-medium">
@@ -494,6 +499,7 @@ const Header: React.FC = () => {
                 </div>
 
                 <Link to="/products" className="px-3 py-2 text-gray-700 hover:text-blue-600 hover:bg-gray-100 rounded-lg" onClick={() => setIsMenuOpen(false)}>Shop Now</Link>
+                  <Link to="/oem" className="px-3 py-2 text-gray-700 hover:text-blue-600 hover:bg-gray-100 rounded-lg" onClick={() => setIsMenuOpen(false)}>Oem Services</Link>
                 <Link to="/contact" className="px-3 py-2 text-gray-700 hover:text-blue-600 hover:bg-gray-100 rounded-lg" onClick={() => setIsMenuOpen(false)}>Contact</Link>
                 <Link to="/blog" className="px-3 py-2 text-gray-700 hover:text-blue-600 hover:bg-gray-100 rounded-lg" onClick={() => setIsMenuOpen(false)}>Blog</Link>
               </nav>
