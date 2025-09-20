@@ -38,7 +38,7 @@ const WA_MSG = encodeURIComponent('Hi Nakoda Mobile, I have an enquiry.');
 const WA_PRIMARY = `https://wa.me/91${PHONE_PRIMARY}?text=${WA_MSG}`;
 
 const EMAIL_SUPPORT = 'support@nakodamobile.in';
-const EMAIL_OEM = 'nakodaoem@gmail.com';
+const EMAIL_OEM = 'oem@nakodamobile.in';
 
 // ---------------- Types
 type DeptValue =

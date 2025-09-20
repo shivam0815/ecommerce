@@ -199,6 +199,7 @@ router.get('/brand/:brand', async (req, res) => {
 /**
  * GET /products/category/:category
  */
+
 router.get('/category/:category', async (req, res) => {
   try {
     const { category } = req.params;

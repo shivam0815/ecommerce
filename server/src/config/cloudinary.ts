@@ -26,7 +26,7 @@ const required = {
       ? `https://${process.env.S3_BUCKET}.s3.${process.env.S3_REGION}.amazonaws.com`
       : ""),
   // NOTE: You asked for this prefix:
-  S3_UPLOAD_PREFIX: process.env.S3_UPLOAD_PREFIX || "order-packs/",
+  S3_UPLOAD_PREFIX: process.env.S3_UPLOAD_PREFIX || "products/",
   S3_PRESIGN_TTL_SECONDS: process.env.S3_PRESIGN_TTL_SECONDS || "120",
 };
 const missing = Object.entries(required)
