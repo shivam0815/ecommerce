@@ -14,7 +14,7 @@ import PromoSlider from '../components/Layout/PromoSlider';
 import SEO from '../components/Layout/SEO';
 import { newsletterService } from '../services/newsletterService';
 import toast from 'react-hot-toast';
-import { generateResponsiveImageUrl } from '../utils/cloudinaryBrowser';
+
 import { useTranslation } from 'react-i18next';
 import { resolveImageUrl, getFirstImageUrl, getOptimizedImageUrl } from '../utils/imageUtils';
 
@@ -88,14 +88,10 @@ const Home: React.FC = () => {
   };
 
   const productImage = (p: Product) => {
-    const raw = p.images?.[0] || p.imageUrl;
-    if (!raw) return undefined;
-    try {
-      return generateResponsiveImageUrl(raw, { width: 500, height: 500, crop: 'fill' });
-    } catch {
-      return raw;
-    }
-  };
+ // prefer explicit field; else first from array
+  const base = p.imageUrl ? resolveImageUrl(p.imageUrl) : getFirstImageUrl(p.images);
+ return base ? getOptimizedImageUrl(base, 500, 500) : undefined;
+ };
 
   const goToProduct = (p: Product) => {
     navigate(`/product/${p.slug || p._id}`);
@@ -301,13 +297,7 @@ With strict quality checks and honest pricing, Nakoda Mobile is here to support 
             'https://res.cloudinary.com/dt7xwlswy/image/upload/v1757156418/hbalmt0icrc8qvpyiody.jpg',
           ];
 
-          const toImg = (url: string) => {
-            try {
-              return generateResponsiveImageUrl(url, { width: 800, height: 600, crop: 'fill' });
-            } catch {
-              return url;
-            }
-          };
+          const toImg = (url: string) => getOptimizedImageUrl(url, 800, 600);
 
           return (
             <div className="grid grid-cols-2 gap-3">

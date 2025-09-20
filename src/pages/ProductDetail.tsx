@@ -24,7 +24,8 @@ import { productService } from '../services/productService';
 import type { Product } from '../types';
 import { useCart } from '../hooks/useCart';
 
-import { resolveImageUrl } from '../utils/imageUtils';
+import { resolveImageUrl, getOptimizedImageUrl } from '../utils/imageUtils';
+
 import toast from 'react-hot-toast';
 import SEO from '../components/Layout/SEO';
 import Reviews from '../components/Layout/Reviews';

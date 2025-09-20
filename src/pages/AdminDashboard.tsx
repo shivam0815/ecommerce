@@ -16,11 +16,8 @@ import AdminNotifications from '../components/Layout/AdminNotifications';
 import AdminHelpSupport from '../components/Layout/AdminHelpSupport';
  // adjust path if in a subfolder
 import { io } from "socket.io-client";
-import { 
-  uploadToBrowser, 
-  uploadMultipleToBrowser, 
-  generateResponsiveImageUrl 
-} from '../utils/cloudinaryBrowser';
+import { uploadToBrowser, uploadMultipleToBrowser, generateResponsiveImageUrl } from '../utils/cloudinaryBrowser';
+
 import Papa from "papaparse";
 interface AdminDashboardProps {
   adminData?: any;

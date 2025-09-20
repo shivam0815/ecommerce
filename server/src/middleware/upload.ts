@@ -14,7 +14,7 @@ const fileFilter = (req: any, file: Express.Multer.File, cb: multer.FileFilterCa
   ];
 
   if (allowedMimes.includes(file.mimetype)) {
-    console.log('✅ File type accepted:', file.mimetype);
+    console.log('✅ File type accepted:', file.mimetype);    
     cb(null, true);
   } else {
     console.log('❌ File type rejected:', file.mimetype);

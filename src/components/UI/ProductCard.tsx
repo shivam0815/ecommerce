@@ -6,7 +6,7 @@ import { Star, ShoppingCart, Tag, CreditCard, Heart } from 'lucide-react';
 import type { Product } from '../../types';
 import { useCart } from '../../hooks/useCart';
 import { useWishlist } from '../../hooks/useWishlist';
-import { getFirstImageUrl } from '../../utils/imageUtils';
+import { resolveImageUrl, getFirstImageUrl, getOptimizedImageUrl } from '../../utils/imageUtils';
 import toast from 'react-hot-toast';
 
 export interface ProductCardProps {
@@ -73,7 +73,6 @@ const coerceNumber = (x: any): number | undefined => {
 };
 
 const getInitialAverageRating = (p: any): number => {
-  // Prefer explicit average fields; last resort is `rating`
   return (
     coerceNumber(p?.averageRating) ??
     coerceNumber(p?.avgRating) ??
@@ -94,13 +93,16 @@ const getInitialReviewCount = (p: any): number => {
   );
 };
 
-// ——— UI tokens for compact professional actions ———
+// ——— UI tokens ———
 const btnBase =
   'inline-flex items-center justify-center rounded-lg font-medium transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed shrink-0 h-9 px-3 text-sm sm:h-10 sm:px-3';
-const btnPrimary = 'bg-blue-600 text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500/50';
-const btnDark = 'bg-gray-900 text-white hover:bg-black focus:outline-none focus:ring-2 focus:ring-gray-900/40';
+const btnPrimary =
+  'bg-blue-600 text-white hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500/50';
+const btnDark =
+  'bg-gray-900 text-white hover:bg-black focus:outline-none focus:ring-2 focus:ring-gray-900/40';
 const btnMinW = 'w-[112px] sm:w-[132px]';
-const btnGhost = 'border border-gray-300 text-gray-700 hover:text-red-600 hover:border-red-300 focus:outline-none focus:ring-2 focus:ring-red-300/40';
+const btnGhost =
+  'border border-gray-300 text-gray-700 hover:text-red-600 hover:border-red-300 focus:outline-none focus:ring-2 focus:ring-red-300/40';
 
 const ProductCard: React.FC<ProductCardProps> = ({
   product,
@@ -112,18 +114,50 @@ const ProductCard: React.FC<ProductCardProps> = ({
 
   const navigate = useNavigate();
   const { addToCart, isLoading } = useCart();
-  const { addToWishlist, removeFromWishlist, isInWishlist, isLoading: wishlistLoading } = useWishlist();
-
-  const [imageError, setImageError] = useState(false);
-  const [imageLoading, setImageLoading] = useState(true);
+ 
 
   // Accept either _id or id from backend (sanitize to string)
   const rawId = (product as any)._id ?? (product as any).id;
   const productId = typeof rawId === 'string' ? rawId.trim() : rawId ? String(rawId) : '';
   const inStock = computeInStock(product);
-  const inWishlist = productId ? isInWishlist(productId) : false;
+  
 
-  const imageUrl = getFirstImageUrl(product.images);
+  // ----- IMAGE PIPELINE (optimized -> raw -> placeholder) -----
+  const rawPrimary = useMemo(() => {
+    // Prefer explicit imageUrl if present; else first from images[]
+    const explicit = product.imageUrl ? resolveImageUrl(product.imageUrl) : undefined;
+    return explicit ?? getFirstImageUrl(product.images);
+  }, [product.imageUrl, product.images]);
+
+  const optimized = useMemo(() => {
+    if (!rawPrimary) return undefined;
+    // Pick width/height by view mode; imageUtils guarantees string return
+    const w = isList ? 300 : 600;
+    const h = isList ? 300 : 600;
+    return getOptimizedImageUrl(rawPrimary, w, h);
+  }, [rawPrimary, isList]);
+
+  const [imgSrc, setImgSrc] = useState<string | undefined>(optimized ?? rawPrimary);
+  const [imageLoading, setImageLoading] = useState(Boolean(optimized ?? rawPrimary));
+  const [imageError, setImageError] = useState(false);
+
+  useEffect(() => {
+    setImgSrc(optimized ?? rawPrimary);
+    setImageLoading(Boolean(optimized ?? rawPrimary));
+    setImageError(false);
+  }, [optimized, rawPrimary]);
+
+  const onImgError = () => {
+    // If optimized failed, fallback to raw; if raw failed, clear
+    if (imgSrc && optimized && imgSrc === optimized && rawPrimary && optimized !== rawPrimary) {
+      setImgSrc(rawPrimary);
+      setImageLoading(true);
+      return;
+    }
+    setImgSrc(undefined);
+    setImageError(true);
+    setImageLoading(false);
+  };
 
   // New (safe) user-visible fields
   const sku = getSku(product);
@@ -146,9 +180,8 @@ const ProductCard: React.FC<ProductCardProps> = ({
   const [avgRating, setAvgRating] = useState<number>(getInitialAverageRating(product));
   const [revCount, setRevCount] = useState<number>(getInitialReviewCount(product));
   const [revLoading, setRevLoading] = useState<boolean>(false);
-  const [refreshTick, setRefreshTick] = useState<number>(0); // bumps when reviews change
+  const [refreshTick, setRefreshTick] = useState<number>(0);
 
-  // Always fetch summary on mount + whenever refreshTick changes
   useEffect(() => {
     if (!isValidObjectId(productId)) return;
 
@@ -158,13 +191,12 @@ const ProductCard: React.FC<ProductCardProps> = ({
     const load = async () => {
       try {
         setRevLoading(true);
-        // cache-bust with _ts so we never get a stale 200 from any proxy
         const res = await fetch(`/api/reviews/summary?productId=${productId}&_ts=${Date.now()}`, { signal: ac.signal });
         if (!res.ok) throw new Error('No review summary');
         const payload = await res.json();
         if (ignore) return;
 
-        const data = payload?.data || payload; // support both shapes
+        const data = payload?.data || payload;
         const a = coerceNumber(data?.averageRating) ?? 0;
         const c = coerceNumber(data?.reviewCount) ?? 0;
 
@@ -238,6 +270,7 @@ const ProductCard: React.FC<ProductCardProps> = ({
     }
   };
 
+  const { addToWishlist, removeFromWishlist, isInWishlist, isLoading: wishlistLoading } = useWishlist();
   const handleWishlistToggle = async (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -256,19 +289,26 @@ const ProductCard: React.FC<ProductCardProps> = ({
     }
   };
 
-  // Guard nav: never let it push /products/:id or /products/undefined
-  const detailPath = isValidObjectId(productId) ? `/products/${productId}` : '/products';
+  // Prefer slug route if available, else /product/:id; guard if invalid
+  const detailPath =
+    (product as any).slug
+      ? `/product/${(product as any).slug}`
+      : isValidObjectId(productId)
+      ? `/product/${productId}`
+      : '/products';
+
   const handleGuardedNav = (e: React.MouseEvent) => {
-    if (!isValidObjectId(productId)) {
+    if (detailPath === '/products') {
       e.preventDefault();
       toast.error('Invalid product link. Please try again.');
     }
   };
 
   const currency = (product as any).currency || 'INR';
-
-  const roundedAvg = useMemo(() => Math.max(0, Math.min(5, Math.round((avgRating ?? 0) * 10) / 10)), [avgRating]);
-  const fullStars = Math.floor(roundedAvg);
+  const roundedAvg = useMemo(
+    () => Math.max(0, Math.min(5, Math.round((avgRating ?? 0) * 10) / 10)),
+    [avgRating]
+  );
 
   return (
     <Link to={detailPath} onClick={handleGuardedNav} className="block group" data-product-id={productId || ''}>
@@ -276,22 +316,31 @@ const ProductCard: React.FC<ProductCardProps> = ({
         whileHover={{ y: -5 }}
         className={
           (isList
-            ? 'bg-plaine-white rounded-lg shadow-lg overflow-hidden hover:shadow-xl transition-all duration-300 flex gap-4 p-4'
-            : 'bg-plaine-white rounded-lg shadow-lg overflow-hidden hover:shadow-xl transition-all duration-300') +
+            ? 'bg-white rounded-lg shadow-lg overflow-hidden hover:shadow-xl transition-all duration-300 flex gap-4 p-4'
+            : 'bg-white rounded-lg shadow-lg overflow-hidden hover:shadow-xl transition-all duration-300') +
           (className ? ` ${className}` : '')
         }
       >
         {/* Image */}
-        <div className={isList ? 'w-28 h-28 flex-shrink-0 relative overflow-hidden bg-gray-100 rounded-md' : 'relative aspect-square overflow-hidden bg-gray-100'}>
-          {imageUrl && !imageError ? (
+        <div
+          className={
+            isList
+              ? 'w-28 h-28 flex-shrink-0 relative overflow-hidden bg-gray-100 rounded-md'
+              : 'relative aspect-square overflow-hidden bg-gray-100'
+          }
+        >
+          {imgSrc && !imageError ? (
             <>
               {imageLoading && (
-                <div className="absolute inset-0 bg-gray-200 animate-pulse flex items-center justify-center" aria-label="Loading image">
+                <div
+                  className="absolute inset-0 bg-gray-200 animate-pulse flex items-center justify-center"
+                  aria-label="Loading image"
+                >
                   <div className="text-gray-400">Loading...</div>
                 </div>
               )}
               <img
-                src={imageUrl}
+                src={imgSrc}
                 alt={product.name}
                 className={
                   (isList
@@ -300,10 +349,7 @@ const ProductCard: React.FC<ProductCardProps> = ({
                   (imageLoading ? ' opacity-0' : ' opacity-100')
                 }
                 onLoad={() => setImageLoading(false)}
-                onError={() => {
-                  setImageError(true);
-                  setImageLoading(false);
-                }}
+                onError={onImgError}
                 loading="lazy"
               />
             </>
@@ -323,21 +369,7 @@ const ProductCard: React.FC<ProductCardProps> = ({
             </div>
           )}
 
-          {/* Wishlist overlay (optional, hidden by default) */}
-          {showWishlist && (
-            <motion.button
-              whileHover={{ scale: 1.05 }}
-              whileTap={{ scale: 0.95 }}
-              onClick={handleWishlistToggle}
-              disabled={wishlistLoading}
-              className={`absolute top-2 right-2 inline-flex ${btnGhost} h-9 w-9 p-0 min-w-[2.25rem] sm:h-10 sm:w-10 bg-white/90 backdrop-blur z-20`}
-              title={inWishlist ? 'Remove from wishlist' : 'Add to wishlist'}
-              aria-pressed={inWishlist}
-              aria-label={inWishlist ? 'Remove from wishlist' : 'Add to wishlist'}
-            >
-              <Heart className={'h-4 w-4 ' + (inWishlist ? 'fill-current text-red-600' : '')} />
-            </motion.button>
-          )}
+         
 
           {/* Stock overlay */}
           {inStock === false && (
@@ -353,18 +385,17 @@ const ProductCard: React.FC<ProductCardProps> = ({
             {product.name}
           </h3>
 
-          {/* Optional mini-meta row (SKU + Color) */}
-          {(sku || color) && (
+          {(getSku(product) || getColor(product)) && (
             <div className="flex items-center gap-2 mb-2 text-xs text-gray-600">
-              {sku && (
+              {getSku(product) && (
                 <span className="inline-flex items-center gap-1 bg-gray-100 px-2 py-0.5 rounded">
                   <Tag className="w-3 h-3" />
-                  {sku}
+                  {getSku(product)}
                 </span>
               )}
-              {color && (
+              {getColor(product) && (
                 <span className="inline-flex items-center gap-1 bg-gray-100 px-2 py-0.5 rounded">
-                  Color: <strong className="font-medium">{color}</strong>
+                  Color: <strong className="font-medium">{getColor(product)}</strong>
                 </span>
               )}
             </div>
@@ -374,10 +405,7 @@ const ProductCard: React.FC<ProductCardProps> = ({
           <div className="flex items-center mb-2" aria-label={`Rating ${roundedAvg} out of 5`}>
             <div className="flex items-center">
               {[...Array(5)].map((_, i) => (
-                <Star
-                  key={i}
-                  className={'h-4 w-4 ' + (i < Math.floor(roundedAvg) ? 'text-yellow-400 fill-current' : 'text-gray-300')}
-                />
+                <Star key={i} className={'h-4 w-4 ' + (i < Math.floor(roundedAvg) ? 'text-yellow-400 fill-current' : 'text-gray-300')} />
               ))}
             </div>
             <span className="text-sm text-gray-600 ml-2">
@@ -388,10 +416,10 @@ const ProductCard: React.FC<ProductCardProps> = ({
           {/* Price + stock pill */}
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-baseline space-x-2">
-              <span className="text-xl font-bold text-gray-900">{fmtPrice(product.price, currency)}</span>
+              <span className="text-xl font-bold text-gray-900">{fmtPrice(product.price, (product as any).currency || 'INR')}</span>
               {hasDiscount && (
                 <span className="text-sm text-gray-500 line-through" aria-label="MRP">
-                  {fmtPrice(comparePrice, currency)}
+                  {fmtPrice(comparePrice, (product as any).currency || 'INR')}
                 </span>
               )}
             </div>
@@ -401,11 +429,11 @@ const ProductCard: React.FC<ProductCardProps> = ({
                 (inStock === false ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800')
               }
             >
-              {inStock === false ? '' : ''}
+              {inStock === false ? 'Unavailable' : 'In Stock'}
             </span>
           </div>
 
-          {/* User-visible tech facts (NEVER admin-only) */}
+          {/* User-visible tech facts */}
           {(ports !== undefined || warrantyMonths || warrantyType) && (
             <div className="text-xs text-gray-700 mb-3 space-x-2">
               {ports !== undefined && (
@@ -426,7 +454,7 @@ const ProductCard: React.FC<ProductCardProps> = ({
             </div>
           )}
 
-          {/* Actions — strictly two buttons, horizontal */}
+          {/* Actions */}
           <div className="mt-3 flex items-center gap-2">
             <motion.button
               whileHover={{ scale: 1.02 }}

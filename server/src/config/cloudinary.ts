@@ -1,225 +1,312 @@
-import { v2 as cloudinary } from 'cloudinary';
-import { UploadApiResponse, UploadApiErrorResponse } from 'cloudinary';
+// S3-backed replacement for your Cloudinary module (drop-in)
+// Keep this file path same as your current cloudinary helper so other imports won't break.
 
-// Load environment variables
-const requiredEnvVars = {
-  CLOUDINARY_CLOUD_NAME: process.env.CLOUDINARY_CLOUD_NAME,
-  CLOUDINARY_API_KEY: process.env.CLOUDINARY_API_KEY,
-  CLOUDINARY_API_SECRET: process.env.CLOUDINARY_API_SECRET,
+import {
+  S3Client,
+  PutObjectCommand,
+  DeleteObjectCommand,
+  DeleteObjectsCommand,
+  HeadObjectCommand,
+  ListObjectsV2Command,
+  GetBucketLocationCommand,
+} from "@aws-sdk/client-s3";
+import { fromNodeProviderChain } from "@aws-sdk/credential-providers";
+import { getSignedUrl } from "@aws-sdk/s3-request-presigner";
+import crypto from "crypto";
+import mime from "mime-types";
+
+// ---------- ENV ----------
+const required = {
+  S3_BUCKET: process.env.S3_BUCKET,
+  S3_REGION: process.env.S3_REGION || "ap-south-1",
+  // Optional: use CloudFront/CDN URL, else S3 website URL
+  S3_PUBLIC_BASE:
+    process.env.S3_PUBLIC_BASE ||
+    (process.env.S3_BUCKET && process.env.S3_REGION
+      ? `https://${process.env.S3_BUCKET}.s3.${process.env.S3_REGION}.amazonaws.com`
+      : ""),
+  // NOTE: You asked for this prefix:
+  S3_UPLOAD_PREFIX: process.env.S3_UPLOAD_PREFIX || "order-packs/",
+  S3_PRESIGN_TTL_SECONDS: process.env.S3_PRESIGN_TTL_SECONDS || "120",
 };
+const missing = Object.entries(required)
+  .filter(([k, v]) => !v && !["S3_PUBLIC_BASE"].includes(k))
+  .map(([k]) => k);
+if (missing.length) throw new Error(`Missing env: ${missing.join(", ")}`);
 
-// Validate environment variables
-const missingVars = Object.entries(requiredEnvVars)
-  .filter(([key, value]) => !value)
-  .map(([key]) => key);
+export const S3_BUCKET = required.S3_BUCKET!;
+export const S3_REGION = required.S3_REGION!;
+export const S3_PUBLIC_BASE = required.S3_PUBLIC_BASE!;
+export const PREFIX =
+  (required.S3_UPLOAD_PREFIX || "").replace(/^\/+|\/+$/g, "") + "/";
+const PRESIGN_TTL = Number(required.S3_PRESIGN_TTL_SECONDS);
 
-if (missingVars.length > 0) {
-  throw new Error(`Missing required environment variables: ${missingVars.join(', ')}`);
-}
-
-// Configure Cloudinary
-cloudinary.config({
-  cloud_name: requiredEnvVars.CLOUDINARY_CLOUD_NAME,
-  api_key: requiredEnvVars.CLOUDINARY_API_KEY,
-  api_secret: requiredEnvVars.CLOUDINARY_API_SECRET,
-  secure: true,
+// ---------- CLIENT ----------
+export const s3 = new S3Client({
+  region: S3_REGION,
+  credentials: fromNodeProviderChain(), // IAM Role/Env/SSO handled automatically
 });
 
-// Types
+// ---------- Types (compatible with your code) ----------
+export interface UploadApiResponse {
+  public_id: string; // S3 object key
+  secure_url: string; // public URL
+  url: string; // same as secure_url
+  format?: string;
+  bytes?: number;
+  width?: number;
+  height?: number;
+  resource_type?: string;
+  created_at: string;
+  tags?: string[];
+}
+export interface UploadApiErrorResponse {
+  message: string;
+}
 export interface CloudinaryUploadResult extends UploadApiResponse {}
 export interface CloudinaryError extends UploadApiErrorResponse {}
 
 export interface ImageTransformOptions {
-  width?: number;
-  height?: number;
-  crop?: 'fill' | 'fit' | 'limit' | 'scale' | 'crop';
-  quality?: 'auto' | number;
-  format?: 'auto' | 'jpg' | 'png' | 'webp';
-  gravity?: 'auto' | 'face' | 'center';
+  width?: number; height?: number;
+  crop?: "fill" | "fit" | "limit" | "scale" | "crop";
+  quality?: "auto" | number;
+  format?: "auto" | "jpg" | "png" | "webp";
+  gravity?: "auto" | "face" | "center";
 }
-
 export interface UploadOptions {
   folder?: string;
   public_id?: string;
-  resource_type?: 'image' | 'video' | 'raw' | 'auto';
+  resource_type?: "image" | "video" | "raw" | "auto";
   transformation?: ImageTransformOptions;
   tags?: string[];
   context?: Record<string, string>;
+  contentType?: string;
+  metadata?: Record<string, string>;
 }
 
-// Image transformation presets for ecommerce
-export const IMAGE_TRANSFORMATIONS = {
-  thumbnail: { width: 150, height: 150, crop: 'fill', quality: 'auto', format: 'auto' },
-  small: { width: 300, height: 300, crop: 'fill', quality: 'auto', format: 'auto' },
-  medium: { width: 600, height: 600, crop: 'fill', quality: 'auto', format: 'auto' },
-  large: { width: 1200, height: 1200, crop: 'limit', quality: 'auto', format: 'auto' },
-  hero: { width: 1920, height: 1080, crop: 'fill', quality: 'auto', format: 'auto' },
-  // Product-specific transformations
-  productThumbnail: { width: 200, height: 200, crop: 'fill', quality: 'auto', format: 'auto', gravity: 'auto' },
-  productMedium: { width: 500, height: 500, crop: 'fill', quality: 'auto', format: 'auto', gravity: 'auto' },
-  productLarge: { width: 800, height: 800, crop: 'fill', quality: 'auto', format: 'auto', gravity: 'auto' },
-} as const;
+// ---------- helpers ----------
+const rand = (n = 9) => crypto.randomBytes(n).toString("hex");
+const cleanFolder = (p?: string) => (p ? p.replace(/^\/+|\/+$/g, "") + "/" : "");
+const publicUrlForKey = (key: string) =>
+  `${S3_PUBLIC_BASE}/${key.replace(/^\/+/, "")}`;
 
-// Upload single product image
+function buildKey(filename: string, contentType?: string, folder?: string, explicit?: string) {
+  if (explicit) return `${PREFIX}${cleanFolder(folder)}${explicit.replace(/^\/+/, "")}`;
+  const ext =
+    (contentType && (mime.extension(contentType) as string)) ||
+    filename.split(".").pop() ||
+    "bin";
+  return `${PREFIX}${cleanFolder(folder)}${Date.now()}-${rand()}.${ext}`;
+}
+
+// ---------- Single upload (Buffer or remote URL) ----------
 export const uploadProductImages = async (
   file: Buffer | string,
-  publicId: string,
+  publicId: string,               // desired relative key (optional)
   originalFilename?: string
 ): Promise<CloudinaryUploadResult> => {
   try {
-    const uploadOptions: UploadOptions = {
-      folder: 'products',
-      public_id: publicId,
-      resource_type: 'auto',
-      tags: ['product', 'ecommerce'],
-      context: originalFilename ? { filename: originalFilename } : undefined,
-    };
+    let body: Buffer;
+    let contentType: string | undefined;
 
-    const result = await cloudinary.uploader.upload(
-      Buffer.isBuffer(file) ? `data:image/jpeg;base64,${file.toString('base64')}` : file,
-      uploadOptions
+    if (Buffer.isBuffer(file)) {
+      body = file;
+      contentType = "application/octet-stream";
+    } else if (/^https?:\/\//i.test(file)) {
+      // Node 18+ has global fetch; for Node 16, install node-fetch
+      const res = await fetch(file as any);
+      if (!res.ok) throw new Error(`Fetch failed: ${res.status}`);
+      body = Buffer.from(await res.arrayBuffer());
+      contentType = res.headers.get("content-type") || (mime.lookup(file) as string) || "application/octet-stream";
+    } else {
+      body = Buffer.from(file);
+      contentType = "application/octet-stream";
+    }
+
+    const key = buildKey(
+      originalFilename || "image",
+      contentType,
+      "order-packs",
+      publicId
     );
 
-    return result;
-  } catch (error) {
-    console.error('Cloudinary upload error:', error);
-    throw new Error(`Failed to upload image: ${error}`);
+    await s3.send(new PutObjectCommand({
+      Bucket: S3_BUCKET,
+      Key: key,
+      Body: body,
+      ContentType: contentType,
+      CacheControl: "public, max-age=31536000, immutable",
+      // ACL: "public-read", // only if not using CloudFront OAC + you allow ACLs
+      Metadata: {},
+    }));
+
+    const url = publicUrlForKey(key);
+    return {
+      public_id: key,
+      secure_url: url,
+      url,
+      format: key.split(".").pop(),
+      bytes: body.length,
+      resource_type: "image",
+      created_at: new Date().toISOString(),
+      tags: [],
+    };
+  } catch (error: any) {
+    console.error("S3 upload error:", error?.message || error);
+    throw new Error(`Failed to upload image: ${error?.message || error}`);
   }
 };
 
-// Batch upload multiple images
+// ---------- Batch upload with limited concurrency ----------
 export const batchUploadProductImages = async (
   files: Array<{ buffer: Buffer; filename: string; publicId: string }>,
   concurrency: number = 3
 ): Promise<CloudinaryUploadResult[]> => {
-  const uploadPromises = files.map(async ({ buffer, filename, publicId }) => {
-    return uploadProductImages(buffer, publicId, filename);
-  });
-
-  // Process uploads in batches to avoid overwhelming the API
-  const results: CloudinaryUploadResult[] = [];
-  for (let i = 0; i < uploadPromises.length; i += concurrency) {
-    const batch = uploadPromises.slice(i, i + concurrency);
-    const batchResults = await Promise.all(batch);
-    results.push(...batchResults);
+  const out: CloudinaryUploadResult[] = new Array(files.length);
+  let i = 0;
+  async function worker() {
+    while (i < files.length) {
+      const idx = i++;
+      const f = files[idx];
+      out[idx] = await uploadProductImages(f.buffer, f.publicId, f.filename);
+    }
   }
-
-  return results;
+  const workers = Array.from({ length: Math.min(concurrency, files.length) }, worker);
+  await Promise.all(workers);
+  return out;
 };
 
-// Generate responsive image URLs
+// ---------- “Responsive” URLs (convention-based variants) ----------
+const VARIANTS = { thumbnail: "thumb", small: "sm", medium: "md", large: "lg" } as const;
+
+function variantKey(original: string, suffix: string) {
+  const parts = original.split("/");
+  const file = parts.pop() as string;
+  const dot = file.lastIndexOf(".");
+  const name = dot > -1 ? file.slice(0, dot) : file;
+  const ext = dot > -1 ? file.slice(dot) : "";
+  const dir = parts.join("/");
+  const resizedDir = (dir ? dir + "/" : "") + "_resized/";
+  return `${resizedDir}${name}.${suffix}${ext}`;
+}
+
+// S3 can’t transform on-the-fly; these helpers assume you’ll generate _resized variants.
 export const generateResponsiveImageUrl = (
   publicId: string,
-  options: ImageTransformOptions = {}
+  _options: ImageTransformOptions = {}
 ): string => {
-  const {
-    width = 400,
-    height = 400,
-    crop = 'fill',
-    quality = 'auto',
-    format = 'auto',
-    gravity = 'auto'
-  } = options;
-
-  return cloudinary.url(publicId, {
-    width,
-    height,
-    crop,
-    quality,
-    format,
-    gravity,
-    secure: true,
-    fetch_format: 'auto',
-    dpr: 'auto'
-  });
+  const isUrl = /^https?:\/\//i.test(publicId);
+  const key = isUrl ? publicId.replace(S3_PUBLIC_BASE + "/", "") : publicId;
+  return publicUrlForKey(variantKey(key, VARIANTS.medium));
 };
-
-// Generate multiple sizes for responsive images
 export const generateResponsiveImageSet = (
   publicId: string,
-  sizes: (keyof typeof IMAGE_TRANSFORMATIONS)[] = ['thumbnail', 'small', 'medium', 'large']
+  sizes: (keyof typeof VARIANTS)[] = ["thumbnail", "small", "medium", "large"]
 ): Record<string, string> => {
-  const imageSet: Record<string, string> = {};
-  
-  sizes.forEach(size => {
-    const transformation = IMAGE_TRANSFORMATIONS[size];
-    imageSet[size] = generateResponsiveImageUrl(publicId, transformation);
-  });
-
-  return imageSet;
+  const isUrl = /^https?:\/\//i.test(publicId);
+  const key = isUrl ? publicId.replace(S3_PUBLIC_BASE + "/", "") : publicId;
+  const out: Record<string, string> = {};
+  for (const s of sizes) out[s] = publicUrlForKey(variantKey(key, VARIANTS[s]));
+  return out;
 };
 
-// Delete image by public ID
+// ---------- Delete ----------
 export const deleteImage = async (publicId: string): Promise<any> => {
-  try {
-    const result = await cloudinary.uploader.destroy(publicId);
-    return result;
-  } catch (error) {
-    console.error('Cloudinary delete error:', error);
-    throw new Error(`Failed to delete image: ${error}`);
-  }
+  await s3.send(new DeleteObjectCommand({ Bucket: S3_BUCKET, Key: publicId }));
+  return { result: "ok" };
+};
+export const deleteImages = async (keys: string[]) => {
+  if (!keys?.length) return { deleted: 0 };
+  await s3.send(new DeleteObjectsCommand({
+    Bucket: S3_BUCKET,
+    Delete: { Objects: keys.map((Key) => ({ Key })) },
+  }));
+  return { deleted: keys.length };
 };
 
-// Search images by tag
+// ---------- Search-like (prefix list) ----------
 export const searchImagesByTag = async (tag: string): Promise<any> => {
-  try {
-    const result = await cloudinary.search
-      .expression(`tags:${tag}`)
-      .sort_by('created_at', 'desc')
-      .max_results(100)
-      .execute();
-    return result;
-  } catch (error) {
-    console.error('Cloudinary search error:', error);
-    throw new Error(`Failed to search images: ${error}`);
-  }
+  const Prefix = `${PREFIX}${tag.replace(/^\/+|\/+$/g, "")}`;
+  const keys: string[] = [];
+  let ContinuationToken: string | undefined;
+  do {
+    const res = await s3.send(new ListObjectsV2Command({
+      Bucket: S3_BUCKET,
+      Prefix,
+      ContinuationToken,
+      MaxKeys: 1000,
+    }));
+    res.Contents?.forEach((o) => o.Key && keys.push(o.Key));
+    ContinuationToken = res.IsTruncated ? res.NextContinuationToken : undefined;
+  } while (ContinuationToken);
+
+  return {
+    resources: keys.map((k) => ({ public_id: k, secure_url: publicUrlForKey(k) })),
+    total_count: keys.length,
+  };
 };
 
-// Get image details
+// ---------- Head/details ----------
 export const getImageDetails = async (publicId: string): Promise<any> => {
-  try {
-    const result = await cloudinary.api.resource(publicId);
-    return result;
-  } catch (error) {
-    console.error('Cloudinary get details error:', error);
-    throw new Error(`Failed to get image details: ${error}`);
-  }
+  const head = await s3.send(new HeadObjectCommand({ Bucket: S3_BUCKET, Key: publicId }));
+  return {
+    public_id: publicId,
+    content_type: head.ContentType,
+    content_length: head.ContentLength,
+    eTag: head.ETag,
+    last_modified: head.LastModified,
+    metadata: head.Metadata,
+    secure_url: publicUrlForKey(publicId),
+  };
 };
 
-// Test Cloudinary connection
-export const testCloudinaryConnection = async (retries: number = 3): Promise<boolean> => {
-  for (let attempt = 1; attempt <= retries; attempt++) {
+// ---------- Health ----------
+export const testCloudinaryConnection = async (retries = 3): Promise<boolean> => {
+  // kept old name for drop-in; this now pings S3
+  for (let i = 1; i <= retries; i++) {
     try {
-      await cloudinary.api.ping();
-      console.log('✅ Cloudinary connection successful');
+      await s3.send(new GetBucketLocationCommand({ Bucket: S3_BUCKET }));
+      console.log("✅ S3 connection successful");
       return true;
-    } catch (error) {
-      console.error(`❌ Cloudinary connection attempt ${attempt} failed:`, error);
-      if (attempt === retries) {
-        return false;
-      }
-      // Wait before retry
-      await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
+    } catch (e) {
+      console.error(`❌ S3 connection attempt ${i} failed`, e);
+      if (i === retries) return false;
+      await new Promise((r) => setTimeout(r, 1000 * i));
     }
   }
   return false;
 };
 
-// Get upload stats
-export const getUploadStats = async (): Promise<any> => {
-  try {
-    const result = await cloudinary.api.usage();
-    return {
-      credits: result.credits,
-      bandwidth: result.bandwidth,
-      storage: result.storage,
-      requests: result.requests,
-      transformations: result.transformations,
-    };
-  } catch (error) {
-    console.error('Failed to get upload stats:', error);
-    return null;
-  }
+// ---------- Usage/stats (Cloudinary-only concept) ----------
+export const getUploadStats = async (): Promise<any> => null;
+
+// ---------- Cloudinary-like default export (shim) ----------
+const cloudinary = {
+  uploader: {
+    upload: async (file: any, opts: any = {}) =>
+      uploadProductImages(
+        Buffer.isBuffer(file) ? file : String(file),
+        opts?.public_id || "",
+        opts?.filename || "image"
+      ),
+    destroy: async (public_id: string) => deleteImage(public_id),
+  },
+  search: {
+    expression: (_: string) => ({
+      sort_by: () => ({
+        max_results: () => ({
+          execute: async () => searchImagesByTag(""),
+        }),
+      }),
+    }),
+  },
+  api: {
+    // Replaced by S3 bucket ping
+    ping: async () => s3.send(new GetBucketLocationCommand({ Bucket: S3_BUCKET })),
+    usage: async () => null,
+    resource: async (publicId: string) => getImageDetails(publicId),
+  },
+  url: (publicId: string) => publicUrlForKey(publicId),
 };
 
 export default cloudinary;
