@@ -16,7 +16,7 @@ import { newsletterService } from '../services/newsletterService';
 import toast from 'react-hot-toast';
 
 import { useTranslation } from 'react-i18next';
-import { resolveImageUrl, getFirstImageUrl, getOptimizedImageUrl } from '../utils/imageUtils';
+import { resolveImageUrl, getFirstImageUrl } from '../utils/imageUtils';
 
 const isValidEmail = (e: string) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/i.test(e.trim());
 const API_BASE = (import.meta as any).env?.VITE_API_URL || 'https://nakodamobile.in/api';
@@ -87,11 +87,10 @@ const Home: React.FC = () => {
     navigate(`/products?category=${categoryId}`);
   };
 
-  const productImage = (p: Product) => {
- // prefer explicit field; else first from array
+ const productImage = (p: Product) => {
   const base = p.imageUrl ? resolveImageUrl(p.imageUrl) : getFirstImageUrl(p.images);
- return base ? getOptimizedImageUrl(base, 500, 500) : undefined;
- };
+  return base || undefined;
+};
 
   const goToProduct = (p: Product) => {
     navigate(`/product/${p.slug || p._id}`);
@@ -297,7 +296,7 @@ With strict quality checks and honest pricing, Nakoda Mobile is here to support 
             'https://res.cloudinary.com/dt7xwlswy/image/upload/v1757156418/hbalmt0icrc8qvpyiody.jpg',
           ];
 
-          const toImg = (url: string) => getOptimizedImageUrl(url, 800, 600);
+         const toImg = (url: string) => resolveImageUrl(url);
 
           return (
             <div className="grid grid-cols-2 gap-3">
