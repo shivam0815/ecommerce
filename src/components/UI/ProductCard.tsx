@@ -6,7 +6,7 @@ import { Star, ShoppingCart, Tag, CreditCard, Heart } from 'lucide-react';
 import type { Product } from '../../types';
 import { useCart } from '../../hooks/useCart';
 import { useWishlist } from '../../hooks/useWishlist';
-import { getFirstImageUrl } from '../../utils/imageUtils';
+import { resolveImageUrl, getFirstImageUrl, getOptimizedImageUrl } from '../../utils/imageUtils';
 import toast from 'react-hot-toast';
 
 export interface ProductCardProps {
@@ -401,7 +401,7 @@ const ProductCard: React.FC<ProductCardProps> = ({
                 (inStock === false ? 'bg-red-100 text-red-800' : 'bg-green-100 text-green-800')
               }
             >
-              {inStock === false ? '' : ''}
+              {inStock === false ? 'Out of Stock' : 'In Stock'}
             </span>
           </div>
 

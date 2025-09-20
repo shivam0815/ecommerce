@@ -1,24 +1,24 @@
-// src/pages/Home.tsx
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
   ArrowRight, Star, ShoppingBag, Users, Award,
-  Play, Shield, Truck, Headphones,
-  ChevronLeft, ChevronRight, Quote,
-  Instagram, Twitter, Facebook, Sparkles, Flame, Clock,
-  Factory, Package, BadgeCheck, Boxes, Wrench, Globe, Phone, DollarSign,IndianRupee
+  Shield, Truck, Headphones, ChevronLeft, ChevronRight, Quote,
+  Instagram, Twitter, Facebook, Sparkles, Banknote, BadgePercent, BadgeCheck
 } from 'lucide-react';
+
 import HeroSlider from '../components/Layout/HeroSlider';
 import PromoSlider from '../components/Layout/PromoSlider';
 import SEO from '../components/Layout/SEO';
 import { newsletterService } from '../services/newsletterService';
 import toast from 'react-hot-toast';
-import { generateResponsiveImageUrl } from '../utils/cloudinaryBrowser';
+
+// 🔽 S3/Cloudinary-aware helpers
+import { resolveImageUrl, getFirstImageUrl, getOptimizedImageUrl } from '../utils/imageUtils';
 import { useTranslation } from 'react-i18next';
 
 const isValidEmail = (e: string) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/i.test(e.trim());
-const API_BASE = (import.meta as any).env?.VITE_API_URL || 'https://nakodamobile.in/api';
+const API_BASE = (import.meta as any).env?.VITE_API_URL || 'http://localhost:5000/api';
 
 type Product = {
   _id: string;
@@ -31,6 +31,9 @@ type Product = {
   rating?: number;
   category?: string;
   status?: string;
+  brand?: string;
+  stock?: number;
+  tags?: string[];
 };
 
 const priceOffPct = (price?: number, original?: number) => {
@@ -38,24 +41,49 @@ const priceOffPct = (price?: number, original?: number) => {
   return Math.round(((original - price) / original) * 100);
 };
 
+const currency = (n?: number) => (typeof n === 'number' ? `₹${n.toLocaleString()}` : '—');
+
+const useCountdown = (intervalHours = 6) => {
+  const nextReset = () => {
+    const ms = Date.now();
+    const intervalMs = intervalHours * 60 * 60 * 1000;
+    return Math.ceil(ms / intervalMs) * intervalMs;
+  };
+  const [endTs, setEndTs] = useState<number>(nextReset());
+  const [now, setNow] = useState<number>(Date.now());
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+  useEffect(() => {
+    if (now >= endTs) setEndTs(nextReset());
+  }, [now, endTs]);
+  const remaining = Math.max(0, endTs - now);
+  const h = Math.floor(remaining / 3600000);
+  const m = Math.floor((remaining % 3600000) / 60000);
+  const s = Math.floor((remaining % 60000) / 1000);
+  return { label: `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`, remaining };
+};
+
 const Home: React.FC = () => {
+  useTranslation();
   const navigate = useNavigate();
   const [hoveredCategory, setHoveredCategory] = useState<string | null>(null);
   const [currentTestimonial, setCurrentTestimonial] = useState(0);
 
-  // Newsletter state
+  // Newsletter
   const [email, setEmail] = useState('');
   const [loading, setLoading] = useState(false);
   const [subscribed, setSubscribed] = useState(false);
   const [company, setCompany] = useState(''); // honeypot
 
-  // Product strips state
+  // Products
   const [hot, setHot] = useState<Product[]>([]);
   const [newArrivals, setNewArrivals] = useState<Product[]>([]);
+  const [popular, setPopular] = useState<Product[]>([]);
   const [loadingHot, setLoadingHot] = useState(false);
   const [loadingNew, setLoadingNew] = useState(false);
-  const [errHot, setErrHot] = useState('');
-  const [errNew, setErrNew] = useState('');
+  const [loadingPopular, setLoadingPopular] = useState(false);
 
   const categories = [
     { id: 'bluetooth-neckband', name: 'Bluetooth Neckband', icon: '🎧', gradient: 'from-blue-500 to-purple-500', description: 'Premium wireless neckbands', color: 'bg-blue-500' },
@@ -65,7 +93,6 @@ const Home: React.FC = () => {
     { id: 'car-charger', name: 'Car Charger', icon: '🚗', gradient: 'from-gray-600 to-gray-800', description: 'On-the-go charging solutions', color: 'bg-gray-600' },
     { id: 'mobile-ic', name: 'Mobile IC', icon: '🔧', gradient: 'from-red-500 to-rose-500', description: 'Integrated circuits & Semi-Conductor', color: 'bg-red-500' },
     { id: 'mobile-repairing-tools', name: 'Mobile Repairing Tools', icon: '🛠️', gradient: 'from-indigo-500 to-blue-500', description: 'Professional repair toolkit', color: 'bg-indigo-500' },
-    
   ];
 
   const testimonials = [
@@ -74,7 +101,6 @@ const Home: React.FC = () => {
     { name: "Priya Sharma", role: "Business Owner", content: "Excellent OEM services. They delivered 1000+ custom branded chargers on time with perfect quality. Great team!", rating: 5, image: "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=150&h=150&fit=crop&crop=face" }
   ];
 
-  // Auto-rotate testimonials
   useEffect(() => {
     const timer = setInterval(() => {
       setCurrentTestimonial(prev => (prev + 1) % testimonials.length);
@@ -82,73 +108,82 @@ const Home: React.FC = () => {
     return () => clearInterval(timer);
   }, []);
 
-  const handleCategoryClick = (categoryId: string) => {
-    navigate(`/products?category=${categoryId}`);
-  };
+  const handleCategoryClick = (categoryId: string) => navigate(`/products?category=${categoryId}`);
 
-  const productImage = (p: Product) => {
-    const raw = p.images?.[0] || p.imageUrl;
-    if (!raw) return undefined;
-    try {
-      return generateResponsiveImageUrl(raw, { width: 500, height: 500, crop: 'fill' });
-    } catch {
-      return raw;
-    }
-  };
-
-  const goToProduct = (p: Product) => {
-    navigate(`/product/${p.slug || p._id}`);
-  };
+  // Pick primary URL once for a product (S3 key or full URL)
+  const pickPrimaryImage = (p: Product) =>
+    resolveImageUrl(p.imageUrl) ?? getFirstImageUrl(p.images);
 
   // Fetch products
   useEffect(() => {
     const loadHot = async () => {
       try {
         setLoadingHot(true);
-        setErrHot('');
-        const res = await fetch(`${API_BASE}/products?limit=12&sort=trending&status=active`, { credentials: 'include' });
+        const res = await fetch(`${API_BASE}/products?limit=24&sort=trending&status=active`, { credentials: 'include' });
         const data = await res.json();
         if (!res.ok) throw new Error(data?.message || 'Failed to load trending products');
         setHot(data.products || data.items || []);
-      } catch (e: any) {
-        setErrHot(e?.message || 'Could not load products');
-      } finally {
-        setLoadingHot(false);
-      }
+      } finally { setLoadingHot(false); }
     };
     const loadNew = async () => {
       try {
         setLoadingNew(true);
-        setErrNew('');
-        const res = await fetch(`${API_BASE}/products?limit=8&sort=new&status=active`, { credentials: 'include' });
+        const res = await fetch(`${API_BASE}/products?limit=20&sort=new&status=active`, { credentials: 'include' });
         const data = await res.json();
         if (!res.ok) throw new Error(data?.message || 'Failed to load new arrivals');
         setNewArrivals(data.products || data.items || []);
-      } catch (e: any) {
-        setErrNew(e?.message || 'Could not load products');
-      } finally {
-        setLoadingNew(false);
-      }
+      } finally { setLoadingNew(false); }
     };
-    loadHot();
-    loadNew();
+    const loadPopular = async () => {
+      try {
+        setLoadingPopular(true);
+        const res = await fetch(`${API_BASE}/products?limit=24&sort=popular&status=active`, { credentials: 'include' });
+        const data = await res.json();
+        setPopular(res.ok ? (data.products || data.items || []) : []);
+      } finally { setLoadingPopular(false); }
+    };
+    loadHot(); loadNew(); loadPopular();
   }, []);
 
-  const budget = (hot.length ? hot.filter(p => (p.price ?? 0) <= 599) : []).slice(0, 8);
-  const fallbackBudget = hot.slice(0, 8);
+  // Derived sections
+  const hotDeals = useMemo(() => {
+    const base = hot.length ? hot : newArrivals;
+    const withOff = base
+      .map(p => ({ p, off: priceOffPct(p.price, p.originalPrice) }))
+      .filter(x => x.off >= 15)
+      .sort((a, b) => b.off - a.off)
+      .slice(0, 8)
+      .map(x => x.p);
+    return withOff.length ? withOff : base.slice(0, 8);
+  }, [hot, newArrivals]);
 
-  // Newsletter submit
+  const bestSellers = useMemo(() => {
+    const src = (popular.length ? popular : hot).slice();
+    src.sort((a, b) => (b.rating ?? 0) - (a.rating ?? 0) || (b.price ?? 0) - (a.price ?? 0));
+    return src.slice(0, 12);
+  }, [popular, hot]);
+
+  const budgetBuys = useMemo(() => {
+    const merged: Product[] = Array.from(new Map([...hot, ...newArrivals].map(p => [p._id, p])).values());
+    const under599 = merged.filter(p => (p.price ?? 0) <= 599).sort((a, b) => (a.price ?? 0) - (b.price ?? 0));
+    return (under599.length ? under599 : merged).slice(0, 10);
+  }, [hot, newArrivals]);
+
+  const { label: flashEndsIn } = useCountdown(6);
+
+  // scroll helpers
+  const useScroller = () => {
+    const ref = useRef<HTMLDivElement | null>(null);
+    const scrollBy = (dx: number) => ref.current?.scrollBy({ left: dx, behavior: 'smooth' });
+    return { ref, scrollLeft: () => scrollBy(-600), scrollRight: () => scrollBy(600) };
+  };
+  const bestRef = useScroller();
+
+  // Newsletter
   const handleSubscribe = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
-    if (!isValidEmail(email)) {
-      toast.error('Enter a valid email');
-      return;
-    }
-    if (company.trim()) {
-      setEmail('');
-      setSubscribed(true);
-      return;
-    }
+    if (!isValidEmail(email)) { toast.error('Enter a valid email'); return; }
+    if (company.trim()) { setEmail(''); setSubscribed(true); return; }
     try {
       setLoading(true);
       await newsletterService.subscribe(email, 'home-newsletter', 'home');
@@ -156,32 +191,113 @@ const Home: React.FC = () => {
       setEmail('');
       toast.success('Please check your inbox and confirm your subscription.');
     } catch (e: any) {
-      const msg = e?.response?.data?.message || 'Subscription failed. Try again.';
-      toast.error(msg);
-    } finally {
-      setLoading(false);
-    }
+      toast.error(e?.response?.data?.message || 'Subscription failed. Try again.');
+    } finally { setLoading(false); }
   };
+
+  /** Product Card (with image fallback) */
+  const Card: React.FC<{ p: Product; badge?: React.ReactNode; compact?: boolean }> = ({ p, badge, compact }) => {
+    // base image
+    const raw = useMemo(() => pickPrimaryImage(p), [p.imageUrl, p.images]);
+    // try optimized first (Cloudinary transform or S3 variant), else raw
+    const optimized = raw ? getOptimizedImageUrl(raw, 500, 500) : undefined;
+
+    const [imgSrc, setImgSrc] = useState<string | undefined>(optimized ?? raw);
+    useEffect(() => { setImgSrc(optimized ?? raw); }, [optimized, raw]);
+
+    const off = priceOffPct(p.price, p.originalPrice);
+
+    return (
+      <article className={`group rounded-2xl border border-gray-200 bg-white p-4 hover:shadow-md transition ${compact ? 'w-[220px] shrink-0' : ''}`}>
+        <button
+          onClick={() => navigate(`/product/${p.slug || p._id}`)}
+          className="relative block w-full overflow-hidden rounded-xl bg-gray-50"
+          aria-label={p.name}
+        >
+          {imgSrc ? (
+            <img
+              src={imgSrc}
+              alt={p.name}
+              className="h-40 w-full object-cover transition-transform duration-500 group-hover:scale-105"
+              loading="lazy"
+              onError={() => {
+                // if optimized failed (404/403), fall back to original; if that also fails, clear
+                if (imgSrc !== raw) setImgSrc(raw);
+                else setImgSrc(undefined);
+              }}
+            />
+          ) : (
+            <div className="h-40 w-full bg-gray-100" />
+          )}
+          {off > 0 && (
+            <span className="absolute top-2 left-2 inline-flex items-center gap-1 text-xs font-semibold bg-rose-600 text-white px-2 py-1 rounded-full">
+              <BadgePercent className="w-3 h-3" /> {off}% OFF
+            </span>
+          )}
+          {badge && <span className="absolute top-2 right-2">{badge}</span>}
+        </button>
+
+        <div className="mt-3">
+          <h3 className="line-clamp-2 font-semibold text-gray-900 min-h-[40px]">{p.name}</h3>
+          <div className="mt-1 flex items-center gap-2">
+            <div className="text-indigo-700 font-bold">{currency(p.price)}</div>
+            {p.originalPrice && p.originalPrice > p.price && (
+              <div className="text-gray-400 line-through">{currency(p.originalPrice)}</div>
+            )}
+          </div>
+
+          <div className="mt-3 grid grid-cols-2 gap-2">
+            <button
+              onClick={() => navigate(`/product/${p.slug || p._id}`)}
+              className="rounded-lg bg-gray-900 px-3 py-2 text-sm font-semibold text-white text-center hover:bg-black"
+            >
+              View
+            </button>
+            <Link
+              to={`/product/${p.slug || p._id}`}
+              className="rounded-lg border border-gray-300 px-3 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 text-center"
+            >
+              Details
+            </Link>
+          </div>
+        </div>
+      </article>
+    );
+  };
+
+  /** Skeletons */
+  const SkeletonGrid: React.FC<{ count: number }> = ({ count }) => (
+    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+      {Array.from({ length: count }).map((_, i) => (
+        <div key={i} className="rounded-2xl bg-white border border-gray-200 p-4">
+          <div className="h-40 w-full rounded-lg bg-gray-100 animate-pulse" />
+          <div className="mt-4 h-5 w-3/4 bg-gray-100 rounded animate-pulse" />
+          <div className="mt-2 h-4 w-1/2 bg-gray-100 rounded animate-pulse" />
+          <div className="mt-4 h-9 w-full bg-gray-100 rounded animate-pulse" />
+        </div>
+      ))}
+    </div>
+  );
 
   return (
     <div className="min-h-screen">
       <SEO
-        title="Home "
-        description="Shop OEM/wholesale mobile accessories—TWS, neckbands, chargers, cables, ICs & more."
+        title="Home"
+        description="Shop mobile accessories—TWS, neckbands, chargers, cables, ICs & more."
         canonicalPath="/"
         jsonLd={{
           '@context': 'https://schema.org',
           '@type': 'Organization',
           name: 'Nakoda Mobile',
-          url: 'https://nakodamobile.in',
+          url: 'https://nakodamobile.com',
           logo: 'https://nakodamobile.in/favicon-512.png'
         }}
       />
 
-      {/* 🔥 Top Promotional Banner Section */}
+      {/* Hero */}
       <HeroSlider />
 
-      {/* Enhanced Stats Section */}
+      {/* KPIs */}
       <section className="py-16 bg-gradient-to-r from-gray-50 to-gray-100">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
@@ -205,265 +321,116 @@ const Home: React.FC = () => {
         </div>
       </section>
 
-      {/* ===================== About Nakoda Mobile + Shop Photos ===================== */}
-<section className="py-16 bg-gradient-to-br from-gray-900 via-blue-900 to-gray-900 text-white">
-  <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-    <div className="mb-10 flex items-center justify-between">
-      <div className="flex items-center gap-3">
-        <div className="h-10 w-10 rounded-lg bg-white/10 border border-white/20 flex items-center justify-center">
-          <Sparkles className="h-5 w-5 text-blue-200" />
-        </div>
-        <div>
-          <h2 className="text-2xl md:text-3xl font-bold">About Nakoda Mobile</h2>
-          <p className="text-blue-100">Built for repair pros. Trusted by businesses.</p>
-        </div>
-      </div>
-      <Link
-        to="/about"
-        className="text-blue-200 hover:text-white font-semibold"
-      >
-        Learn more →
-      </Link>
-    </div>
-
-    {/* Content + Gallery */}
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 items-start">
-      {/* Left: Copy */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        whileInView={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5 }}
-      >
-        <div className="space-y-4 text-blue-100 leading-relaxed">
-       <p className="text-lg">
-  <span className="font-semibold text-white">Nakoda Mobile</span> – Trusted Partner for 
-  <span className="font-semibold text-white">Accessories & Tools</span>
-
-We supply high-quality mobile accessories — chargers, cables, TWS, neckbands, speakers, power banks & more — built for durability and everyday performance.
-
-For mobile repair shops, we also provide reliable tools, from hand tools to advanced diagnostic equipment.
-
-With strict quality checks and honest pricing, Nakoda Mobile is here to support your growth, not just sell products.
-</p>
-
-
-
-
-        </div>
-
-        {/* Quick highlights */}
-        <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-4">
-          {[
-            { title: 'Best Quality', desc: 'Tested and Quality Check' },
-          { title: 'Best Price', desc: 'Transparent and reliable pricing' },
-            { title: 'Fast Delivery', desc: 'Consistent stock & quick dispatch' },
-            { title: 'Execellent Support', desc: 'Providing the pre and post support' },
-          ].map((item) => (
-            <div key={item.title} className="rounded-xl border border-white/10 bg-white/5 p-4">
-              <h4 className="font-semibold text-white">{item.title}</h4>
-              <p className="text-sm text-blue-100">{item.desc}</p>
+      {/* About + Photos */}
+       <section className="py-16 bg-gradient-to-br from-gray-900 via-blue-900 to-gray-900 text-white">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="mb-10 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="h-10 w-10 rounded-lg bg-white/10 border border-white/20 flex items-center justify-center">
+                <Sparkles className="h-5 w-5 text-blue-200" />
+              </div>
+              <div>
+                <h2 className="text-2xl md:text-3xl font-bold">About Nakoda Mobile</h2>
+                <p className="text-blue-100">Built for repair pros. Trusted by businesses.</p>
+              </div>
             </div>
-          ))}
+            <Link to="/about" className="text-blue-200 hover:text-white font-semibold">Learn more →</Link>
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 items-start">
+            <motion.div initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
+              <div className="space-y-4 text-blue-100 leading-relaxed">
+                <p className="text-lg">
+                  <span className="font-semibold text-white">Nakoda Mobile</span> – Trusted Partner for <span className="font-semibold text-white">Accessories & Tools</span>.
+                  We supply high-quality mobile accessories — chargers, cables, TWS, neckbands, speakers, power banks & more — built for durability and everyday performance.
+                  For mobile repair shops, we also provide reliable tools, from hand tools to advanced diagnostic equipment.
+                </p>
+              </div>
+
+              <div className="mt-6 grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {[
+                  { title: 'Best Quality', desc: 'Tested and Quality Check' },
+                  { title: 'Best Price', desc: 'Transparent and reliable pricing' },
+                  { title: 'Fast Delivery', desc: 'Consistent stock & quick dispatch' },
+                  { title: 'Excellent Support', desc: 'Pre & post purchase support' },
+                ].map((item) => (
+                  <div key={item.title} className="rounded-xl border border-white/10 bg-white/5 p-4">
+                    <h4 className="font-semibold text-white">{item.title}</h4>
+                    <p className="text-sm text-blue-100">{item.desc}</p>
+                  </div>
+                ))}
+              </div>
+
+              <div className="mt-8 flex flex-col sm:flex-row gap-4">
+                <Link to="/contact" className="inline-flex items-center rounded-lg bg-white text-gray-900 px-5 py-3 font-semibold hover:bg-gray-100">
+                  Contact Us <ArrowRight className="ml-2 w-4 h-4" />
+                </Link>
+                <Link to="/oem" className="inline-flex items-center rounded-lg border border-white/30 px-5 py-3 font-semibold hover:bg-white/10 text-white">
+                  Explore OEM Services
+                </Link>
+              </div>
+            </motion.div>
+
+            <motion.div initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} transition={{ duration: 0.5 }}>
+              {(() => {
+                const rawPhotos = [
+                  'https://res.cloudinary.com/dsmendqd3/image/upload/v1758272847/20250103_120335-1024x768_uttrqj.jpg',
+                  'https://res.cloudinary.com/dsmendqd3/image/upload/v1758272847/Picsart_25-01-03_16-13-31-139-768x1024_k3w1gx.jpg',
+                  'https://res.cloudinary.com/dsmendqd3/image/upload/v1758272919/20250103_120222-1024x768_fvyyfn.jpg',
+                  'https://res.cloudinary.com/dsmendqd3/image/upload/v1758272847/20250103_120422-1-1024x768_ynq4yh.jpg',
+                  'https://res.cloudinary.com/dsmendqd3/image/upload/v1758272847/20250103_120248-1024x768_aiyydd.jpg',
+                ];
+                const toImg = (u: string): string => {
+  const out = getOptimizedImageUrl(u, 800, 600); // Cloudinary -> transform, S3 -> variant/original
+  return out || u;
+}
+                return (
+                  <div className="grid grid-cols-2 gap-3">
+                    {rawPhotos.map((src, i) => (
+                      <div key={i} className={`relative overflow-hidden rounded-xl border border-white/10 bg-white/5 ${i === 0 ? 'col-span-2 aspect-[16/9]' : 'aspect-[4/3]'}`}>
+                        <img loading="lazy" src={toImg(src)} alt={`Nakoda Mobile shop photo ${i + 1}`} className="h-full w-full object-cover transition-transform duration-500 hover:scale-105" />
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/30 via-transparent to-transparent" />
+                      </div>
+                    ))}
+                  </div>
+                );
+              })()}
+              <p className="mt-3 text-xs text-blue-200">
+                Want a visit or virtual tour? <Link to="/contact" className="underline decoration-blue-300 hover:text-white">Get in touch</Link>.
+              </p>
+            </motion.div>
+          </div>
         </div>
+      </section>
 
-        {/* CTAs */}
-        <div className="mt-8 flex flex-col sm:flex-row gap-4">
-          <Link
-            to="/contact"
-            className="inline-flex items-center rounded-lg bg-white text-gray-900 px-5 py-3 font-semibold hover:bg-gray-100"
-          >
-            Contact Us <ArrowRight className="ml-2 w-4 h-4" />
-          </Link>
-          <Link
-            to="/oem"
-            className="inline-flex items-center rounded-lg border border-white/30 px-5 py-3 font-semibold hover:bg-white/10 text-white"
-          >
-            Explore OEM Services
-          </Link>
-        </div>
-      </motion.div>
+      {/* HOT DEALS */}
+      <section className="py-14 bg-gray-50">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="mb-6 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="h-10 w-10 rounded-lg bg-orange-50 border border-orange-200 flex items-center justify-center">
+                <BadgePercent className="h-5 w-5 text-orange-600" />
+              </div>
+              <div>
+                <h2 className="text-2xl md:text-3xl font-bold text-gray-900">Hot Deals</h2>
+                <p className="text-gray-500">Top discounts across categories</p>
+              </div>
+            </div>
+            <Link to="/products?sort=trending" className="text-indigo-600 hover:text-indigo-700 font-semibold">View all →</Link>
+          </div>
 
-      {/* Right: Shop Photo Grid */}
-      <motion.div
-        initial={{ opacity: 0, y: 20 }}
-        whileInView={{ opacity: 1, y: 0 }}
-        transition={{ duration: 0.5 }}
-      >
-       
-        {(() => {
-          const rawPhotos = [
-            // TODO: replace these with your real shop images
-            'https://res.cloudinary.com/dt7xwlswy/image/upload/v1757156418/mt9by1kt31odrb8a8f6n.jpg',
-            'https://res.cloudinary.com/dt7xwlswy/image/upload/v1757156418/np2btbi9faiktkr9kegy.jpg',
-            'https://res.cloudinary.com/dt7xwlswy/image/upload/v1757156422/yexojn2fnpa582ikgntp.jpg',
-            'https://res.cloudinary.com/dt7xwlswy/image/upload/v1757156418/chyuw0pubq1nadzyz3lx.jpg',
-            'https://res.cloudinary.com/dt7xwlswy/image/upload/v1757156418/hbalmt0icrc8qvpyiody.jpg',
-          ];
-
-          const toImg = (url: string) => {
-            try {
-              return generateResponsiveImageUrl(url, { width: 800, height: 600, crop: 'fill' });
-            } catch {
-              return url;
-            }
-          };
-
-          return (
-            <div className="grid grid-cols-2 gap-3">
-              {rawPhotos.map((src, i) => (
-                <div
-                  key={i}
-                  className={`relative overflow-hidden rounded-xl border border-white/10 bg-white/5 ${
-                    i === 0 ? 'col-span-2 aspect-[16/9]' : 'aspect-[4/3]'
-                  }`}
-                >
-                  <img
-                    loading="lazy"
-                    src={toImg(src)}
-                    alt={`Nakoda Mobile shop photo ${i + 1}`}
-                    className="h-full w-full object-cover transition-transform duration-500 hover:scale-105"
-                  />
-                  <div className="absolute inset-0 bg-gradient-to-t from-black/30 via-transparent to-transparent" />
-                </div>
+          {loadingHot && hot.length === 0 ? (
+            <SkeletonGrid count={8} />
+          ) : (
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+              {(hotDeals.length ? hotDeals : hot.slice(0, 8)).map((p) => (
+                <Card key={p._id} p={p} />
               ))}
             </div>
-          );
-        })()}
-        <p className="mt-3 text-xs text-blue-200">
-          Want a visit or virtual tour? <Link to="/contact" className="underline decoration-blue-300 hover:text-white">Get in touch</Link>.
-        </p>
-      </motion.div>
-    </div>
-  </div>
-</section>
-
-
-
-     
-
-    
-
-      {/* ===================== Services We Offer ===================== */}
-     <section className="py-16 bg-gradient-to-br from-gray-900 via-blue-900 to-gray-900 text-white">
-  <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-    {/* Section Heading */}
-    <motion.div
-      className="text-center mb-12"
-      initial={{ opacity: 0, y: 20 }}
-      whileInView={{ opacity: 1, y: 0 }}
-    >
-      <h2 className="text-3xl md:text-4xl font-bold mb-3">Services We Offer</h2>
-      <p className="text-blue-100 max-w-2xl mx-auto">
-        End-to-end OEM solutions—from sourcing to branding, packaging, QC and last-mile delivery.
-      </p>
-    </motion.div>
-
-    {/* Pyramid Layout 3–2–2 */}
-    <div className="space-y-8">
-      {/* Row 1: 3 cards */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
-        {[
-          { icon: Factory, title: 'OEM & Private Label', desc: 'Custom molds, finishes, and brand identity across SKUs.' },
-          { icon: Boxes, title: 'Universal Packaging', desc: 'Universal packaging solutions for consistent shelf presence.' },
-          { icon: Shield, title: 'Quality & Compliance', desc: 'Careful quality checks and reliability tests for every product.' },
-        ].map((svc, i) => (
-          <motion.div
-            key={svc.title}
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            transition={{ delay: i * 0.05 }}
-            className="group rounded-2xl border border-white/10 bg-white/5 p-6 backdrop-blur hover:bg-white/10 hover:border-white/20 transition"
-          >
-            <div className="flex items-start gap-4">
-              <div className="rounded-xl bg-white/10 p-3">
-                <svc.icon className="w-6 h-6 text-white" />
-              </div>
-              <div>
-                <h3 className="text-lg font-semibold">{svc.title}</h3>
-                <p className="text-sm text-blue-100 mt-1">{svc.desc}</p>
-              </div>
-            </div>
-          </motion.div>
-        ))}
-      </div>
-
-      {/* Row 2: 2 cards */}
-      <div className="mx-auto max-w-5xl grid grid-cols-1 sm:grid-cols-2 gap-6 lg:justify-items-center">
-        {[
-          { icon: Truck, title: 'Fulfilment & Logistics', desc: 'Pan-India shipping, tracking, and B2B dispatch workflows.' },
-          { icon: Wrench, title: 'After-Sales & Support', desc: 'Damage checks, spare availability, and ongoing support for smooth operations.' },
-        ].map((svc, i) => (
-          <motion.div
-            key={svc.title}
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            transition={{ delay: (i + 3) * 0.05 }}
-            className="group rounded-2xl border border-white/10 bg-white/5 p-6 backdrop-blur hover:bg-white/10 hover:border-white/20 transition"
-          >
-            <div className="flex items-start gap-4">
-              <div className="rounded-xl bg-white/10 p-3">
-                <svc.icon className="w-6 h-6 text-white" />
-              </div>
-              <div>
-                <h3 className="text-lg font-semibold">{svc.title}</h3>
-                <p className="text-sm text-blue-100 mt-1">{svc.desc}</p>
-              </div>
-            </div>
-          </motion.div>
-        ))}
-      </div>
-
-      {/* Row 3: 2 cards */}
-      <div className="mx-auto max-w-5xl grid grid-cols-1 sm:grid-cols-2 gap-6 lg:justify-items-center">
-        {[
-          { icon: Globe, title: 'Imported From China', desc: 'Factory tie-ups and thorough product testing before import.' },
-          { icon: IndianRupee, title: 'B2B Pricing', desc: 'Flexible wholesale pricing with credit options for businesses.' },
-        ].map((svc, i) => (
-          <motion.div
-            key={svc.title}
-            initial={{ opacity: 0, y: 20 }}
-            whileInView={{ opacity: 1, y: 0 }}
-            transition={{ delay: (i + 5) * 0.05 }}
-            className="group rounded-2xl border border-white/10 bg-white/5 p-6 backdrop-blur hover:bg-white/10 hover:border-white/20 transition"
-          >
-            <div className="flex items-start gap-4">
-              <div className="rounded-xl bg-white/10 p-3">
-                <svc.icon className="w-6 h-6 text-white" />
-              </div>
-              <div>
-                <h3 className="text-lg font-semibold">{svc.title}</h3>
-                <p className="text-sm text-blue-100 mt-1">{svc.desc}</p>
-              </div>
-            </div>
-          </motion.div>
-        ))}
-      </div>
-    </div>
-
-    {/* CTA Buttons */}
-    <div className="text-center mt-12">
-      <div className="inline-flex flex-col sm:flex-row gap-3">
-        <Link
-          to="/oem"
-          className="rounded-lg bg-white text-gray-900 px-6 py-3 font-semibold hover:bg-gray-100 inline-flex items-center justify-center"
-        >
-          Explore OEM <ArrowRight className="ml-2 w-4 h-4" />
-        </Link>
-        <Link
-          to="/contact"
-          className="rounded-lg border border-white/30 px-6 py-3 font-semibold hover:bg-white/10 inline-flex items-center justify-center text-white"
-        >
-          Contact Sales
-        </Link>
-      </div>
-    </div>
-  </div>
-</section>
-
-      {/* ===================== /Services ===================== */}
-
-      {/* Categories */}
-      <section className="py-16 bg-white">
+          )}
+        </div>
+      </section>
+       <section className="py-16 bg-white">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <motion.div className="text-center mb-12" initial={{ opacity: 0, y: 20 }} whileInView={{ opacity: 1, y: 0 }} transition={{ duration: 0.6 }}>
             <h2 className="text-3xl font-bold text-gray-900 mb-4">Shop by Category</h2>
@@ -515,6 +482,85 @@ With strict quality checks and honest pricing, Nakoda Mobile is here to support 
         </div>
       </section>
 
+
+      {/* BEST SELLERS */}
+      <section className="py-14 bg-white">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="mb-6 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="h-10 w-10 rounded-lg bg-indigo-50 border border-indigo-200 flex items-center justify-center">
+                <BadgeCheck className="h-5 w-5 text-indigo-600" />
+              </div>
+              <div>
+                <h2 className="text-2xl md:text-3xl font-bold text-gray-900">Best Sellers</h2>
+                <p className="text-gray-500">Customer favorites this week</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-2">
+              <button onClick={bestRef.scrollLeft} className="rounded-full border p-2 hover:bg-gray-50" aria-label="Prev">
+                <ChevronLeft className="w-5 h-5" />
+              </button>
+              <button onClick={bestRef.scrollRight} className="rounded-full border p-2 hover:bg-gray-50" aria-label="Next">
+                <ChevronRight className="w-5 h-5" />
+              </button>
+            </div>
+          </div>
+
+          {(loadingPopular && bestSellers.length === 0) || (loadingHot && hot.length === 0) ? (
+            <div className="flex gap-4 overflow-x-auto">
+              {/* compact skeletons */}
+              {Array.from({ length: 8 }).map((_, i) => (
+                <div key={i} className="rounded-2xl bg-white border border-gray-200 p-4 w-[220px] shrink-0">
+                  <div className="h-40 w-full rounded-lg bg-gray-100 animate-pulse" />
+                  <div className="mt-4 h-5 w-3/4 bg-gray-100 rounded animate-pulse" />
+                  <div className="mt-2 h-4 w-1/2 bg-gray-100 rounded animate-pulse" />
+                  <div className="mt-4 h-9 w-full bg-gray-100 rounded animate-pulse" />
+                </div>
+              ))}
+            </div>
+          ) : bestSellers.length === 0 ? (
+            <div className="text-sm text-gray-600">Popular items will appear here soon.</div>
+          ) : (
+            <div ref={bestRef.ref} className="flex gap-4 overflow-x-auto scroll-smooth no-scrollbar py-1">
+              {bestSellers.map((p) => (
+                <Card key={p._id} p={p} compact />
+              ))}
+            </div>
+          )}
+        </div>
+      </section>
+
+      {/* NEW ARRIVALS */}
+      <section className="py-14 bg-gray-50">
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="mb-6 flex items-center justify-between">
+            <div className="flex items-center gap-3">
+              <div className="h-10 w-10 rounded-lg bg-emerald-50 border border-emerald-200 flex items-center justify-center">
+                <Banknote className="h-5 w-5 text-emerald-600" />
+              </div>
+              <div>
+                <h2 className="text-2xl md:text-3xl font-bold text-gray-900">New Arrivals</h2>
+                <p className="text-gray-500">Fresh drops — updated often</p>
+              </div>
+            </div>
+            <Link to="/products?sort=new" className="text-indigo-600 hover:text-indigo-700 font-semibold">View all →</Link>
+          </div>
+
+          {loadingNew && newArrivals.length === 0 ? (
+            <SkeletonGrid count={8} />
+          ) : newArrivals.length === 0 ? (
+            <div className="text-sm text-gray-600">New arrivals will appear here soon.</div>
+          ) : (
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+              {newArrivals.slice(0, 8).map((p) => (
+                <Card key={p._id} p={p} />
+              ))}
+            </div>
+          )}
+        </div>
+      </section>
+
+      {/* Secondary promos / banners */}
       <PromoSlider />
 
       {/* Why Choose Us */}
@@ -544,129 +590,7 @@ With strict quality checks and honest pricing, Nakoda Mobile is here to support 
         </div>
       </section>
 
-      {/* ===================== Try Samples ===================== */}
-<section className="py-16 bg-white">
-  <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-    <div className="mb-8 flex items-center justify-between">
-      <div className="flex items-center gap-3">
-        <div className="h-10 w-10 rounded-lg bg-indigo-50 flex items-center justify-center">
-          <Sparkles className="h-5 w-5 text-indigo-600" />
-        </div>
-        <div>
-          <h2 className="text-2xl md:text-3xl font-bold text-gray-900">Try Samples</h2>
-          <p className="text-gray-600">Test quality before bulk—quick dispatch for verified B2B buyers</p>
-        </div>
-      </div>
-      <Link
-  to="/samples"   // ← CHANGE
-  className="text-indigo-600 hover:text-indigo-700 font-semibold"
->
-  Request custom sample →
-</Link>
-
-    </div>
-
-    {(() => {
-      // Build a 4–5 product sample set (prefer cheapest first)
-      const merged: Product[] = Array.from(
-        new Map(
-          [...newArrivals, ...hot].map((p) => [p._id, p]) // de-dup
-        ).values()
-      );
-
-      const pick = merged
-        .filter((p) => typeof p.price === 'number' && (p.status ?? 'active') === 'active')
-        .sort((a, b) => (a.price ?? 0) - (b.price ?? 0))
-        .slice(0, 5);
-
-      const fallback = (hot.length ? hot : newArrivals).slice(0, 5);
-      const samples = pick.length ? pick : fallback;
-
-      if ((loadingHot || loadingNew) && samples.length === 0) {
-        // Skeletons
-        return (
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-6">
-            {Array.from({ length: 5 }).map((_, i) => (
-              <div key={i} className="rounded-2xl bg-white border border-gray-200 p-4">
-                <div className="h-40 w-full rounded-lg bg-gray-100 animate-pulse" />
-                <div className="mt-4 h-5 w-3/4 bg-gray-100 rounded animate-pulse" />
-                <div className="mt-2 h-4 w-1/2 bg-gray-100 rounded animate-pulse" />
-                <div className="mt-4 h-9 w-full bg-gray-100 rounded animate-pulse" />
-              </div>
-            ))}
-          </div>
-        );
-      }
-
-      if (!samples.length) {
-        return <div className="text-sm text-gray-600">Samples will appear here soon.</div>;
-      }
-
-      const sampleLink = (p: Product) =>
-  `/product/${encodeURIComponent(p.slug || p._id)}?sample=1`;  // ← CHANGE
-
-
-      return (
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-6">
-          {samples.map((p) => {
-            const img = productImage(p);
-            return (
-              <article
-                key={p._id}
-                className="group rounded-2xl border border-gray-200 bg-white p-4 hover:shadow-md transition"
-              >
-                <button
-                  onClick={() => goToProduct(p)}
-                  className="block w-full overflow-hidden rounded-xl bg-gray-50"
-                  aria-label={p.name}
-                >
-                  {img ? (
-                    <img
-                      src={img}
-                      alt={p.name}
-                      className="h-40 w-full object-cover transition-transform duration-500 group-hover:scale-105"
-                      loading="lazy"
-                    />
-                  ) : (
-                    <div className="h-40 w-full bg-gray-100" />
-                  )}
-                </button>
-
-                <div className="mt-3">
-                  <h3 className="line-clamp-2 font-semibold text-gray-900">{p.name}</h3>
-                  <div className="mt-1 flex items-center gap-2">
-                    <div className="text-indigo-700 font-bold">₹{p.price?.toLocaleString()}</div>
-                    {p.originalPrice && p.originalPrice > p.price && (
-                      <div className="text-gray-400 line-through">₹{p.originalPrice.toLocaleString()}</div>
-                    )}
-                  </div>
-
-                  <div className="mt-3 grid grid-cols-1 gap-2">
-                    <Link
-                      to={sampleLink(p)}
-                      className="rounded-lg bg-gray-900 px-3 py-2 text-sm font-semibold text-white text-center hover:bg-black"
-                    >
-                      Request Sample
-                    </Link>
-                    <Link
-                      to={`/product/${p.slug || p._id}`}
-                      className="rounded-lg border border-gray-300 px-3 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 text-center"
-                    >
-                      View
-                    </Link>
-                  </div>
-                </div>
-              </article>
-            );
-          })}
-        </div>
-      );
-    })()}
-  </div>
-</section>
-{/* ===================== /Try Samples ===================== */}
-
-
+      
       {/* Testimonials */}
       <section className="py-16 bg-gray-50">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -718,15 +642,26 @@ With strict quality checks and honest pricing, Nakoda Mobile is here to support 
               <span className="text-sm font-semibold">🏭 OEM Services Available</span>
             </motion.div>
             <h2 className="text-3xl md:text-4xl font-bold mb-6">Need Bulk Orders or Custom Branding?</h2>
-            <p className="text-xl mb-8 max-w-3xl mx-auto">We provide comprehensive OEM services including bulk manufacturing, custom branding, and  packaging solutions for businesses.</p>
+            <p className="text-xl mb-8 max-w-3xl mx-auto">We provide comprehensive OEM services including bulk manufacturing, custom branding, and packaging solutions for businesses.</p>
             <div className="flex flex-col sm:flex-row gap-4 justify-center">
-              <Link to="/oem" className="bg-white text-blue-600 px-8 py-3 rounded-lg font-semibold hover:bg-gray-100 transition-colors duration-200 inline-flex items-center justify-center">
-                <span>Learn More</span>
-                <ArrowRight className="ml-2 h-4 w-4" />
-              </Link>
-              <Link to="/oem#contact-form" className="border-2 border-white text-white px-8 py-3 rounded-lg font-semibold hover:bg-white hover:text-gray-900 transition-colors duration-200">
-                Get Quote
-              </Link>
+              <a
+  href="https://nakodamobile.in/oem"
+  
+  target="_blank"
+  rel="noopener noreferrer"
+  className="bg-white text-blue-600 px-8 py-3 rounded-lg font-semibold hover:bg-gray-100 transition-colors duration-200 inline-flex items-center justify-center"
+>
+  <span>Learn More</span>
+  <ArrowRight className="ml-2 h-4 w-4" />
+</a>
+
+             <a
+  href="https://nakodamobile.in/oem#contact-form"
+  className="border-2 border-white text-white px-8 py-3 rounded-lg font-semibold hover:bg-white hover:text-gray-900 transition-colors duration-200"
+>
+  Get Quote
+</a>
+
             </div>
           </motion.div>
         </div>

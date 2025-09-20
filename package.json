@@ -12,7 +12,8 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@aws-sdk/client-s3": "3.890.0",
+    "@aws-sdk/client-s3": "^3.890.0",
+    "@aws-sdk/credential-providers": "^3.893.0",
     "@aws-sdk/s3-request-presigner": "3.890.0",
     "@cloudinary/react": "^1.14.3",
     "@cloudinary/url-gen": "^1.21.0",
@@ -46,6 +47,7 @@
     "jsonwebtoken": "^9.0.2",
     "lazy": "^1.0.11",
     "lucide-react": "^0.540.0",
+    "mime-types": "^3.0.1",
     "mongoose": "^8.16.3",
     "morgan": "^1.10.0",
     "multer": "^2.0.2",
@@ -64,6 +66,7 @@
     "react-router-dom": "^7.6.3",
     "react-toastify": "^11.0.5",
     "recharts": "^3.1.2",
+    "sharp": "^0.34.4",
     "socket.io": "^4.8.1",
     "socket.io-client": "^4.8.1",
     "stripe": "^18.3.0",
@@ -81,6 +84,7 @@
     "@types/file-saver": "^2.0.7",
     "@types/jest": "^30.0.0",
     "@types/jsonwebtoken": "^9.0.10",
+    "@types/mime-types": "^3.0.1",
     "@types/multer": "^2.0.0",
     "@types/node": "^24.3.1",
     "@types/papaparse": "^5.3.16",
