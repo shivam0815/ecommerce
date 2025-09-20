@@ -473,54 +473,9 @@ const CheckoutPage: React.FC = () => {
               ))}
             </div>
 
-            {/* Coupon */}
-            <div className="mb-5 sm:mb-6">
-              <label className="block text-sm font-semibold text-gray-800 mb-2">
-                <div className="flex items-center gap-2">
-                  <Tag className="h-4 w-4 text-rose-600" />
-                  Apply Coupon
-                </div>
-              </label>
-              <div className="flex gap-2">
-                <input
-                  value={couponInput}
-                  onChange={(e) => setCouponInput(e.target.value)}
-                  className="flex-1 px-3 sm:px-4 py-2.5 sm:py-3 border-2 rounded-xl bg-gray-50 border-gray-200 focus:bg-white focus:ring-4 focus:ring-blue-500/20 focus:border-blue-500 transition-all text-sm sm:text-base"
-                  placeholder="WELCOME10, SAVE50, FREESHIP, NKD150"
-                />
-                <button
-                  type="button"
-                  onClick={onApplyCoupon}
-                  className="px-3 sm:px-4 py-2.5 sm:py-3 rounded-xl bg-blue-600 text-white font-semibold hover:bg-blue-700"
-                >
-                  Apply
-                </button>
-              </div>
-              {appliedCoupon && (
-                <div className="mt-2 text-xs sm:text-sm text-green-700 flex items-center gap-1">
-                  <BadgePercent className="h-4 w-4" />
-                  {appliedCoupon.message}
-                </div>
-              )}
-            </div>
+          
 
-            {/* Gift wrap */}
-            <div className="mb-5 sm:mb-6">
-              <label className="inline-flex items-center gap-3 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={giftWrap}
-                  onChange={(e) => setGiftWrap(e.target.checked)}
-                  className="h-4 w-4"
-                />
-                <span className="flex items-center gap-2 text-sm sm:text-base">
-                  <Gift className="h-4 w-4 text-pink-600" />
-                  <span className="text-gray-800">
-                    Add gift wrap <span className="text-gray-500">({formatINR(GIFT_WRAP_FEE)})</span>
-                  </span>
-                </span>
-              </label>
-            </div>
+           
 
             <div className="border-t border-gray-200 pt-5 sm:pt-6 space-y-2 sm:space-y-3 text-sm">
               <div className="flex justify-between">
