@@ -25,25 +25,24 @@ type Category = {
 
 // ---- Categories (update image paths to your assets) ----
 const CATEGORIES: Category[] = [
-  { label: 'True Wireless Earbuds', slug: 'tws',                img: '/Earbud-removebg-preview.png' },
-  { label: 'Wireless Speakers',     slug: 'wireless-speakers',  img: '/Bluetooth-Speaker.webp' },
-  
- 
-
-  
-  
-  { label: 'Chargers',              slug: 'chargers',           img: '/Charger1.webp' },
+   { label: 'Chargers',              slug: 'chargers',           img: '/Charger1.webp' },
   { label: 'Car Charger',       slug: 'Car-Charger',    img: '/CarCharger.webp' },
-
-  { label: 'Neckbands',             slug: 'neckband',           img: '/Neckband-removebg-preview.png' },
+   { label: 'Data Cables',                slug: 'cables',             img: '/cable.png' },
+  { label: 'True Wireless Earbuds', slug: 'tws',                img: '/Earbud-removebg-preview.png' },
+    { label: 'Neckbands',             slug: 'neckband',           img: '/Neckband-removebg-preview.png' },
+  { label: 'Wireless Speakers',     slug: 'wireless-speakers',  img: '/Bluetooth-Speaker.webp' },
+    { label: 'ICs',             slug: 'ICs',           img: '/ics.webp' },
  
-  { label: 'Power Banks',           slug: 'power-bank',         img: '/Powerbank.webp' },
-
-
-  
-  { label: 'ICs',             slug: 'ICs',           img: '/ics.webp' },
-  { label: 'Data Cables',                slug: 'cables',             img: '/cable.png' },
+{ label: 'Power Banks',           slug: 'power-bank',         img: '/Powerbank.webp' },
   { label: 'Mobile Tools',    slug: 'mobile-accessories', img: '/Reapring-Tools.webp' },
+  
+  
+ 
+  
+
+ 
+ 
+  
 
 
 

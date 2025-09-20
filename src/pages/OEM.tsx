@@ -9,8 +9,9 @@ import {
 import SEO from '../components/Layout/SEO';
 import { oemService } from '../services/oemService';
 import toast from 'react-hot-toast';
-// Optional Cloudinary helper (you already use it elsewhere)
-import { generateResponsiveImageUrl } from '../utils/cloudinaryBrowser';
+
+// ✅ Use the same image helpers you use elsewhere (S3/relative-safe)
+import { resolveImageUrl, getFirstImageUrl, getOptimizedImageUrl } from '../utils/imageUtils';
 
 const isEmail = (e: string) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/i.test(e.trim());
 const isPhone10 = (p: string) => /^\d{10}$/.test(p.trim());
@@ -35,7 +36,7 @@ type Product = {
   slug?: string;
   price: number;
   originalPrice?: number;
-  images?: string[];
+  images?: any[] | string[]; // support objects/strings
   imageUrl?: string;         // some APIs use single image field
   rating?: number;
   category?: string;
@@ -162,19 +163,19 @@ const OEM: React.FC = () => {
     return pick;
   }, [topProducts]);
 
+  // ✅ S3/relative-safe image resolver (no Cloudinary dependency)
   const productImage = (p: Product) => {
-    const raw = p.images?.[0] || p.imageUrl;
-    if (!raw) return undefined;
-    try {
-      return generateResponsiveImageUrl(raw, { width: 400, height: 400, crop: 'fill' });
-    } catch {
-      return raw; // if helper not available
-    }
+    const first = getFirstImageUrl(p.images as any) || (p.imageUrl as any);
+    if (!first) return undefined;
+    const abs = resolveImageUrl(first);
+    // If VITE_IMG_VARIANT_STYLE=none, this will return the same URL (no-op)
+    return getOptimizedImageUrl(abs, { width: 400, height: 400, fit: 'cover' });
   };
 
   const goToProduct = (p: Product) => {
     const slugOrId = p.slug || p._id;
-    navigate(`/product/${slugOrId}`);
+    // 🔁 keep route consistent with rest of site
+    navigate(`/products/${slugOrId}`);
   };
 
   const services = [
@@ -185,11 +186,11 @@ const OEM: React.FC = () => {
   ];
 
   const features = [
-    'Minimum Order Quantity: 50 pieces',
-    'Custom packaging and branding',
+    'Minimum Order Quantity: 10 pieces',
+    'Universal packaging and branding',
     'Quality assurance and testing',
     'Competitive wholesale pricing',
-    'Fast turnaround times',
+    'Fast test times',
     'Global shipping available',
   ];
 
@@ -304,6 +305,12 @@ const OEM: React.FC = () => {
                           alt={p.name}
                           className="h-44 w-full object-cover transition-transform duration-500 group-hover:scale-105"
                           loading="lazy"
+                          referrerPolicy="no-referrer"
+                          onError={(e) => {
+                            (e.currentTarget as HTMLImageElement).src =
+                              'data:image/svg+xml;utf8,' +
+                              encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="400" height="400"><rect width="100%" height="100%" fill="#f3f4f6"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="#9ca3af" font-family="sans-serif" font-size="14">No image</text></svg>');
+                          }}
                         />
                       ) : (
                         <div className="h-44 w-full bg-gray-100" />
@@ -338,7 +345,7 @@ const OEM: React.FC = () => {
                           Buy Now
                         </button>
                         <Link
-                          to={`/product/${p.slug || p._id}`}
+                          to={`/products/${p.slug || p._id}`}
                           className="flex-1 rounded-lg border border-gray-300 px-3 py-2 text-sm font-semibold text-gray-700 hover:bg-gray-50 text-center"
                         >
                           View
@@ -382,6 +389,12 @@ const OEM: React.FC = () => {
                           alt={p.name}
                           className="h-44 w-full object-cover transition-transform duration-500 group-hover:scale-105"
                           loading="lazy"
+                          referrerPolicy="no-referrer"
+                          onError={(e) => {
+                            (e.currentTarget as HTMLImageElement).src =
+                              'data:image/svg+xml;utf8,' +
+                              encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="400" height="400"><rect width="100%" height="100%" fill="#11182733"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="#9ca3af" font-family="sans-serif" font-size="14">No image</text></svg>');
+                          }}
                         />
                       ) : (
                         <div className="h-44 w-full bg-white/10" />
@@ -398,7 +411,7 @@ const OEM: React.FC = () => {
                           Try Now
                         </button>
                         <Link
-                          to={`/product/${p.slug || p._id}`}
+                          to={`/products/${p.slug || p._id}`}
                           className="flex-1 rounded-lg border border-white/30 px-3 py-2 text-sm font-semibold text-white hover:bg-white/10 text-center"
                         >
                           Details
@@ -442,6 +455,7 @@ const OEM: React.FC = () => {
               src="https://images.pexels.com/photos/3184360/pexels-photo-3184360.jpeg?auto=compress&cs=tinysrgb&w=600"
               alt="OEM Manufacturing"
               className="rounded-lg shadow-xl"
+              loading="lazy"
             />
             <div className="absolute inset-0 bg-gradient-to-t from-blue-600/20 to-transparent rounded-lg"></div>
           </div>
@@ -628,10 +642,10 @@ const OEM: React.FC = () => {
           <h2 className="text-3xl md:text-4xl font-bold mb-6">Ready to Scale Your Business?</h2>
           <p className="text-xl mb-8 max-w-3xl mx-auto">Join hundreds of businesses worldwide who trust Nakoda Mobile.</p>
           <div className="flex flex-col sm:flex-row gap-4 justify-center">
-            <a href="tel:+919876543210" className="bg-white text-blue-600 px-8 py-3 rounded-lg font-semibold hover:bg-gray-100 inline-flex items-center justify-center">
+            <a href="tel:+919667960044" className="bg-white text-blue-600 px-8 py-3 rounded-lg font-semibold hover:bg-gray-100 inline-flex items-center justify-center">
               <Phone className="h-5 w-5 mr-2" /> Call Now: +919667960044
             </a>
-            <a href="mailto:oem@nakodamobile.com" className="border-2 border-white text-white px-8 py-3 rounded-lg font-semibold hover:bg-white hover:text-blue-600 inline-flex items-center justify-center">
+            <a href="mailto:support@nakodamobile.in" className="border-2 border-white text-white px-8 py-3 rounded-lg font-semibold hover:bg-white hover:text-blue-600 inline-flex items-center justify-center">
               <Mail className="h-5 w-5 mr-2" /> Email: support@nakodamobile.in
             </a>
           </div>

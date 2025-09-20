@@ -13,7 +13,7 @@ import {
   MessageCircle,
   CreditCard,
 
-  // 👇 NEW: icons for Trust & Compliance strip
+  // 👇 Trust & Compliance strip
   FileText,      // GST Invoice
   Truck,         // Bulk Dispatch
   Factory,       // OEM / Factory Tested
@@ -23,9 +23,7 @@ import {
 import { productService } from '../services/productService';
 import type { Product } from '../types';
 import { useCart } from '../hooks/useCart';
-
-import { resolveImageUrl, getOptimizedImageUrl } from '../utils/imageUtils';
-
+import { resolveImageUrl } from '../utils/imageUtils';
 import toast from 'react-hot-toast';
 import SEO from '../components/Layout/SEO';
 import Reviews from '../components/Layout/Reviews';
@@ -276,8 +274,9 @@ const ProductDetail: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [selectedImage, setSelectedImage] = useState<number>(0);
 
-  // initialize with STEP; will bump to MOQ after load
+  // ✅ quantity: number for validated value, quantityStr: for free typing in input
   const [quantity, setQuantity] = useState<number>(STEP);
+  const [quantityStr, setQuantityStr] = useState<string>(String(STEP));
   const [activeTab, setActiveTab] = useState<'description' | 'specifications' | 'reviews'>('description');
 
   const { addToCart, isLoading } = useCart();
@@ -338,10 +337,13 @@ const ProductDetail: React.FC = () => {
       Number((product as any).stockQuantity ?? MAX_PER_LINE) || MAX_PER_LINE
     );
 
-    // snap to a multiple of STEP and ≥ MOQ
+    // snap to a multiple of STEP and ≥ MOQ (always up)
     const base = Math.max(moq, STEP);
     const snapped = Math.ceil(base / STEP) * STEP;
-    setQuantity(Math.min(stockCap, snapped));
+    const finalQty = Math.min(stockCap, snapped);
+
+    setQuantity(finalQty);
+    setQuantityStr(String(finalQty));
   }, [product]);
 
   /* Fetch rails after product is loaded */
@@ -397,7 +399,7 @@ const ProductDetail: React.FC = () => {
         Number((product as any).stockQuantity ?? MAX_PER_LINE) || MAX_PER_LINE
       );
 
-      // clamp and snap to STEP
+      // clamp & snap (ceil) the current validated quantity
       const base = Math.max(moq, Math.min(maxQty, quantity));
       const finalQty = Math.ceil(base / STEP) * STEP;
 
@@ -597,7 +599,11 @@ const ProductDetail: React.FC = () => {
                 <label className="text-gray-700 text-sm sm:text-base font-medium">Qty</label>
                 <div className="flex items-center border border-gray-300 rounded-lg">
                   <button
-                    onClick={() => setQuantity(q => Math.max(moq, q - STEP))}
+                    onClick={() => {
+                      const next = Math.max(moq, quantity - STEP);
+                      setQuantity(next);
+                      setQuantityStr(String(next));
+                    }}
                     className="p-2 sm:p-2.5 hover:bg-gray-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                     disabled={quantity <= moq}
                     aria-label="Decrease quantity"
@@ -606,28 +612,33 @@ const ProductDetail: React.FC = () => {
                   </button>
                   <input
                     type="number"
+                    inputMode="numeric"
                     step={STEP}
                     min={moq}
                     max={maxQty}
-                    value={quantity}
+                    value={quantityStr}
                     onChange={(e) => {
-                      const raw = parseInt(e.target.value, 10);
-                      if (!Number.isFinite(raw)) return;
-                      const clamped = Math.max(moq, Math.min(maxQty, raw));
-                      const snapped = Math.round(clamped / STEP) * STEP;
-                      setQuantity(Math.max(moq, Math.min(maxQty, snapped)));
+                      const v = e.target.value;
+                      if (v === '') { setQuantityStr(''); return; }
+                      setQuantityStr(v);
                     }}
                     onBlur={() => {
-                      setQuantity(q => {
-                        const clamped = Math.max(moq, Math.min(maxQty, q));
-                        return Math.round(clamped / STEP) * STEP;
-                      });
+                      let n = parseInt(quantityStr, 10);
+                      if (!Number.isFinite(n)) n = moq;
+                      const clamped = Math.max(moq, Math.min(maxQty, n));
+                      const snapped = Math.ceil(clamped / STEP) * STEP; // always up
+                      setQuantity(snapped);
+                      setQuantityStr(String(snapped));
                     }}
                     className="w-16 sm:w-20 text-center text-sm sm:text-base border-0 focus:ring-0 focus:outline-none"
                     aria-label="Quantity"
                   />
                   <button
-                    onClick={() => setQuantity(q => Math.min(maxQty, q + STEP))}
+                    onClick={() => {
+                      const next = Math.min(maxQty, quantity + STEP);
+                      setQuantity(next);
+                      setQuantityStr(String(next));
+                    }}
                     className="p-2 sm:p-2.5 hover:bg-gray-100 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                     disabled={quantity >= maxQty}
                     aria-label="Increase quantity"
@@ -709,7 +720,6 @@ const ProductDetail: React.FC = () => {
                 className="mt-2 sm:mt-3"
               >
                 <div className="grid grid-cols-2 sm:flex sm:flex-wrap gap-2 sm:gap-3">
-                  {/* Badge */}
                   <div className="inline-flex items-center gap-2 px-3 py-2 rounded-full border border-gray-200 bg-gray-50 text-gray-800 text-xs sm:text-sm shadow-sm">
                     <FileText className="h-4 w-4 text-blue-600" />
                     <span className="font-medium">GST Invoice</span>

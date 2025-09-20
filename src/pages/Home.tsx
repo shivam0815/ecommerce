@@ -289,10 +289,10 @@ With strict quality checks and honest pricing, Nakoda Mobile is here to support 
         {(() => {
           const rawPhotos = [
             // TODO: replace these with your real shop images
-            'https://nakoda-web-image.s3.ap-south-1.amazonaws.com/20250103_120222-1024x768.jpg',
-            'https://nakoda-web-image.s3.ap-south-1.amazonaws.com/Picsart_25-01-03_16-13-31-139-768x1024.jpg',
-            'https://nakoda-web-image.s3.ap-south-1.amazonaws.com/20250103_120248-1024x768.jpg',
-            'https://nakoda-web-image.s3.ap-south-1.amazonaws.com/20250103_120335-1024x768.jpg',
+            'https://nakoda-web-image.s3.ap-south-1.amazonaws.com/products/20250103_120335-1024x768.jpg',
+            'https://nakoda-web-image.s3.ap-south-1.amazonaws.com/products/Picsart_25-01-03_16-13-31-139-768x1024.jpg',
+            'https://nakoda-web-image.s3.ap-south-1.amazonaws.com/products/20250103_120222-1024x768.jpg',
+            'https://nakoda-web-image.s3.ap-south-1.amazonaws.com/products/20250103_120422-1-1024x768.jpg',
             'https://nakoda-web-image.s3.ap-south-1.amazonaws.com/20250103_120222-1024x768.jpg',
           ];
 

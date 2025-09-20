@@ -298,7 +298,7 @@ const Contact: React.FC = () => {
             </p>
             <div className="inline-flex items-center gap-2 bg-white/15 px-4 py-2 rounded-full text-sm">
               <CheckCircle className="h-4 w-4 text-emerald-300" />
-              Typical response time: under 24 hours
+              Typical response time: within 24 hours
             </div>
           </motion.div>
         </div>
@@ -490,7 +490,7 @@ const Contact: React.FC = () => {
                             (errors.subject ? 'border-rose-300' : 'border-gray-300')
                           }
                         >
-                          <option value="">Select department</option>
+                          <option value="">Select Query Type</option>
                           {[
                             { value: 'general', label: 'General Inquiry' },
                             { value: 'support', label: 'Customer Support' },
