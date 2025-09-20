@@ -1845,6 +1845,7 @@ const OrdersTab: React.FC = () => {
                               breadthCm: (document.getElementById('pkgB') as HTMLInputElement).value,
                               heightCm: (document.getElementById('pkgH') as HTMLInputElement).value,
                               weightKg: (document.getElementById('pkgW') as HTMLInputElement).value,
+                              images: selected.shippingPackage?.images || [],  
                             };
                             savePackAndLink(selected._id, body);
                           }}
@@ -1861,6 +1862,7 @@ const OrdersTab: React.FC = () => {
                                 breadthCm: (document.getElementById('pkgB') as HTMLInputElement).value,
                                 heightCm: (document.getElementById('pkgH') as HTMLInputElement).value,
                                 weightKg: (document.getElementById('pkgW') as HTMLInputElement).value,
+                                images: selected.shippingPackage?.images || [],  
                                 createPaymentLink: true,
                                 amount,
                               };

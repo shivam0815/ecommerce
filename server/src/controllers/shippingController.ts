@@ -108,21 +108,26 @@ export async function setPackageAndMaybeLink(req: Request, res: Response) {
 
     // Send email/SMS — do NOT fail the API if mailer throws
     try {
-      await email.sendShippingPaymentLink(order, {
-        amount: amt,
-        currency,
-        shortUrl: link.short_url,
-        linkId: link.id,
-        lengthCm: asNum(lengthCm),
-        breadthCm: asNum(breadthCm),
-        heightCm: asNum(heightCm),
-        weightKg: asNum(weightKg),
-        notes,
-        images: Array.isArray(images) ? images.filter(isHttp).slice(0, 5) : undefined,
-      });
-    } catch (mailErr: any) {
-      console.warn('[shipping] email.sendShippingPaymentLink failed:', mailErr?.message || mailErr);
-    }
+  // ✅ ALWAYS use what we just saved on the order
+  const photos = (order.shippingPackage?.images || [])
+    .filter(isHttp)
+    .slice(0, 5);
+
+  await email.sendShippingPaymentLink(order, {
+    amount: amt,
+    currency,
+    shortUrl: link.short_url,
+    linkId: link.id,
+    lengthCm: asNum(lengthCm),
+    breadthCm: asNum(breadthCm),
+    heightCm: asNum(heightCm),
+    weightKg: asNum(weightKg),
+    notes,
+    images: photos,          // ⬅️ key change
+  });
+} catch (mailErr: any) {
+  console.warn('[shipping] email.sendShippingPaymentLink failed:', mailErr?.message || mailErr);
+}
 
     return res.json({ success: true, order });
   } catch (e: any) {
