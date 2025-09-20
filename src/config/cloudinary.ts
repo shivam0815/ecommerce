@@ -1,247 +1,447 @@
-// src/config/cloudinary.ts  (S3-backed media adapter; same exports)
-// -----------------------------------------------------------------
-import {
-  S3Client,
-  PutObjectCommand,
-  DeleteObjectsCommand,
-  ListObjectsV2Command,
-  GetBucketLocationCommand,
-} from "@aws-sdk/client-s3";
-import { fromNodeProviderChain } from "@aws-sdk/credential-providers";
-import crypto from "crypto";
-import mime from "mime-types";
-import sharp from "sharp";
+// src/config/cloudinary.ts - UPGRADED PRODUCTION VERSION
+import { v2 as cloudinary } from 'cloudinary';
 
-// ===== ENV & INIT =====
-const S3_BUCKET = process.env.S3_BUCKET!;
-const S3_REGION = process.env.S3_REGION || "ap-south-1";
-const S3_PUBLIC_BASE = (process.env.S3_PUBLIC_BASE || `https://${S3_BUCKET}.s3.${S3_REGION}.amazonaws.com`).replace(/\/+$/, "");
-const PREFIX = (process.env.S3_UPLOAD_PREFIX || "nakoda-products/").replace(/^\/+|\/+$/g, "") + "/";
-const OBJECT_ACL = (process.env.S3_OBJECT_ACL || "").trim(); // "" or "public-read"
+// ✅ Enhanced configuration with validation
+const initializeCloudinary = () => {
+  const requiredEnvVars = {
+    CLOUDINARY_CLOUD_NAME: process.env.CLOUDINARY_CLOUD_NAME,
+    CLOUDINARY_API_KEY: process.env.CLOUDINARY_API_KEY,
+    CLOUDINARY_API_SECRET: process.env.CLOUDINARY_API_SECRET
+  };
 
-const missing = ["S3_BUCKET"].filter((k) => !process.env[k]);
-if (missing.length) throw new Error(`Missing env: ${missing.join(", ")}`);
+  // Validate required environment variables
+  const missingVars = Object.entries(requiredEnvVars)
+    .filter(([key, value]) => !value)
+    .map(([key]) => key);
 
-const s3 = new S3Client({
-  region: S3_REGION,
-  credentials: fromNodeProviderChain(), // env/role/SSO – no secrets in code
-});
+  if (missingVars.length > 0) {
+    console.error('❌ Missing Cloudinary environment variables:', missingVars);
+    throw new Error(`Missing required environment variables: ${missingVars.join(', ')}`);
+  }
 
-const rand = (n = 6) => crypto.randomBytes(n).toString("hex");
-const clean = (s: string) => s.toLowerCase().replace(/[^a-z0-9.-]/g, "-").replace(/-+/g, "-").replace(/^-|-$/g, "");
+  cloudinary.config({
+    cloud_name: requiredEnvVars.CLOUDINARY_CLOUD_NAME,
+    api_key: requiredEnvVars.CLOUDINARY_API_KEY,
+    api_secret: requiredEnvVars.CLOUDINARY_API_SECRET,
+    secure: true,
+    timeout: 120000, // 2 minutes timeout
+  });
 
-// where the file will be publicly accessible
-const publicUrlFor = (key: string) => `${S3_PUBLIC_BASE}/${key.replace(/^\/+/, "")}`;
+  console.log('✅ Cloudinary initialized successfully');
+};
 
-// ===== Cloudinary-like “transform sets” (used by Sharp here) =====
+// Initialize on import
+initializeCloudinary();
+
+// ✅ Meesho-style image transformations
 export const IMAGE_TRANSFORMATIONS = {
-  thumbnail: { width: 150, height: 150, fit: "cover" as const, format: "webp", quality: 72 },
-  small:     { width: 300, height: 300, fit: "cover" as const, format: "webp", quality: 75 },
-  medium:    { width: 600, height: 600, fit: "cover" as const, format: "webp", quality: 78 },
-  large:     { width: 1200, height: 1200, fit: "cover" as const, format: "webp", quality: 80 },
-  original:  { width: undefined, height: undefined, fit: "inside" as const, format: "webp", quality: 80 },
-} as const;
+  thumbnail: {
+    width: 150,
+    height: 150,
+    crop: 'fill',
+    quality: 'auto:good',
+    format: 'webp',
+    fetch_format: 'auto'
+  },
+  small: {
+    width: 300,
+    height: 300,
+    crop: 'fill',
+    quality: 'auto:good',
+    format: 'webp',
+    fetch_format: 'auto'
+  },
+  medium: {
+    width: 600,
+    height: 600,
+    crop: 'fill',
+    quality: 'auto:good',
+    format: 'webp',
+    fetch_format: 'auto'
+  },
+  large: {
+    width: 1200,
+    height: 1200,
+    crop: 'fill',
+    quality: 'auto:eco',
+    format: 'webp',
+    fetch_format: 'auto'
+  },
+  original: {
+    quality: 'auto:eco',
+    format: 'webp',
+    fetch_format: 'auto'
+  }
+};
 
-// ===== Health check (kept name for drop-in compatibility) =====
+// ✅ Enhanced connection test with retry mechanism
 export const testCloudinaryConnection = async (retries = 3): Promise<boolean> => {
-  for (let i = 1; i <= retries; i++) {
+  for (let attempt = 1; attempt <= retries; attempt++) {
     try {
-      await s3.send(new GetBucketLocationCommand({ Bucket: S3_BUCKET }));
-      console.log("✅ S3 connection successful");
+      console.log(`🧪 Testing Cloudinary connection (attempt ${attempt}/${retries})...`);
+      console.log('   Cloud Name:', process.env.CLOUDINARY_CLOUD_NAME ? '✓ Set' : '❌ Missing');
+      console.log('   API Key:', process.env.CLOUDINARY_API_KEY ? '✓ Set' : '❌ Missing');
+      console.log('   API Secret:', process.env.CLOUDINARY_API_SECRET ? '✓ Set' : '❌ Missing');
+      
+      const result = await cloudinary.api.ping();
+      console.log('✅ Cloudinary connection successful:', result.status);
       return true;
-    } catch (e) {
-      console.error(`❌ S3 connection attempt ${i} failed`, e);
-      if (i === retries) return false;
-      await new Promise((r) => setTimeout(r, 1000 * i));
+    } catch (error: any) {
+      console.error(`❌ Cloudinary connection failed (attempt ${attempt}):`, {
+        message: error.message,
+        http_code: error.http_code,
+        name: error.name
+      });
+      
+      if (attempt === retries) {
+        console.error('💥 All connection attempts failed');
+        return false;
+      }
+      
+      // Wait before retry
+      await new Promise(resolve => setTimeout(resolve, 1000 * attempt));
     }
   }
   return false;
 };
 
-// ===== Validate/clean image before upload =====
-export const validateAndProcessImage = (
-  buffer: Buffer,
-  filename: string,
-  maxSizeBytes = 10 * 1024 * 1024
-): { isValid: boolean; error?: string; processedFilename: string } => {
-  if (buffer.length > maxSizeBytes) {
-    return { isValid: false, error: `File too large (${(buffer.length/1024/1024).toFixed(2)}MB)`, processedFilename: filename };
-  }
-  const signatures = [
-    [0xff, 0xd8, 0xff],             // JPG
-    [0x89, 0x50, 0x4e, 0x47],       // PNG
-    [0x47, 0x49, 0x46],             // GIF
-    [0x52, 0x49, 0x46, 0x46],       // WEBP (RIFF)
-  ];
-  const isImg = signatures.some(sig => sig.every((b,i)=> buffer[i]===b));
-  if (!isImg) return { isValid: false, error: "Invalid image format", processedFilename: filename };
-  return { isValid: true, processedFilename: clean(filename) };
-};
-
-// ===== Core uploader (creates multiple size variants with Sharp) =====
+// ✅ Enhanced upload with multiple sizes (Meesho approach)
 export const uploadProductImages = async (
   buffer: Buffer,
   productId: string,
   filename?: string,
   retries = 3
-): Promise<{ success: boolean; images: { [key: string]: any }; error?: string }> => {
-  const imageVersions: Record<string, any> = {};
-  const baseName = (filename ? filename.split(".").slice(0, -1).join(".") : "image") || "image";
-  const safeBase = clean(baseName) || "image";
-
-  // helper: upload one variant
-  const putVariant = async (sizeName: keyof typeof IMAGE_TRANSFORMATIONS) => {
-    const t = IMAGE_TRANSFORMATIONS[sizeName];
-    const key = `${PREFIX}${productId}/${safeBase}-${sizeName}.webp`;
-
-    let img = sharp(buffer, { failOnError: false });
-    if (t.width || t.height) img = img.resize({ width: t.width, height: t.height, fit: t.fit });
-    img = img.toFormat("webp", { quality: t.quality });
-
-    const out = await img.toBuffer();
-    await s3.send(new PutObjectCommand({
-      Bucket: S3_BUCKET,
-      Key: key,
-      Body: out,
-      ContentType: "image/webp",
-      CacheControl: "public, max-age=31536000, immutable",
-      ...(OBJECT_ACL ? { ACL: OBJECT_ACL as any } : {}),
-      Metadata: {
-        product_id: productId,
-        variant: String(sizeName),
-        source: "sharp",
-      },
-    }));
-
-    const secure_url = publicUrlFor(key);
-    imageVersions[sizeName] = {
-      public_id: key,
-      secure_url,
-      width: t.width ?? null,
-      height: t.height ?? null,
-      format: "webp",
-      bytes: out.length,
-      created_at: new Date().toISOString(),
-    };
-  };
-
+): Promise<{
+  success: boolean;
+  images: { [key: string]: any };
+  error?: string;
+}> => {
+  const imageVersions: { [key: string]: any } = {};
+  
   for (let attempt = 1; attempt <= retries; attempt++) {
     try {
-      await Promise.all([
-        putVariant("thumbnail"),
-        putVariant("small"),
-        putVariant("medium"),
-        putVariant("large"),
-      ]);
+      console.log(`📤 Uploading product images (attempt ${attempt}/${retries})...`);
+      
+      // Upload all size variants
+      const uploadPromises = Object.entries(IMAGE_TRANSFORMATIONS).map(
+        async ([sizeName, transformation]) => {
+          const publicId = `nakoda-products/${productId}/${filename || 'image'}-${sizeName}`;
+          
+          const result = await new Promise<any>((resolve, reject) => {
+            const uploadStream = cloudinary.uploader.upload_stream(
+              {
+                resource_type: 'auto',
+                public_id: publicId,
+                use_filename: false,
+                unique_filename: false,
+                overwrite: true,
+                transformation: [transformation],
+                tags: ['product', 'nakoda', sizeName, productId],
+                context: {
+                  product_id: productId,
+                  size: sizeName,
+                  upload_date: new Date().toISOString()
+                }
+              },
+              (error, uploadResult) => {
+                if (error) {
+                  console.error(`❌ Upload failed for ${sizeName}:`, {
+                    message: error.message,
+                    http_code: error.http_code
+                  });
+                  reject(error);
+                } else {
+                  console.log(`✅ ${sizeName} uploaded:`, {
+                    public_id: uploadResult?.public_id,
+                    secure_url: uploadResult?.secure_url,
+                    format: uploadResult?.format,
+                    bytes: uploadResult?.bytes
+                  });
+                  resolve(uploadResult);
+                }
+              }
+            );
+            uploadStream.end(buffer);
+          });
+          
+          return { sizeName, result };
+        }
+      );
+
+      const results = await Promise.all(uploadPromises);
+      
+      // Organize results by size
+      results.forEach(({ sizeName, result }) => {
+        imageVersions[sizeName] = {
+          public_id: result.public_id,
+          secure_url: result.secure_url,
+          width: result.width,
+          height: result.height,
+          format: result.format,
+          bytes: result.bytes,
+          created_at: result.created_at
+        };
+      });
+
+      console.log('✅ All image variants uploaded successfully');
       return { success: true, images: imageVersions };
-    } catch (e: any) {
-      console.error(`❌ Upload attempt ${attempt} failed:`, e.message || e);
-      if (attempt === retries) return { success: false, images: {}, error: e.message || "Upload failed" };
-      await new Promise(r => setTimeout(r, 1500 * attempt));
+      
+    } catch (error: any) {
+      console.error(`❌ Upload attempt ${attempt} failed:`, error.message);
+      
+      if (attempt === retries) {
+        return {
+          success: false,
+          images: {},
+          error: `Upload failed after ${retries} attempts: ${error.message}`
+        };
+      }
+      
+      // Wait before retry
+      await new Promise(resolve => setTimeout(resolve, 2000 * attempt));
     }
   }
-  return { success: false, images: {}, error: "Unexpected error" };
+  
+  return { success: false, images: {}, error: 'Unexpected error' };
 };
 
-// ===== “Responsive” URL generator (returns the variant we stored) =====
+// ✅ Smart image URL generator with device detection
 export const generateResponsiveImageUrl = (
-  publicIdOrKey: string,
-  size: keyof typeof IMAGE_TRANSFORMATIONS = "medium",
-  _custom?: any
+  publicId: string,
+  size: keyof typeof IMAGE_TRANSFORMATIONS = 'medium',
+  customTransformations: any = {}
 ): string => {
-  // If already a full URL, just return it (caller may pass a key or a url)
-  if (/^https?:\/\//i.test(publicIdOrKey)) return publicIdOrKey;
-
-  // If passed the *base* key or one of the variant keys:
-  // normalize to "<prefix>/<product>/<name>-<size>.webp" if needed
-  let key = publicIdOrKey.replace(/^\/+/, "");
-
-  // if it doesn't already end with "-<size>.webp", try to map base → sized
-  const match = key.match(/(.+?)(-(thumbnail|small|medium|large))?(\.[a-z0-9]+)?$/i);
-  if (match) {
-    const base = match[1];
-    key = `${base}-${size}.webp`;
+  if (!publicId) {
+    console.warn('⚠️ No public_id provided for image URL generation');
+    return '/images/placeholder-product.jpg';
   }
 
-  return publicUrlFor(key);
+  try {
+    const baseTransformation = IMAGE_TRANSFORMATIONS[size];
+    const finalTransformations = { 
+      ...baseTransformation, 
+      ...customTransformations 
+    };
+
+    const url = cloudinary.url(publicId, finalTransformations);
+    console.log(`🔗 Generated ${size} URL:`, url);
+    return url;
+  } catch (error) {
+    console.error('❌ Failed to generate image URL:', error);
+    return '/images/placeholder-product.jpg';
+  }
 };
 
-// ===== Delete images (all variants for product or specific keys) =====
+// ✅ Enhanced delete with cascade options
 export const deleteProductImages = async (
   productId: string,
   specificPublicIds?: string[]
 ): Promise<{ success: boolean; deletedCount: number; errors: any[] }> => {
   try {
-    let keys: string[] = [];
-
-    if (specificPublicIds?.length) {
-      keys = specificPublicIds;
+    console.log('🗑️ Deleting product images for:', productId);
+    
+    let publicIdsToDelete: string[] = [];
+    
+    if (specificPublicIds && specificPublicIds.length > 0) {
+      publicIdsToDelete = specificPublicIds;
     } else {
-      // list everything under the product prefix
-      const Prefix = `${PREFIX}${productId}/`;
-      let ContinuationToken: string | undefined;
-      do {
-        const res = await s3.send(new ListObjectsV2Command({ Bucket: S3_BUCKET, Prefix, ContinuationToken }));
-        keys.push(...(res.Contents?.map(o => o.Key!).filter(Boolean) || []));
-        ContinuationToken = res.IsTruncated ? res.NextContinuationToken : undefined;
-      } while (ContinuationToken);
+      // Get all images for this product
+      const searchResult = await cloudinary.api.resources({
+        type: 'upload',
+        prefix: `nakoda-products/${productId}/`,
+        max_results: 500
+      });
+      
+      publicIdsToDelete = searchResult.resources.map((resource: any) => resource.public_id);
     }
 
-    if (!keys.length) return { success: true, deletedCount: 0, errors: [] };
-
-    // delete in chunks of 1000
-    let deletedCount = 0;
-    const errors: any[] = [];
-    for (let i = 0; i < keys.length; i += 1000) {
-      const batch = keys.slice(i, i + 1000).map(Key => ({ Key }));
-      const res = await s3.send(new DeleteObjectsCommand({
-        Bucket: S3_BUCKET,
-        Delete: { Objects: batch },
-      }));
-      deletedCount += res.Deleted?.length || 0;
-      if (res.Errors?.length) errors.push(...res.Errors);
+    if (publicIdsToDelete.length === 0) {
+      console.log('⚠️ No images found to delete');
+      return { success: true, deletedCount: 0, errors: [] };
     }
 
-    return { success: errors.length === 0, deletedCount, errors };
-  } catch (e: any) {
-    return { success: false, deletedCount: 0, errors: [e.message || e] };
+    console.log(`🗑️ Deleting ${publicIdsToDelete.length} images...`);
+    
+    const result = await cloudinary.api.delete_resources(publicIdsToDelete, {
+      resource_type: 'image'
+    });
+
+    const deletedCount = Object.keys(result.deleted || {}).length;
+    const errors = Object.entries(result.not_found || {})
+      .concat(Object.entries(result.error || {}));
+
+    console.log('✅ Bulk delete completed:', {
+      requested: publicIdsToDelete.length,
+      deleted: deletedCount,
+      errors: errors.length
+    });
+
+    return {
+      success: deletedCount > 0,
+      deletedCount,
+      errors
+    };
+  } catch (error: any) {
+    console.error('❌ Failed to delete product images:', error);
+    return {
+      success: false,
+      deletedCount: 0,
+      errors: [error.message]
+    };
   }
 };
 
-// ===== Batch upload (same signature) =====
+// ✅ Image validation and processing
+export const validateAndProcessImage = (
+  buffer: Buffer,
+  filename: string,
+  maxSizeBytes = 10 * 1024 * 1024 // 10MB
+): { isValid: boolean; error?: string; processedFilename: string } => {
+  try {
+    // Check file size
+    if (buffer.length > maxSizeBytes) {
+      return {
+        isValid: false,
+        error: `File size (${(buffer.length / 1024 / 1024).toFixed(2)}MB) exceeds maximum allowed size (${maxSizeBytes / 1024 / 1024}MB)`,
+        processedFilename: filename
+      };
+    }
+
+    // Check if it's actually an image by looking at file signature
+    const imageSignatures = [
+      [0xFF, 0xD8, 0xFF], // JPEG
+      [0x89, 0x50, 0x4E, 0x47], // PNG
+      [0x47, 0x49, 0x46], // GIF
+      [0x52, 0x49, 0x46, 0x46] // WEBP
+    ];
+
+    const isValidImage = imageSignatures.some(signature =>
+      signature.every((byte, index) => buffer[index] === byte)
+    );
+
+    if (!isValidImage) {
+      return {
+        isValid: false,
+        error: 'File does not appear to be a valid image format',
+        processedFilename: filename
+      };
+    }
+
+    // Generate clean filename
+    const cleanFilename = filename
+      .toLowerCase()
+      .replace(/[^a-z0-9.-]/g, '-')
+      .replace(/-+/g, '-')
+      .replace(/^-|-$/g, '');
+
+    return {
+      isValid: true,
+      processedFilename: cleanFilename
+    };
+  } catch (error) {
+    return {
+      isValid: false,
+      error: 'Failed to validate image',
+      processedFilename: filename
+    };
+  }
+};
+
+// ✅ Batch operations for multiple products
 export const batchUploadProductImages = async (
-  uploads: Array<{ buffer: Buffer; productId: string; filename?: string }>,
+  uploads: Array<{
+    buffer: Buffer;
+    productId: string;
+    filename?: string;
+  }>,
   concurrency = 3
-): Promise<Array<{ productId: string; success: boolean; images?: { [key: string]: any }; error?: string }>> => {
+): Promise<Array<{
+  productId: string;
+  success: boolean;
+  images?: { [key: string]: any };
+  error?: string;
+}>> => {
+  console.log(`📦 Starting batch upload for ${uploads.length} products with concurrency ${concurrency}`);
+  
   const results: any[] = [];
-  let i = 0;
-  async function worker() {
-    while (i < uploads.length) {
-      const idx = i++;
-      const u = uploads[idx];
-      results[idx] = { productId: u.productId, ...(await uploadProductImages(u.buffer, u.productId, u.filename)) };
+  
+  // Process uploads in batches to avoid overwhelming Cloudinary
+  for (let i = 0; i < uploads.length; i += concurrency) {
+    const batch = uploads.slice(i, i + concurrency);
+    console.log(`📤 Processing batch ${Math.floor(i / concurrency) + 1}/${Math.ceil(uploads.length / concurrency)}`);
+    
+    const batchPromises = batch.map(async (upload) => {
+      const result = await uploadProductImages(upload.buffer, upload.productId, upload.filename);
+      return {
+        productId: upload.productId,
+        ...result
+      };
+    });
+    
+    const batchResults = await Promise.all(batchPromises);
+    results.push(...batchResults);
+    
+    // Small delay between batches
+    if (i + concurrency < uploads.length) {
+      await new Promise(resolve => setTimeout(resolve, 1000));
     }
   }
-  await Promise.all(Array.from({ length: Math.min(concurrency, uploads.length) }, worker));
+  
+  console.log('✅ Batch upload completed:', {
+    total: results.length,
+    successful: results.filter(r => r.success).length,
+    failed: results.filter(r => !r.success).length
+  });
+  
   return results;
 };
 
-// ===== Lightweight stats (S3 doesn’t expose usage via API like Cloudinary) =====
-export const getCloudinaryStats = async (): Promise<{ success: boolean; stats?: any; error?: string }> => {
+// ✅ Health check and monitoring
+export const getCloudinaryStats = async (): Promise<{
+  success: boolean;
+  stats?: any;
+  error?: string;
+}> => {
   try {
-    // You can expand this (e.g., list a prefix and sum sizes), but that can be slow.
-    return {
-      success: true,
-      stats: {
-        bucket: S3_BUCKET,
-        region: S3_REGION,
-        notes: "S3 does not expose storage/bandwidth usage via API like Cloudinary. Use S3/CloudFront metrics or Billing.",
+    console.log('📊 Fetching Cloudinary usage stats...');
+    
+    const [usage, resources] = await Promise.all([
+      cloudinary.api.usage(),
+      cloudinary.api.resources({
+        type: 'upload',
+        prefix: 'nakoda-products/',
+        max_results: 10
+      })
+    ]);
+
+    const stats = {
+      storage: {
+        used: usage.storage?.used || 0,
+        limit: usage.storage?.limit || 0,
+        usage_percent: usage.storage?.used && usage.storage?.limit 
+          ? ((usage.storage.used / usage.storage.limit) * 100).toFixed(2)
+          : 0
       },
+      bandwidth: {
+        used: usage.bandwidth?.used || 0,
+        limit: usage.bandwidth?.limit || 0,
+        usage_percent: usage.bandwidth?.used && usage.bandwidth?.limit
+          ? ((usage.bandwidth.used / usage.bandwidth.limit) * 100).toFixed(2)
+          : 0
+      },
+      total_images: resources.total_count || 0,
+      recent_uploads: resources.resources?.length || 0
     };
-  } catch (e: any) {
-    return { success: false, error: e.message || "Stats unavailable" };
+
+    console.log('✅ Cloudinary stats retrieved:', stats);
+    return { success: true, stats };
+  } catch (error: any) {
+    console.error('❌ Failed to get Cloudinary stats:', error);
+    return { 
+      success: false, 
+      error: error.message 
+    };
   }
 };
 
-// (no default export; you can export s3 if you need it elsewhere)
-export default s3;
+export default cloudinary;
