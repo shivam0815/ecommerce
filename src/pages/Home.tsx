@@ -320,9 +320,18 @@ With strict quality checks and honest pricing, Nakoda Mobile is here to support 
             </div>
           );
         })()}
-        <p className="mt-3 text-xs text-blue-200">
-          Want a visit or virtual tour? <Link to="/contact" className="underline decoration-blue-300 hover:text-white">Get in touch</Link>.
-        </p>
+       <p className="mt-3 text-xs text-blue-200">
+  Want a visit or virtual tour?{" "}
+  <a
+    href="https://wa.me/+919650516703?text=Hello%20Nakoda%20Mobile%2C%20I%20want%20to%20know%20more."
+    target="_blank"
+    rel="noopener noreferrer"
+    className="underline decoration-blue-300 hover:text-white"
+  >
+    Connect on WhatsApp
+  </a>.
+</p>
+
       </motion.div>
     </div>
   </div>
