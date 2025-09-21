@@ -296,8 +296,8 @@ With strict quality checks and honest pricing, Nakoda Mobile is here to support 
             'https://nakoda-web-image.s3.ap-south-1.amazonaws.com/20250103_120222-1024x768.jpg',
           ];
 
-       const toImg = (url: string) =>
-  generateResponsiveImageUrl(url, { width: 800, height: 600, crop: 'fill' });
+       const toImg = (url: string) => url; // keep S3 URL as-is
+
 
           return (
             <div className="grid grid-cols-2 gap-3">
