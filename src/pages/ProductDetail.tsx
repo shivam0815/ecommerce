@@ -679,7 +679,8 @@ const ProductDetail: React.FC = () => {
                   <motion.button
                     whileHover={{ scale: 1.05 }}
                     whileTap={{ scale: 0.95 }}
-                    className="w-10 h-10 sm:w-11 sm:h-11 shrink-0 p-0 border border-gray-300 rounded-lg hover:bg-gray-50"
+                    className="w-10 h-10 sm:w-11 sm:h-11 shrink-0 p-0 border border-gray-300 rounded-lg hover:bg-gray-50
+                    inline-flex items-center justify-center" 
                     onClick={() => {
                       const url = window.location.href;
                       const text = `${product.name} - ${product.description ?? ''}`.slice(0, 180);
