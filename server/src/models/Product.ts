@@ -1,33 +1,50 @@
 // src/models/Product.ts
 import mongoose, { Schema, Document } from 'mongoose';
 
+/* ────────────────────────────────────────────────────────────── */
+/* Types */
+export type PricingTier = {
+  minQty: number;     // e.g., 10, 50, 100, 150
+  unitPrice: number;  // INR per piece (use paise if you prefer integers)
+};
+
 export interface IProduct extends Document {
   _id: mongoose.Types.ObjectId;
+
+  // Core
   name: string;
   description: string;
-  price: number;
+  price: number;                 // base/fallback unit price
   originalPrice?: number;
   category: string;
   subcategory?: string;
   brand: string;
   images: string[];
+
+  // Ratings
   rating: number;
   reviews: number;
+  averageRating?: number;
+  ratingsCount?: number;
+
+  // Inventory
   inStock: boolean;
   stockQuantity: number;
+
+  // Merchandising
   features: string[];
   specifications: Map<string, any> | Record<string, any>;
   tags: string[];
   isActive: boolean;
   status: 'active' | 'inactive' | 'draft';
   businessName?: string;
-  createdAt: Date;
-  updatedAt: Date;
-  averageRating?: number;
-  ratingsCount?: number;
   compareAtPrice?: number | null;
 
-  // 🆕 new fields
+  // Meta
+  createdAt: Date;
+  updatedAt: Date;
+
+  // Extras
   sku?: string;
   color?: string;
   ports?: number;
@@ -35,19 +52,28 @@ export interface IProduct extends Document {
   warrantyType?: 'Manufacturer' | 'Seller' | 'No Warranty';
   manufacturingDetails?: Record<string, any>;
 
-  // admin-only
+  // Admin-only
   gst?: number;
   hsnCode?: string;
   netWeight?: number;
 
-  // 🆕 MOQ accessors
-  minOrderQtyOverride?: number | null; // optional per-product override
-  // NOTE: minOrderQty is provided as a virtual (getter only)
+  // MOQ
+  minOrderQtyOverride?: number | null; // per-product override
+  // virtual (getter only)
   // @ts-ignore
   minOrderQty?: number;
+
+  // Bulk pricing
+  pricingTiers: PricingTier[];   // sorted ASC by minQty
+  packSize?: number | null;      // enforce multiples (e.g., 10). 1/null => off
+  incrementStep?: number | null; // enforce step increments (e.g., +10). 1/null => off
+
+  // Methods
+  getUnitPriceForQty?(qty: number): number;
 }
 
-/** 🆕 single source of truth for category-wise MOQ */
+/* ────────────────────────────────────────────────────────────── */
+/** Category-wise MOQ defaults (ALL = 10) */
 export const CATEGORY_MOQ: Record<string, number> = {
   'Car Chargers': 10,
   'Bluetooth Neckbands': 10,
@@ -63,28 +89,38 @@ export const CATEGORY_MOQ: Record<string, number> = {
   'Others': 10,
 };
 
+/* ────────────────────────────────────────────────────────────── */
+/** Sub-schema for tiers */
+const PricingTierSchema = new Schema<PricingTier>(
+  {
+    minQty: { type: Number, required: true, min: 1 },
+    unitPrice: { type: Number, required: true, min: 0 },
+  },
+  { _id: false }
+);
+
+/* ────────────────────────────────────────────────────────────── */
+/** Product schema */
 const productSchema = new Schema<IProduct>(
   {
     name: {
       type: String,
       required: [true, 'Product name is required'],
       trim: true,
-      maxlength: [300, 'Product name cannot exceed 100 characters'],
+      maxlength: [10000, 'Product name cannot exceed 10000 characters'],
     },
     description: {
       type: String,
       required: [true, 'Product description is required'],
-      maxlength: [1500, 'Description cannot exceed 1000 characters'],
+      maxlength: [40000, 'Description cannot exceed 1500 characters'],
     },
     price: {
       type: Number,
       required: [true, 'Price is required'],
       min: [0, 'Price cannot be negative'],
     },
-    originalPrice: {
-      type: Number,
-      min: [0, 'Original price cannot be negative'],
-    },
+    originalPrice: { type: Number, min: [0, 'Original price cannot be negative'] },
+
     category: {
       type: String,
       required: [true, 'Category is required'],
@@ -107,17 +143,15 @@ const productSchema = new Schema<IProduct>(
       },
     },
     subcategory: String,
-    brand: {
-      type: String,
-      required: [true, 'Brand is required'],
-      default: 'Nakoda',
-    },
-    images: {
-      type: [String],
-      default: [],
-    },
+    brand: { type: String, required: [true, 'Brand is required'], default: 'Nakoda' },
+
+    images: { type: [String], default: [] },
+
     rating: { type: Number, default: 0, min: 0, max: 5 },
     reviews: { type: Number, default: 0 },
+    averageRating: { type: Number, default: 0 },
+    ratingsCount: { type: Number, default: 0 },
+
     inStock: { type: Boolean, default: true },
     stockQuantity: {
       type: Number,
@@ -125,20 +159,16 @@ const productSchema = new Schema<IProduct>(
       min: [0, 'Stock quantity cannot be negative'],
       default: 0,
     },
+
     features: { type: [String], default: [] },
-
     specifications: { type: Map, of: Schema.Types.Mixed, default: {} },
-    compareAtPrice: { type: Number, default: null },
-
     tags: { type: [String], default: [] },
     isActive: { type: Boolean, default: true },
     status: { type: String, enum: ['active', 'inactive', 'draft'], default: 'active' },
     businessName: String,
+    compareAtPrice: { type: Number, default: null },
 
-    averageRating: { type: Number, default: 0 },
-    ratingsCount: { type: Number, default: 0 },
-
-    // 🆕 new fields
+    // Extras
     sku: { type: String, trim: true, index: true },
     color: { type: String, trim: true },
     ports: { type: Number, min: 0, default: 0 },
@@ -146,13 +176,18 @@ const productSchema = new Schema<IProduct>(
     warrantyType: { type: String, enum: ['Manufacturer', 'Seller', 'No Warranty'], default: 'No Warranty' },
     manufacturingDetails: { type: Schema.Types.Mixed, default: {} },
 
-    // 🆕 admin-only
+    // Admin-only (not returned by default)
     gst: { type: Number, min: 0, max: 100, select: false },
     hsnCode: { type: String, trim: true, select: false },
     netWeight: { type: Number, min: 0, select: false },
 
-    // 🆕 per-product MOQ override (null = use category rule)
+    // MOQ (override per product; otherwise category default)
     minOrderQtyOverride: { type: Number, min: 1, default: null },
+
+    // Bulk pricing rules
+    pricingTiers: { type: [PricingTierSchema], default: [] },
+    packSize: { type: Number, min: 1, default: 1 },       // 1 = disabled
+    incrementStep: { type: Number, min: 1, default: 1 },  // 1 = disabled
   },
   {
     timestamps: true,
@@ -177,33 +212,77 @@ const productSchema = new Schema<IProduct>(
   }
 );
 
-/** indexes */
+/* ────────────────────────────────────────────────────────────── */
+/** Indexes */
 productSchema.index({ name: 'text', description: 'text', tags: 'text', category: 'text' });
 productSchema.index({ category: 1, price: 1 });
 productSchema.index({ rating: -1 });
 productSchema.index({ isActive: 1, inStock: 1, status: 1 });
 productSchema.index({ createdAt: -1 });
+productSchema.index({ brand: 1 });
 
-/** keep inStock in sync */
+/* ────────────────────────────────────────────────────────────── */
+/** Hooks */
+
+// Keep inStock in sync with stockQuantity
 productSchema.pre('save', function (next) {
   // @ts-ignore
   this.inStock = (this.stockQuantity || 0) > 0;
   next();
 });
-productSchema.index({ name: 'text', category: 'text', brand: 'text' });
 
-/** 🆕 virtual: effective MOQ visible to API & client */
+// Validate/sort pricing tiers
+productSchema.pre('validate', function (next) {
+  const self = this as IProduct;
+  const tiers = self.pricingTiers || [];
+
+  // sort by minQty asc
+  tiers.sort((a, b) => a.minQty - b.minQty);
+
+  // validations
+  for (let i = 0; i < tiers.length; i++) {
+    const t = tiers[i];
+    if (i > 0 && t.minQty <= tiers[i - 1].minQty) {
+      return next(new Error('pricingTiers.minQty must be strictly increasing'));
+    }
+    if (t.unitPrice < 0) {
+      return next(new Error('pricingTiers.unitPrice cannot be negative'));
+    }
+  }
+  self.pricingTiers = tiers;
+  next();
+});
+
+/* ────────────────────────────────────────────────────────────── */
+/** Virtuals */
+
+// Effective MOQ (override > category default > 1)
 productSchema.virtual('minOrderQty').get(function (this: IProduct) {
   if (typeof this.minOrderQtyOverride === 'number' && this.minOrderQtyOverride >= 1) {
     return this.minOrderQtyOverride;
   }
-  const cat = this.category;
-  return CATEGORY_MOQ[cat] ?? 1;
+  return CATEGORY_MOQ[this.category] ?? 1;
 });
 
-/** 🆕 helper static for controllers/services (optional) */
+/* ────────────────────────────────────────────────────────────── */
+/** Methods */
+
+// Compute unit price for a given qty using tiers; fallback to base `price`
+productSchema.methods.getUnitPriceForQty = function (this: IProduct, qty: number): number {
+  if (!qty || qty < 1) return this.price;
+  let unit = this.price;
+  for (const t of this.pricingTiers) {
+    if (qty >= t.minQty) unit = t.unitPrice;
+    else break;
+  }
+  return unit;
+};
+
+/* ────────────────────────────────────────────────────────────── */
+/** Helpers (optional use in services/controllers) */
 export function getMinOrderQtyForCategory(cat: string): number {
   return CATEGORY_MOQ[cat] ?? 1;
 }
 
+/* ────────────────────────────────────────────────────────────── */
 export default mongoose.model<IProduct>('Product', productSchema);
