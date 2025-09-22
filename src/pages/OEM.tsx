@@ -10,7 +10,7 @@ import SEO from '../components/Layout/SEO';
 import { oemService } from '../services/oemService';
 import toast from 'react-hot-toast';
 
-// ✅ Use the same image helpers you use elsewhere (S3/relative-safe)
+// S3/relative-safe helpers
 import { resolveImageUrl, getFirstImageUrl, getOptimizedImageUrl } from '../utils/imageUtils';
 
 const isEmail = (e: string) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/i.test(e.trim());
@@ -29,15 +29,14 @@ const CATEGORIES = [
   'Custom',
 ] as const;
 
-// ——— product typing for the strips ———
 type Product = {
   _id: string;
   name: string;
   slug?: string;
   price: number;
   originalPrice?: number;
-  images?: any[] | string[]; // support objects/strings
-  imageUrl?: string;         // some APIs use single image field
+  images?: any[] | string[];
+  imageUrl?: string;
   rating?: number;
   category?: string;
   status?: string;
@@ -53,7 +52,7 @@ const API_BASE = (import.meta as any).env?.VITE_API_URL || 'http://localhost:500
 const OEM: React.FC = () => {
   const navigate = useNavigate();
 
-  // -------- form state ----------
+  // ---------- form ----------
   const [formData, setFormData] = useState({
     companyName: '',
     contactPerson: '',
@@ -79,18 +78,14 @@ const OEM: React.FC = () => {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-
-    // Honeypot
-    if (formData.website) return;
+    if (formData.website) return; // honeypot
 
     if (!formData.companyName.trim()) return toast.error('Company name is required');
     if (!formData.contactPerson.trim()) return toast.error('Contact person is required');
     if (!isEmail(formData.email)) return toast.error('Please enter a valid email');
     if (!isPhone10(formData.phone)) return toast.error('Enter a 10-digit phone number');
     if (!formData.productCategory) return toast.error('Select a product category');
-    if (!formData.quantity || Number(formData.quantity) < 100) {
-      return toast.error('Minimum order quantity is 100');
-    }
+    if (!formData.quantity || Number(formData.quantity) < 100) return toast.error('Minimum order quantity is 100');
     if (!formData.customization.trim()) return toast.error('Describe customization requirements');
 
     setIsSubmitting(true);
@@ -105,7 +100,6 @@ const OEM: React.FC = () => {
         customization: formData.customization.trim(),
         message: formData.message?.trim(),
       });
-
       toast.success('Thanks! Your inquiry has been submitted.');
       setFormData({
         companyName: '',
@@ -125,7 +119,7 @@ const OEM: React.FC = () => {
     }
   };
 
-  // -------- sales strips state ----------
+  // ---------- products ----------
   const [topProducts, setTopProducts] = useState<Product[]>([]);
   const [loadingTop, setLoadingTop] = useState(false);
   const [errTop, setErrTop] = useState('');
@@ -134,14 +128,12 @@ const OEM: React.FC = () => {
     try {
       setLoadingTop(true);
       setErrTop('');
-      // Tweak this to your backend route/params
       const res = await fetch(
         `${API_BASE}/products?limit=8&sort=trending&status=active`,
         { credentials: 'include' }
       );
       const data = await res.json();
       if (!res.ok) throw new Error(data?.message || 'Failed to load products');
-      // Normalize: many backends return { products } or { items }
       const items: Product[] = data.products || data.items || [];
       setTopProducts(items);
     } catch (e: any) {
@@ -153,44 +145,41 @@ const OEM: React.FC = () => {
 
   useEffect(() => {
     fetchTopProducts();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const trialProducts = useMemo(() => {
-    // Pick affordable “test buy” items first; fallback to first 4
     const cheap = topProducts.filter(p => (p.price ?? 0) <= 599);
-    const pick = (cheap.length ? cheap : topProducts).slice(0, 4);
-    return pick;
+    return (cheap.length ? cheap : topProducts).slice(0, 4);
   }, [topProducts]);
 
-  // ✅ S3/relative-safe image resolver (no Cloudinary dependency)
- const productImage = (p: Product) => {
-  const raw =
-    getFirstImageUrl(p.images as any) ||
-    (p as any).image ||
-    (p as any).thumbnail ||
-    p.imageUrl;
+  // ---------- image resolver (no crop, S3-safe) ----------
+  const productImage = (p: Product) => {
+    const raw =
+      getFirstImageUrl(p.images as any) ||
+      (p as any).image ||
+      (p as any).thumbnail ||
+      p.imageUrl;
 
-  if (!raw) return undefined;
+    if (!raw) return undefined;
 
-  const abs = resolveImageUrl(raw);
-  if (!abs) return undefined;
+    const abs = resolveImageUrl(raw);
+    if (!abs) return undefined;
 
-  // 👇 force OEM page to use original S3 URL
-  return getOptimizedImageUrl(abs, { width: 400, height: 400, fit: 'cover', allowS3Variant: false });
-};
+    // no crop + avoid S3 resized_dir (original object)
+    return getOptimizedImageUrl(abs, { width: 400, height: 400, fit: 'contain', allowS3Variant: false });
+  };
 
   const goToProduct = (p: Product) => {
     const slugOrId = p.slug || p._id;
-    // 🔁 keep route consistent with rest of site
     navigate(`/products/${slugOrId}`);
   };
 
+  // ---------- static ----------
   const services = [
     { icon: Package, title: 'Bulk Manufacturing', description: 'Large-scale production with competitive pricing and QA.' },
     { icon: Award, title: 'Custom Branding', description: 'Your logo + pro packaging and design services.' },
     { icon: Truck, title: 'Global Shipping', description: 'Worldwide delivery with tracking and insurance.' },
-    { icon: Users, title: 'Dedicated Support', description: ' Support with a  account manager. ' },
+    { icon: Users, title: 'Dedicated Support', description: 'Support with an account manager.' },
   ];
 
   const features = [
@@ -202,6 +191,7 @@ const OEM: React.FC = () => {
     'Global shipping available',
   ];
 
+  // ---------- render ----------
   return (
     <div className="min-h-screen bg-gray-50">
       <SEO
@@ -265,7 +255,7 @@ const OEM: React.FC = () => {
         </div>
       </section>
 
-      {/* 🔥 Trending Now (sales strip) */}
+      {/* 🔥 Trending Now */}
       <section className="py-10 bg-white">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="mb-8 flex items-end justify-between">
@@ -273,10 +263,7 @@ const OEM: React.FC = () => {
               <h2 className="text-2xl md:text-3xl font-bold text-gray-900">Trending Now</h2>
               <p className="text-gray-600">Best-sellers our buyers love right now</p>
             </div>
-            <Link
-              to="/products?sort=trending"
-              className="text-blue-600 hover:text-blue-700 font-semibold"
-            >
+            <Link to="/products?sort=trending" className="text-blue-600 hover:text-blue-700 font-semibold">
               View all →
             </Link>
           </div>
@@ -286,8 +273,6 @@ const OEM: React.FC = () => {
               {Array.from({ length: 8 }).map((_, i) => (
                 <div key={i} className="rounded-xl border border-gray-200 p-4">
                   <div className="h-44 w-full rounded-lg bg-gray-100 animate-pulse" />
-                  <div className="mt-4 h-5 w-3/4 bg-gray-100 rounded animate-pulse" />
-                  <div className="mt-2 h-4 w-1/2 bg-gray-100 rounded animate-pulse" />
                 </div>
               ))}
             </div>
@@ -300,6 +285,7 @@ const OEM: React.FC = () => {
               {topProducts.slice(0, 8).map((p) => {
                 const img = productImage(p);
                 const off = priceOffPct(p.price, p.originalPrice);
+
                 return (
                   <article key={p._id} className="group rounded-xl border border-gray-200 bg-white p-4 hover:shadow-md transition-shadow">
                     <button
@@ -308,22 +294,25 @@ const OEM: React.FC = () => {
                       aria-label={p.name}
                     >
                       {img ? (
-                        <img
-                          src={img}
-                          alt={p.name}
-                          className="h-44 w-full object-cover transition-transform duration-500 group-hover:scale-105"
-                          loading="lazy"
-                          referrerPolicy="no-referrer"
-                          onError={(e) => {
-                            (e.currentTarget as HTMLImageElement).src =
-                              'data:image/svg+xml;utf8,' +
-                              encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="400" height="400"><rect width="100%" height="100%" fill="#f3f4f6"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="#9ca3af" font-family="sans-serif" font-size="14">No image</text></svg>');
-                          }}
-                        />
+                        <div className="w-full bg-white" style={{ aspectRatio: '1 / 1' }}>
+                          <img
+                            src={img}
+                            alt={p.name}
+                            className="w-full h-full object-contain p-2 transition-transform duration-500 group-hover:scale-[1.02]"
+                            loading="lazy"
+                            referrerPolicy="no-referrer"
+                            onError={(e) => {
+                              (e.currentTarget as HTMLImageElement).src =
+                                'data:image/svg+xml;utf8,' +
+                                encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="400" height="400"><rect width="100%" height="100%" fill="#f3f4f6"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="#9ca3af" font-family="sans-serif" font-size="14">No image</text></svg>');
+                            }}
+                          />
+                        </div>
                       ) : (
-                        <div className="h-44 w-full bg-gray-100" />
+                        <div className="w-full bg-gray-100" style={{ aspectRatio: '1 / 1' }} />
                       )}
                     </button>
+
                     <div className="mt-3">
                       <h3 className="line-clamp-2 font-semibold text-gray-900">{p.name}</h3>
                       <div className="mt-1 flex items-center gap-2">
@@ -392,20 +381,22 @@ const OEM: React.FC = () => {
                       aria-label={p.name}
                     >
                       {img ? (
-                        <img
-                          src={img}
-                          alt={p.name}
-                          className="h-44 w-full object-cover transition-transform duration-500 group-hover:scale-105"
-                          loading="lazy"
-                          referrerPolicy="no-referrer"
-                          onError={(e) => {
-                            (e.currentTarget as HTMLImageElement).src =
-                              'data:image/svg+xml;utf8,' +
-                              encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="400" height="400"><rect width="100%" height="100%" fill="#11182733"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="#9ca3af" font-family="sans-serif" font-size="14">No image</text></svg>');
-                          }}
-                        />
+                        <div className="w-full" style={{ aspectRatio: '1 / 1' }}>
+                          <img
+                            src={img}
+                            alt={p.name}
+                            className="w-full h-full object-contain p-2 transition-transform duration-500 group-hover:scale-[1.02]"
+                            loading="lazy"
+                            referrerPolicy="no-referrer"
+                            onError={(e) => {
+                              (e.currentTarget as HTMLImageElement).src =
+                                'data:image/svg+xml;utf8,' +
+                                encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="400" height="400"><rect width="100%" height="100%" fill="#11182733"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="#9ca3af" font-family="sans-serif" font-size="14">No image</text></svg>');
+                            }}
+                          />
+                        </div>
                       ) : (
-                        <div className="h-44 w-full bg-white/10" />
+                        <div className="w-full bg-white/10" style={{ aspectRatio: '1 / 1' }} />
                       )}
                     </button>
                     <div className="mt-3">
@@ -432,7 +423,6 @@ const OEM: React.FC = () => {
             </div>
           )}
 
-          {/* micro-note to funnel OEM leads */}
           <p className="mt-6 text-center text-xs text-gray-300">
             Liked the sample?{' '}
             <a href="#contact-form" className="underline decoration-blue-300 hover:text-white">
