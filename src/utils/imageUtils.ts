@@ -38,7 +38,6 @@ const toPublicUrl = (keyOrUrl: string): string => {
 
 /**
  * Resolve any image path (Cloudinary/S3/local) to a usable URL
- * Returns undefined only when input is bad/empty.
  */
 export const resolveImageUrl = (imagePath: string | undefined | null): string | undefined => {
   if (!imagePath || typeof imagePath !== 'string' || imagePath.trim() === '') return undefined;
@@ -55,12 +54,23 @@ export const resolveImageUrl = (imagePath: string | undefined | null): string | 
   return toPublicUrl(imagePath);
 };
 
-/** Return first valid image URL from list */
-export const getFirstImageUrl = (images: string[] | undefined): string | undefined => {
+// Accepts string[] or object[] with url/src/key/path
+type ImgLike = string | { url?: string; src?: string; key?: string; path?: string } | null | undefined;
+
+export const getFirstImageUrl = (images: ImgLike[] | undefined): string | undefined => {
   if (!Array.isArray(images)) return undefined;
-  for (const image of images) {
-    const u = resolveImageUrl(image);
-    if (u) return u;
+  for (const it of images) {
+    if (!it) continue;
+    if (typeof it === 'string') {
+      const u = resolveImageUrl(it);
+      if (u) return u;
+      continue;
+    }
+    const raw = it.url || it.src || it.key || it.path;
+    if (raw) {
+      const u = resolveImageUrl(raw);
+      if (u) return u;
+    }
   }
   return undefined;
 };
@@ -71,7 +81,6 @@ const cloudinaryTransform = (url: string, width: number, height: number) => {
   if (url.includes('/image/upload/')) {
     return url.replace(/(\/image\/upload\/)([^/]+\/)?/, `$1${trans}/`);
   }
-  // For fetch URLs or non-standard public_id forms, just return as-is
   return url;
 };
 
@@ -90,28 +99,62 @@ const s3VariantFor = (src: string, width: number) => {
   return toPublicUrl(`${resizedDir}${name}.${suffix}${ext}`);
 };
 
-/**
- * Optimized URL for thumbnails/gallery:
- * - Cloudinary: inject w_,h_,c_fill,q_auto,f_auto
- * - S3: return convention-based variant (_resized/*.{thumb|sm|md|lg}.ext)
- * - Local/others: return original/public URL
- * Always returns a string (never void) ⇒ safe for <img src>.
- */
-export const getOptimizedImageUrl = (urlOrKey: string, width = 600, height = 600): string => {
+// ---------------- Core API ----------------
+
+type VariantFit = 'cover' | 'contain' | 'inside' | 'outside';
+type VariantOpts = {
+  width?: number;
+  height?: number;
+  fit?: VariantFit;
+  allowS3Variant?: boolean;
+};
+
+export const getOptimizedImageUrl = (
+  urlOrKey: string,
+  opts: VariantOpts | number = {},
+  height?: number
+): string => {
   if (!urlOrKey) return PLACEHOLDER;
 
+  // Support old calls: getOptimizedImageUrl(url, 400, 400)
+  const width = typeof opts === 'number' ? opts : opts.width ?? 600;
+  const heightN = typeof opts === 'number' ? height ?? 600 : opts.height ?? 600;
+  const fit: VariantFit = typeof opts === 'number' ? 'cover' : opts.fit || 'cover';
+  const allowS3Variant = typeof opts === 'number' ? true : opts.allowS3Variant ?? true;
+
+  // Cloudinary
   if (isCloudinaryUrl(urlOrKey)) {
-    return cloudinaryTransform(urlOrKey, width, height);
+    return cloudinaryTransform(urlOrKey, width, heightN);
   }
 
-  if (isS3Url(urlOrKey) || S3_PUBLIC_BASE) {
-    if (VARIANT_STYLE === 'resized_dir') {
-      const v = s3VariantFor(urlOrKey, width);
-      return v || toPublicUrl(urlOrKey);
-    }
-    return toPublicUrl(urlOrKey);
+  // S3
+  const publicUrl = toPublicUrl(urlOrKey);
+  if ((isS3Url(publicUrl) || S3_PUBLIC_BASE) && VARIANT_STYLE === 'resized_dir' && allowS3Variant) {
+    const v = s3VariantFor(publicUrl, width);
+    return v || publicUrl;
   }
 
-  // local / other
-  return toPublicUrl(urlOrKey);
+  // Local / passthrough
+  return publicUrl;
+};
+
+// ---------------- Fallback helper ----------------
+
+/**
+ * Attach this to <img onError={...}>
+ * It retries once with the original S3 URL, then falls back to SVG placeholder.
+ */
+export const handleImgError = (originalUrl?: string) => (e: React.SyntheticEvent<HTMLImageElement>) => {
+  const el = e.currentTarget as HTMLImageElement;
+  if ((el as any)._triedOriginal !== true && originalUrl) {
+    (el as any)._triedOriginal = true;
+    el.src = originalUrl;
+    return;
+  }
+  // final fallback = gray SVG
+  el.src =
+    'data:image/svg+xml;utf8,' +
+    encodeURIComponent(
+      '<svg xmlns="http://www.w3.org/2000/svg" width="400" height="400"><rect width="100%" height="100%" fill="#f3f4f6"/><text x="50%" y="50%" dominant-baseline="middle" text-anchor="middle" fill="#9ca3af" font-family="sans-serif" font-size="14">No image</text></svg>'
+    );
 };

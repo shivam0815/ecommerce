@@ -164,13 +164,21 @@ const OEM: React.FC = () => {
   }, [topProducts]);
 
   // ✅ S3/relative-safe image resolver (no Cloudinary dependency)
-  const productImage = (p: Product) => {
-    const first = getFirstImageUrl(p.images as any) || (p.imageUrl as any);
-    if (!first) return undefined;
-    const abs = resolveImageUrl(first);
-    // If VITE_IMG_VARIANT_STYLE=none, this will return the same URL (no-op)
-    return getOptimizedImageUrl(abs, { width: 400, height: 400, fit: 'cover' });
-  };
+ const productImage = (p: Product) => {
+  const raw =
+    getFirstImageUrl(p.images as any) ||
+    (p as any).image ||
+    (p as any).thumbnail ||
+    p.imageUrl;
+
+  if (!raw) return undefined;
+
+  const abs = resolveImageUrl(raw);
+  if (!abs) return undefined;
+
+  // 👇 force OEM page to use original S3 URL
+  return getOptimizedImageUrl(abs, { width: 400, height: 400, fit: 'cover', allowS3Variant: false });
+};
 
   const goToProduct = (p: Product) => {
     const slugOrId = p.slug || p._id;
