@@ -17,7 +17,6 @@ const router = Router();
 const handleValidation = (req: Request, res: Response, next: NextFunction) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
-    // Helpful during integration; keep or remove later
     console.warn('VALIDATION_FAILED /support', {
       body: req.body,
       files: (req as any).files?.length,
@@ -30,6 +29,38 @@ const handleValidation = (req: Request, res: Response, next: NextFunction) => {
     });
   }
   next();
+};
+
+/* Small helpers to accept JSON strings, single strings, or arrays */
+const toArray = (val: any): any[] => {
+  if (!val) return [];
+  if (Array.isArray(val)) return val;
+  if (typeof val === 'string') {
+    try {
+      const parsed = JSON.parse(val);
+      return Array.isArray(parsed) ? parsed : [val];
+    } catch {
+      // it's a plain URL string (or comma separated)
+      if (val.includes(',')) return val.split(',').map(s => s.trim()).filter(Boolean);
+      return [val];
+    }
+  }
+  return [];
+};
+
+const normalizeAtt = (x: any) => {
+  if (!x) return null;
+  if (typeof x === 'string') {
+    const base = x.split('?')[0];
+    const name = base.split('/').pop();
+    return { url: x, name };
+  }
+  return {
+    url: x.url,
+    name: x.name,
+    size: x.size ? Number(x.size) : undefined,
+    mime: x.mime || x.type || undefined,
+  };
 };
 
 /* -------------------------------------------------------------------------- */
@@ -77,20 +108,32 @@ router.get(
 );
 
 /* -------------------------------------------------------------------------- */
-/*          POST /api/support/tickets  (multipart, field: "attachments")       */
+/*          POST /api/support/tickets  (files OR pre-uploaded S3 URLs)         */
 /*     Uses optionalAuthenticate so logged-in users get userId attached.       */
 /* -------------------------------------------------------------------------- */
 
 const postTicket: RequestHandler = async (req, res) => {
   try {
+    // 1) Files uploaded via multer (field: "attachments")
     const files = (req as any).files as Express.Multer.File[] | undefined;
+    const fileAtts =
+      (files || [])
+        .map((f) => ({
+          url: (f as any).path || (f as any).location || (f as any).url || '',
+          name: f.originalname,
+          size: f.size,
+          mime: f.mimetype,
+        }))
+        .filter(a => a.url);
 
-    const attachments = (files || []).map((f) => ({
-      url: (f as any).path || (f as any).location || (f as any).url || '',
-      name: f.originalname,
-      size: f.size,
-      mime: f.mimetype,
-    }));
+    // 2) URLs provided in body (S3 pre-upload flow)
+    const bodyRaw = [
+      ...toArray((req.body as any).attachments),      // [{url,name,...}] or single URL
+      ...toArray((req.body as any).attachmentsUrls),  // preferred payload
+    ];
+    const bodyAtts = bodyRaw.map(normalizeAtt).filter((a) => a && a.url);
+
+    const attachments = [...fileAtts, ...bodyAtts];
 
     // If user is logged in, optionalAuthenticate will have set req.user
     const authedUser = (req as any).user as { id?: string; email?: string } | undefined;
@@ -110,11 +153,11 @@ const postTicket: RequestHandler = async (req, res) => {
       category: req.body.category,
       message: req.body.message,
       email: finalEmail,
-      phone: req.body.phone,
-      orderId: req.body.orderId,
+      phone: req.body.phone || undefined,
+      orderId: req.body.orderId || undefined,
       priority: (req.body.priority as any) || 'normal',
       channel: 'web',
-      userId: authedUser?.id, // ← this links ticket to the user
+      userId: authedUser?.id, // Mongoose can cast string -> ObjectId
       attachments,
     });
 
@@ -130,9 +173,9 @@ const postTicket: RequestHandler = async (req, res) => {
 
 router.post(
   '/tickets',
-  optionalAuthenticate,                // 👈 allow linking to user when logged in
+  optionalAuthenticate,
   rateLimitSensitive,
-  upload.array('attachments', 6),      // field name MUST be "attachments"
+  upload.array('attachments', 6), // still supports direct file upload
   handleMulterError,
   [
     body('subject').isString().trim().isLength({ min: 3 }).withMessage('Subject is required'),
@@ -142,6 +185,9 @@ router.post(
     body('phone').optional().isString(),
     body('orderId').optional().isString(),
     body('priority').optional().isIn(['low', 'normal', 'high']),
+    // Accept URL payloads too (can be JSON string or array); we don't hard-validate shape
+    body('attachments').optional(),
+    body('attachmentsUrls').optional(),
   ],
   handleValidation,
   postTicket
@@ -153,18 +199,16 @@ router.post(
 
 router.get('/tickets/my', authenticate, async (req: Request, res: Response) => {
   try {
-    const userId = (req as any).user?.id; // authenticate() sets { id, ... }
+    const userId = (req as any).user?.id;
     if (!userId) {
       return res.status(401).json({ success: false, message: 'Login required' });
     }
 
-    // Sort by updatedAt so admin status updates appear immediately on top
     const tickets = await SupportTicket.find({ userId })
       .sort({ updatedAt: -1 })
       .limit(50)
       .lean();
 
-    // Avoid client/proxy caching
     res.set('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
     res.set('Pragma', 'no-cache');
     res.set('Expires', '0');

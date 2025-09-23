@@ -1,12 +1,15 @@
+// src/config/adminApi.ts
 import axios, { AxiosInstance, AxiosResponse } from 'axios';
 
-// Vite Environment Variables (import.meta.env instead of process.env)
+// ================= Env / base =================
 const API_BASE_URL = import.meta.env.VITE_API_URL?.trim() || '/api';
 const APP_NAME = import.meta.env.VITE_APP_NAME || 'Nakoda Mobile';
 const API_TIMEOUT = 30000;
 const IS_DEVELOPMENT = import.meta.env.DEV;
 const IS_PRODUCTION = import.meta.env.PROD;
+
 const SUPPORT_ADMIN_BASE = '/admin/support';
+
 // ============== Types ==============
 export interface ApiResponse {
   success: boolean;
@@ -93,7 +96,7 @@ export interface AdminNotificationsListResponse {
   total?: number;
 }
 
-
+// ---------- Reviews ----------
 export type ReviewStatus = 'pending' | 'approved' | 'rejected';
 
 export interface Review {
@@ -115,7 +118,6 @@ export interface Review {
 
 export interface AdminReviewsResponse {
   success?: boolean;
-  // any of these may be used by the backend:
   reviews?: Review[];
   data?: Review[];
   items?: Review[];
@@ -129,24 +131,10 @@ export interface AdminReviewsResponse {
   };
 }
 
-
-
-
+// ---------- Support / tickets ----------
 export type TicketStatus = 'open' | 'in_progress' | 'resolved' | 'closed';
 export type TicketPriority = 'low' | 'normal' | 'high';
 
-export interface SupportTicket {
-  _id: string;
-  subject: string;
-  category?: string;
-  message: string;
-  email: string;
-  phone?: string;
-  orderId?: string;
-  status: TicketStatus;
-  priority: TicketPriority;
-  createdAt: string;
-}
 export interface SupportConfig {
   channels: { email: boolean; phone: boolean; whatsapp: boolean; chat?: boolean };
   email: { address: string; responseTimeHours: number };
@@ -169,6 +157,9 @@ export interface SupportFaq {
   updatedAt?: string;
 }
 
+export type TicketAttachment =
+  { url: string; name?: string; type?: string; size?: number; key?: string; mime?: string };
+
 export interface SupportTicket {
   _id: string;
   subject: string;
@@ -182,10 +173,7 @@ export interface SupportTicket {
   createdAt: string;
   updatedAt?: string;
   userId?: any;
-
-attachments?: string[] | { url: string; name?: string; type?: string; size?: number; key?: string }[];
-  attachmentsUrls?: { url: string; name?: string; type?: string; size?: number; key?: string }[];
-
+  attachments?: TicketAttachment[]; // saved in DB
 }
 
 // Normalize arrays from various payload shapes
@@ -266,7 +254,6 @@ adminApi.interceptors.response.use(
 );
 
 // ============== Compatibility helpers ==============
-
 // Normalize one product so UI can rely on compareAtPrice + stock consistently
 const normalizeProduct = (p: any): Product => {
   const cmp = p?.compareAtPrice ?? p?.originalPrice ?? null;
@@ -498,10 +485,7 @@ export const updateProductStatus = async (
 ): Promise<ApiResponse> => {
   try {
     log('🔄 Updating product status:', productId, status);
-
-    // ⚠️ Your admin router uses PUT /products/:id/status
     const { data } = await adminApi.put(`/admin/products/${productId}/status`, { status });
-
     log('✅ Product status updated successfully');
     return data;
   } catch (error: any) {
@@ -513,13 +497,10 @@ export const updateProductStatus = async (
 export const updateProductStock = async (productId: string, stock: number): Promise<ApiResponse> => {
   try {
     log('📦 Updating product stock:', productId, stock);
-
-    // If you wire a route, make sure it exists server-side: PATCH /products/:id/stock
     const { data } = await adminApi.patch(`/admin/products/${productId}/stock`, {
       stock,
       stockQuantity: stock,
     });
-
     log('✅ Product stock updated successfully');
     return data;
   } catch (error: any) {
@@ -571,6 +552,7 @@ export const exportProducts = async (filters?: ProductFilters): Promise<Blob> =>
   }
 };
 
+// ============== Notifications ==============
 export const adminListNotifications = async (
   params?: { limit?: number; page?: number }
 ): Promise<AdminNotificationsListResponse> => {
@@ -598,7 +580,7 @@ export const adminDeleteNotification = async (id: string): Promise<ApiResponse> 
 // Legacy alias
 export const getAdminProducts = getProducts;
 
-// ============== ADMIN USERS (all via adminApi with Bearer) ==============
+// ============== ADMIN USERS ==============
 export const getUsers = async (params: {
   page?: number;
   limit?: number;
@@ -609,12 +591,12 @@ export const getUsers = async (params: {
   sortOrder?: 'asc' | 'desc';
 }) => {
   const { data } = await adminApi.get('/admin/users', { params });
-  return data; // { success, users, totalUsers, totalPages, ... }
+  return data;
 };
 
 export const updateUser = async (userId: string, patch: any) => {
   const { data } = await adminApi.patch(`/admin/users/${userId}`, patch);
-  return data; // { success, message, user? }
+  return data;
 };
 
 export const toggleUserStatus = async (
@@ -622,22 +604,22 @@ export const toggleUserStatus = async (
   status: 'active' | 'inactive' | 'banned'
 ) => {
   const { data } = await adminApi.patch(`/admin/users/${userId}/status`, { status });
-  return data; // { success }
+  return data;
 };
 
 export const deleteUser = async (userId: string) => {
   const { data } = await adminApi.delete(`/admin/users/${userId}`);
-  return data; // { success }
+  return data;
 };
 
 export const sendPasswordResetEmail = async (userId: string) => {
   const { data } = await adminApi.post(`/admin/users/${userId}/password-reset`);
-  return data; // { success }
+  return data;
 };
 
 export const getUserAnalytics = async (params: { range: '7d' | '30d' | '90d' }) => {
   const { data } = await adminApi.get('/admin/users/analytics', { params });
-  return data; // { success, analytics: {...} }
+  return data;
 };
 
 // === ORDERS (admin) ===========================================================
@@ -670,7 +652,6 @@ export const env = {
   razorpayKeyId: import.meta.env.VITE_RAZORPAY_KEY_ID,
   stripePublishableKey: import.meta.env.VITE_STRIPE_PUBLISHABLE_KEY,
 };
-
 
 // ============== ADMIN REVIEWS ==============
 export const getAdminReviews = async (params?: {
@@ -707,7 +688,6 @@ export const updateReviewStatus = async (id: string, status: ReviewStatus) => {
   try {
     log('✏️ Updating review status:', id, status);
     const res = await adminApi.patch(`/admin/reviews/${id}/status`, { status });
-    // server may return 204 No Content
     return res.data ?? { success: true };
   } catch (error: any) {
     logError('❌ Update review status failed:', error.response?.data || error.message);
@@ -729,21 +709,64 @@ export const deleteReviewById = async (id: string) => {
   }
 };
 
+// ============== SUPPORT (public) ==============
 export const getSupportConfig = async (): Promise<{ success: boolean; config: any }> => {
   const { data } = await adminApi.get('/support/config');  // -> /api/support/config
   return data;
 };
-
-
 
 export const getSupportFaqs = async (params?: { q?: string; category?: string }) => {
   const { data } = await adminApi.get('/support/faqs', { params });
   return data as { success: boolean; faqs: SupportFaq[] };
 };
 
+/**
+ * Presigned S3 helpers — your server mounts at: app.use("/api/uploads/s3", uploadsS3)
+ */
+export interface S3SignResponse {
+  success: boolean;
+  key: string;
+  uploadUrl: string;
+  publicUrl: string;
+  expiresIn: number;
+}
 
+export const s3SignUpload = async (args: {
+  filename: string;
+  contentType: string;
+  size: number;
+  folder?: string; // default 'support' on caller
+}): Promise<S3SignResponse> => {
+  // NOTE: path is '/uploads/s3/sign' because baseURL already includes '/api'
+  const { data } = await adminApi.post('/uploads/s3/sign', args);
+  return data as S3SignResponse;
+};
 
+export const s3PutObject = async (uploadUrl: string, file: File | Blob, contentType: string) => {
+  const res = await fetch(uploadUrl, {
+    method: 'PUT',
+    headers: { 'Content-Type': contentType, 'x-amz-acl': 'public-read' },
+    body: file,
+  });
+  if (!res.ok) throw new Error(`S3 upload failed (${res.status})`);
+  return true;
+};
 
+// Convenience: upload many files to S3 and return normalized attachment objects
+export const s3UploadFiles = async (files: File[], folder = 'support') => {
+  const out: TicketAttachment[] = [];
+  for (const f of files) {
+    const sign = await s3SignUpload({ filename: f.name, contentType: f.type, size: f.size, folder });
+    await s3PutObject(sign.uploadUrl, f, f.type);
+    out.push({ url: sign.publicUrl, name: f.name, size: f.size, type: f.type, key: sign.key, mime: f.type });
+  }
+  return out;
+};
+
+/**
+ * Create ticket — supports either raw `attachments` (multipart)
+ * OR pre-uploaded S3 URLs in `attachmentsUrls` (preferred).
+ */
 export const createSupportTicket = async (payload: {
   subject: string;
   message: string;
@@ -751,26 +774,30 @@ export const createSupportTicket = async (payload: {
   phone?: string;
   orderId?: string;
   category?: string;
-  priority?: 'low' | 'normal' | 'high';
-  attachments?: File[];
+  priority?: TicketPriority;
+  attachments?: File[]; // optional raw files (multipart)
+  attachmentsUrls?: TicketAttachment[]; // optional S3-based uploads
 }) => {
   const form = new FormData();
   form.append('subject', payload.subject);
   form.append('message', payload.message);
-  form.append('email', payload.email); // ← must be present and valid
+  form.append('email', payload.email);
 
   if (payload.phone) form.append('phone', payload.phone);
   if (payload.orderId) form.append('orderId', payload.orderId);
   if (payload.category) form.append('category', payload.category);
   if (payload.priority) form.append('priority', payload.priority);
 
+  // raw file uploads (still supported)
   (payload.attachments || []).forEach(f => form.append('attachments', f)); // field name MUST be 'attachments'
 
-  // let the browser set the Content-Type with boundary
-  const { data } = await adminApi.post('/support/tickets', form, {
-    headers: undefined
-  });
-  return data as { success: boolean; ticket: { _id: string; status: 'open' | 'in_progress' | 'resolved' | 'closed' } };
+  // pass S3 URLs as JSON so backend can persist into attachments[]
+  if (payload.attachmentsUrls?.length) {
+    form.append('attachmentsUrls', JSON.stringify(payload.attachmentsUrls));
+  }
+
+  const { data } = await adminApi.post('/support/tickets', form);
+  return data as { success: boolean; ticket: { _id: string; status: TicketStatus } };
 };
 
 // (optional, if you have user auth for non-admin area)
@@ -779,18 +806,7 @@ export const getMySupportTickets = async () => {
   return data as { success: boolean; tickets: SupportTicket[] };
 };
 
-
-
-
-
-
-
-
-
-
-
-
-
+// ============== SUPPORT (admin) ==============
 export const adminSupportGetConfig = async (): Promise<{ success: boolean; config: SupportConfig }> => {
   const { data } = await adminApi.get(`${SUPPORT_ADMIN_BASE}/config`);
   return data;
@@ -819,7 +835,7 @@ export const adminSupportUpdateFaq = async (id: string, patch: Partial<SupportFa
 
 export const adminSupportDeleteFaq = async (id: string) => {
   const { data } = await adminApi.delete(`${SUPPORT_ADMIN_BASE}/faqs/${id}`);
-  return data; // 204 No Content -> axios gives empty data; ok to ignore
+  return data; // might be empty; OK
 };
 
 // Tickets (Admin)
@@ -831,7 +847,7 @@ export const adminSupportListTickets = async (params?: {
 }) => {
   const { data } = await adminApi.get('/admin/support/tickets', { params });
 
-  // Normalize various shapes to what the UI expects
+  // Normalize to what UI expects
   const tickets = data?.tickets ?? data?.items ?? [];
   const page = data?.page ?? data?.meta?.page ?? 1;
   const totalPages = data?.totalPages ?? data?.meta?.totalPages ?? 1;
@@ -846,12 +862,10 @@ export const adminSupportListTickets = async (params?: {
   };
 };
 
-
 export const adminSupportUpdateTicketStatus = async (id: string, status: TicketStatus) => {
   const { data } = await adminApi.patch(`${SUPPORT_ADMIN_BASE}/tickets/${id}/status`, { status });
   return data as { success: boolean; ticket: SupportTicket };
 };
-
 
 // === RETURNS (admin) ===========================================
 export const adminGetReturns = (params?: {
@@ -909,7 +923,5 @@ export const srCheckServiceability = (params: {
 // public utility
 export const srTrackByAwb = (awb: string) =>
   adminApi.get(`/shiprocket/track/${awb}`).then(r => r.data);
-
-
 
 export default adminApi;
