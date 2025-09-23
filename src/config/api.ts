@@ -1,12 +1,10 @@
-// src/config/api.ts
 import axios from "axios";
 
 /** Base URL
  * Prefer env; otherwise use a RELATIVE "/api" so it works on any domain.
  * (Avoid hardcoding a domain to dodge typos and CORS issues.)
  */
-const API_BASE_URL =
-  import.meta.env.VITE_API_URL?.trim() || "/api";
+const API_BASE_URL = import.meta.env.VITE_API_URL?.trim() || "/api";
 
 /** One axios instance for the app */
 const api = axios.create({
@@ -132,6 +130,7 @@ export interface SupportTicket {
   status: TicketStatus;
   createdAt: string;
   updatedAt?: string;
+  // attachments?: { url: string; name?: string; type?: string; size?: number; key?: string }[]; // (backend optional)
 }
 
 /* ============================== SUPPORT (calls) ============================= */
@@ -141,6 +140,22 @@ export const getSupportConfig = () =>
 export const getSupportFaqs = (params?: { q?: string; category?: string }) =>
   api.get("/support/faqs", { params }).then((r) => r.data as { success: boolean; faqs: SupportFaq[] });
 
+/** Presign S3 upload for support attachments */
+export const presignSupportUpload = async (payload: {
+  filename: string;
+  contentType?: string;
+  dir?: string; // e.g. 'support'
+}) => {
+  const { data } = await api.post("/uploads/presign", payload);
+  // Expecting: { uploadUrl: string, key: string, url?: string }
+  return data as { uploadUrl: string; key: string; url?: string };
+};
+
+/**
+ * Create Support Ticket
+ * - If `attachmentsUrls` present, send JSON.
+ * - Else if `attachments` (File[]) present, send multipart.
+ */
 export const createSupportTicket = async (payload: {
   subject: string;
   message: string;
@@ -150,7 +165,25 @@ export const createSupportTicket = async (payload: {
   category?: string;
   priority?: TicketPriority;
   attachments?: File[];
+  attachmentsUrls?: Array<{ url: string; name?: string; type?: string; size?: number; key?: string }>;
 }) => {
+  // JSON path (S3 already uploaded)
+  if (payload.attachmentsUrls && payload.attachmentsUrls.length > 0) {
+    const body = {
+      subject: payload.subject,
+      message: payload.message,
+      email: payload.email,
+      phone: payload.phone,
+      orderId: payload.orderId,
+      category: payload.category,
+      priority: payload.priority,
+      attachments: payload.attachmentsUrls, // backend should accept this array
+    };
+    const { data } = await api.post("/support/tickets", body);
+    return data as { success: boolean; ticket: { _id: string; status: TicketStatus } };
+  }
+
+  // Multipart path (legacy)
   const form = new FormData();
   form.append("subject", payload.subject);
   form.append("message", payload.message);

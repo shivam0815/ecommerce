@@ -1,4 +1,3 @@
-// src/pages/account/HelpSupport.tsx
 import React, { useEffect, useMemo, useState } from 'react';
 import toast from 'react-hot-toast';
 import {
@@ -6,6 +5,7 @@ import {
   getSupportFaqs,
   createSupportTicket,
   getMySupportTickets,
+  presignSupportUpload,          // <-- added
   type SupportConfig,
   type SupportFaq,
   type TicketPriority,
@@ -24,6 +24,7 @@ type SupportTicket = {
   status: TicketStatus;
   createdAt: string;
   updatedAt?: string;
+  // attachments?: { url: string; name?: string; type?: string; size?: number; key?: string }[]; // optional
 };
 
 const inputBase =
@@ -102,7 +103,6 @@ const HelpSupport: React.FC = () => {
       setLoadingMy(true);
       const res = await getMySupportTickets();
       if (res?.success) {
-        // sort by updatedAt desc, fallback to createdAt
         const sorted = [...(res.tickets || [])].sort((a, b) => {
           const ad = new Date(a.updatedAt || a.createdAt).getTime();
           const bd = new Date(b.updatedAt || b.createdAt).getTime();
@@ -140,6 +140,31 @@ const HelpSupport: React.FC = () => {
     setFiles(Array.from(e.target.files).slice(0, 3));
   };
 
+  // --- S3 uploader ---
+  const uploadToS3 = async (file: File) => {
+    const { uploadUrl, url, key } = await presignSupportUpload({
+      filename: file.name,
+      contentType: file.type || 'application/octet-stream',
+      dir: 'support',
+    });
+
+    await fetch(uploadUrl, {
+      method: 'PUT',
+      headers: { 'Content-Type': file.type || 'application/octet-stream' },
+      body: file,
+    });
+
+    const publicUrl = url || uploadUrl.split('?')[0];
+
+    return {
+      url: publicUrl,
+      name: file.name,
+      type: file.type,
+      size: file.size,
+      key,
+    };
+  };
+
   const onSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -153,6 +178,19 @@ const HelpSupport: React.FC = () => {
 
     try {
       setSubmitting(true);
+
+      // 1) Upload selected files to S3 (if any)
+      let attachmentsUrls:
+        | Array<{ url: string; name: string; type: string; size: number; key?: string }>
+        | undefined;
+
+      if (files.length > 0) {
+        toast.loading('Uploading attachments...', { id: 'upload' });
+        attachmentsUrls = await Promise.all(files.map(uploadToS3));
+        toast.success('Attachments uploaded', { id: 'upload' });
+      }
+
+      // 2) Create the ticket (JSON with S3 URLs)
       const res = await createSupportTicket({
         subject: subject.trim(),
         message: message.trim(),
@@ -161,8 +199,9 @@ const HelpSupport: React.FC = () => {
         orderId: orderId.trim() || undefined,
         category: ticketCategory || undefined,
         priority,
-        attachments: files,
+        attachmentsUrls, // << use S3 URLs (do not send raw files)
       });
+
       if (res?.success) {
         toast.success('Ticket created successfully');
         // Reset form
@@ -180,6 +219,7 @@ const HelpSupport: React.FC = () => {
         toast.error('Could not create ticket');
       }
     } catch (err: any) {
+      toast.dismiss('upload');
       toast.error(err?.response?.data?.error || err?.message || 'Failed to create ticket');
     } finally {
       setSubmitting(false);
@@ -392,7 +432,7 @@ const HelpSupport: React.FC = () => {
             </label>
             <label className="block">
               <span className="text-sm font-medium text-gray-700">
-                Email{isLoggedIn}
+                {isLoggedIn ? 'Email' : 'Email*'}
               </span>
               <input className={inputBase} type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
             </label>

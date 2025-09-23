@@ -25,6 +25,14 @@ const statusOptions: Array<{ label: string; value: TicketStatus | 'all' }> = [
   { label: 'Closed', value: 'closed' },
 ];
 
+type TicketAttachment = {
+  url: string;
+  name?: string;
+  type?: string;
+  size?: number;
+  key?: string;
+};
+
 const AdminHelpSupport: React.FC = () => {
   const [tab, setTab] = useState<TabKey>('tickets');
 
@@ -57,33 +65,31 @@ const AdminHelpSupport: React.FC = () => {
   const [cfgSaving, setCfgSaving] = useState(false);
 
   // --------- Loaders ---------
-  // inside AdminHelpSupport.tsx
-const loadTickets = async (page = 1) => {
-  try {
-    setTLoading(true);
-    const res = await adminSupportListTickets({
-      status: tStatus,
-      q: q || undefined,
-      page,
-      limit: 10,
-    });
+  const loadTickets = async (page = 1) => {
+    try {
+      setTLoading(true);
+      const res = await adminSupportListTickets({
+        status: tStatus,
+        q: q || undefined,
+        page,
+        limit: 10,
+      });
 
-    if (res?.success) {
-      setTickets(Array.isArray(res.tickets) ? res.tickets : []);                 // 👈 guard
-      setTPage(Number(res.page) || 1);
-      setTTotalPages(Number(res.totalPages) || 1);
-    } else {
-      setTickets([]);                                                            // 👈 fallback
-      toast.error('Failed to load tickets');
+      if (res?.success) {
+        setTickets(Array.isArray(res.tickets) ? res.tickets : []);
+        setTPage(Number(res.page) || 1);
+        setTTotalPages(Number(res.totalPages) || 1);
+      } else {
+        setTickets([]);
+        toast.error('Failed to load tickets');
+      }
+    } catch (err: any) {
+      setTickets([]);
+      toast.error(err?.message || 'Failed to load tickets');
+    } finally {
+      setTLoading(false);
     }
-  } catch (err: any) {
-    setTickets([]);                                                              // 👈 fallback
-    toast.error(err?.message || 'Failed to load tickets');
-  } finally {
-    setTLoading(false);
-  }
-};
-
+  };
 
   const loadFaqs = async () => {
     try {
@@ -274,7 +280,7 @@ const loadTickets = async (page = 1) => {
                 <tr><td colSpan={7} className="px-4 py-6 text-center text-gray-500">Loading…</td></tr>
               ) : tickets.length === 0 ? (
                 <tr><td colSpan={7} className="px-4 py-6 text-center text-gray-500">No tickets found</td></tr>
-              ) : tickets.map(t => (
+              ) : tickets.map((t) => (
                 <React.Fragment key={t._id}>
                   <tr className="border-t">
                     <td className="px-4 py-3 font-medium">{t.subject}</td>
@@ -302,10 +308,11 @@ const loadTickets = async (page = 1) => {
                       </button>
                     </td>
                   </tr>
+
                   {expanded === t._id && (
                     <tr className="bg-gray-50">
                       <td colSpan={7} className="px-4 py-4">
-                        <div className="grid gap-2 md:grid-cols-2">
+                        <div className="grid gap-4 md:grid-cols-2">
                           <div>
                             <div className="text-xs uppercase text-gray-500">Message</div>
                             <div className="whitespace-pre-wrap rounded-md bg-white p-3">{t.message}</div>
@@ -313,11 +320,60 @@ const loadTickets = async (page = 1) => {
                           <div className="grid grid-cols-2 gap-3 text-sm">
                             <div>
                               <div className="text-xs uppercase text-gray-500">Phone</div>
-                              <div>{t.phone || '—'}</div>
+                              <div>{(t as any).phone || '—'}</div>
                             </div>
                             <div>
                               <div className="text-xs uppercase text-gray-500">Order</div>
-                              <div>{t.orderId || '—'}</div>
+                              <div>{(t as any).orderId || '—'}</div>
+                            </div>
+
+                            {/* Attachments */}
+                            <div className="col-span-2">
+                              <div className="text-xs uppercase text-gray-500 mb-1">Attachments</div>
+                              {Array.isArray((t as any).attachments) && (t as any).attachments.length > 0 ? (
+                                <div className="flex flex-wrap gap-2">
+                                  {((t as any).attachments as TicketAttachment[]).map((att, i) => {
+                                    const url = att.url || '';
+                                    const isImg =
+                                      (att.type || '').startsWith('image/') ||
+                                      /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(url);
+                                    const fileName =
+                                      att.name ||
+                                      decodeURIComponent(url.split('/').pop() || `file-${i+1}`);
+                                    return isImg ? (
+                                      <a
+                                        key={url + i}
+                                        href={url}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="block rounded-md border border-gray-200 overflow-hidden bg-white"
+                                        title={fileName}
+                                      >
+                                        <img
+                                          src={url}
+                                          alt={fileName}
+                                          className="h-24 w-24 object-cover"
+                                          loading="lazy"
+                                        />
+                                      </a>
+                                    ) : (
+                                      <a
+                                        key={url + i}
+                                        href={url}
+                                        target="_blank"
+                                        rel="noreferrer"
+                                        className="inline-flex items-center gap-2 rounded-full bg-gray-100 px-3 py-1 text-xs text-gray-700 hover:bg-gray-200"
+                                        title={fileName}
+                                      >
+                                        <span className="truncate max-w-[12rem]">{fileName}</span>
+                                        <span className="text-gray-500">↗</span>
+                                      </a>
+                                    );
+                                  })}
+                                </div>
+                              ) : (
+                                <div className="text-xs text-gray-500">No attachments</div>
+                              )}
                             </div>
                           </div>
                         </div>

@@ -41,10 +41,11 @@ const Blog: React.FC = () => {
   return (
     <div className="min-h-screen bg-gray-50">
       <SEO
-        title="Blog"
-        description="Guides, tips and news from Nakoda Mobile: accessories, charging, audio, repair tools and more."
-        canonicalPath="/blog"
-      />
+  title="Blog | Nakoda Mobile"
+  description="Nakoda Mobile Blog – Expert guides, tips, and latest news on mobile accessories, fast chargers, data cables, Bluetooth neckbands, TWS earbuds, speakers, power banks, mobile repair tools, ICs, and wholesale B2B solutions in India."
+  canonicalPath="/blog"
+/>
+
 
       <section className="bg-gradient-to-br from-blue-600 via-purple-600 to-blue-800 text-white py-16">
         <div className="max-w-7xl mx-auto px-4">
