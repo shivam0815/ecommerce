@@ -337,6 +337,8 @@ app.use('/api/shipping', shipping);
 // Shiprocket protected (single mount; no unprotected duplicate)
 app.use('/api/shiprocket', authenticate, adminOnly, shiprocketRoutes);
 app.use("/api/uploads/s3", uploadsS3);
+import debugRoutes from './routes/debug';
+app.use('/api', debugRoutes);
 // Health
 app.get('/api/health', async (_req, res): Promise<void> => {
   let dbStatus = 'Unknown';
