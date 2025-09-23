@@ -141,7 +141,7 @@ export const getSupportFaqs = (params?: { q?: string; category?: string }) =>
 
 /** S3 presign for support uploads */
 export const presignSupportUpload = async (file: File) => {
-  const { data } = await api.post("/uploads/sign", {
+  const { data } = await api.post("'/uploads/s3/sign", {
     filename: file.name,
     contentType: file.type || "application/octet-stream",
     folder: "support",
