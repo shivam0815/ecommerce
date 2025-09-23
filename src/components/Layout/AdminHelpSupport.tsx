@@ -25,12 +25,55 @@ const statusOptions: Array<{ label: string; value: TicketStatus | 'all' }> = [
   { label: 'Closed', value: 'closed' },
 ];
 
-type TicketAttachment = {
+/** Attachment type we expect from API (flexible to support multiple backends) */
+type Attachment = {
   url: string;
   name?: string;
   type?: string;
   size?: number;
   key?: string;
+};
+
+/** Support tickets might return attachments under different fields.
+ * This helper collects all into a normalized array.
+ */
+const collectAttachments = (t: any): Attachment[] => {
+  const a: Attachment[] = [];
+  const pools = [
+    t?.attachmentsUrls,
+    t?.attachments,
+    t?.files,
+    t?.evidences,
+  ].filter(Boolean);
+  pools.forEach((arr: any[]) => {
+    arr.forEach((x: any) => {
+      if (!x) return;
+      if (typeof x === 'string') a.push({ url: x });
+      else if (x.url) a.push(x);
+    });
+  });
+  // De-dup by url
+  const seen = new Set<string>();
+  return a.filter((x) => {
+    if (!x.url || seen.has(x.url)) return false;
+    seen.add(x.url);
+    return true;
+  });
+};
+
+const isImage = (att: Attachment) => {
+  const t = (att.type || '').toLowerCase();
+  if (t.startsWith('image/')) return true;
+  const u = att.url.toLowerCase();
+  return ['.jpg', '.jpeg', '.png', '.webp', '.gif', '.avif', '.svg'].some((ext) => u.includes(ext));
+};
+
+const formatBytes = (n?: number) => {
+  if (!n || n <= 0) return '';
+  const k = 1024;
+  const sizes = ['B', 'KB', 'MB', 'GB'];
+  const i = Math.min(Math.floor(Math.log(n) / Math.log(k)), sizes.length - 1);
+  return `${(n / Math.pow(k, i)).toFixed(i === 0 ? 0 : 1)} ${sizes[i]}`;
 };
 
 const AdminHelpSupport: React.FC = () => {
@@ -64,7 +107,7 @@ const AdminHelpSupport: React.FC = () => {
   const [cfgLoading, setCfgLoading] = useState(false);
   const [cfgSaving, setCfgSaving] = useState(false);
 
-  // --------- Loaders ---------
+  // ---------------- Loaders ----------------
   const loadTickets = async (page = 1) => {
     try {
       setTLoading(true);
@@ -135,7 +178,7 @@ const AdminHelpSupport: React.FC = () => {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tStatus, q]);
 
-  // --------- Actions ---------
+  // ---------------- Actions ----------------
   const updateTicketStatus = async (id: string, status: TicketStatus) => {
     try {
       const res = await adminSupportUpdateTicketStatus(id, status);
@@ -229,7 +272,7 @@ const AdminHelpSupport: React.FC = () => {
     }
   };
 
-  // --------- UI helpers ---------
+  // ---------------- UI helpers ----------------
   const pagers = useMemo(() => {
     const pgs = [];
     const start = Math.max(1, tPage - 2);
@@ -237,7 +280,16 @@ const AdminHelpSupport: React.FC = () => {
     return pgs;
   }, [tPage, tTotalPages]);
 
-  // --------- Renders ---------
+  const copyLink = async (url: string) => {
+    try {
+      await navigator.clipboard.writeText(url);
+      toast.success('Link copied');
+    } catch {
+      toast.error('Could not copy');
+    }
+  };
+
+  // ---------------- Renders ----------------
   const renderTickets = () => (
     <div className="space-y-4">
       <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
@@ -280,108 +332,149 @@ const AdminHelpSupport: React.FC = () => {
                 <tr><td colSpan={7} className="px-4 py-6 text-center text-gray-500">Loading…</td></tr>
               ) : tickets.length === 0 ? (
                 <tr><td colSpan={7} className="px-4 py-6 text-center text-gray-500">No tickets found</td></tr>
-              ) : tickets.map((t) => (
-                <React.Fragment key={t._id}>
-                  <tr className="border-t">
-                    <td className="px-4 py-3 font-medium">{t.subject}</td>
-                    <td className="px-4 py-3">{t.email}</td>
-                    <td className="px-4 py-3">{t.category || '—'}</td>
-                    <td className="px-4 py-3 capitalize">{t.priority}</td>
-                    <td className="px-4 py-3">
-                      <select
-                        value={t.status}
-                        onChange={(e) => updateTicketStatus(t._id, e.target.value as TicketStatus)}
-                        className="rounded-md border border-gray-300 px-2 py-1 text-xs"
-                      >
-                        {statusOptions.filter(s => s.value !== 'all').map(s => (
-                          <option key={s.value} value={s.value as string}>{s.label}</option>
-                        ))}
-                      </select>
-                    </td>
-                    <td className="px-4 py-3">{new Date(t.createdAt).toLocaleString()}</td>
-                    <td className="px-4 py-3">
-                      <button
-                        onClick={() => setExpanded(expanded === t._id ? null : t._id)}
-                        className="rounded-md px-2 py-1 text-xs text-indigo-600 hover:bg-indigo-50"
-                      >
-                        {expanded === t._id ? 'Hide' : 'View'}
-                      </button>
-                    </td>
-                  </tr>
-
-                  {expanded === t._id && (
-                    <tr className="bg-gray-50">
-                      <td colSpan={7} className="px-4 py-4">
-                        <div className="grid gap-4 md:grid-cols-2">
-                          <div>
-                            <div className="text-xs uppercase text-gray-500">Message</div>
-                            <div className="whitespace-pre-wrap rounded-md bg-white p-3">{t.message}</div>
-                          </div>
-                          <div className="grid grid-cols-2 gap-3 text-sm">
-                            <div>
-                              <div className="text-xs uppercase text-gray-500">Phone</div>
-                              <div>{(t as any).phone || '—'}</div>
-                            </div>
-                            <div>
-                              <div className="text-xs uppercase text-gray-500">Order</div>
-                              <div>{(t as any).orderId || '—'}</div>
-                            </div>
-
-                            {/* Attachments */}
-                            <div className="col-span-2">
-                              <div className="text-xs uppercase text-gray-500 mb-1">Attachments</div>
-                              {Array.isArray((t as any).attachments) && (t as any).attachments.length > 0 ? (
-                                <div className="flex flex-wrap gap-2">
-                                  {((t as any).attachments as TicketAttachment[]).map((att, i) => {
-                                    const url = att.url || '';
-                                    const isImg =
-                                      (att.type || '').startsWith('image/') ||
-                                      /\.(png|jpe?g|gif|webp|bmp|svg)$/i.test(url);
-                                    const fileName =
-                                      att.name ||
-                                      decodeURIComponent(url.split('/').pop() || `file-${i+1}`);
-                                    return isImg ? (
-                                      <a
-                                        key={url + i}
-                                        href={url}
-                                        target="_blank"
-                                        rel="noreferrer"
-                                        className="block rounded-md border border-gray-200 overflow-hidden bg-white"
-                                        title={fileName}
-                                      >
-                                        <img
-                                          src={url}
-                                          alt={fileName}
-                                          className="h-24 w-24 object-cover"
-                                          loading="lazy"
-                                        />
-                                      </a>
-                                    ) : (
-                                      <a
-                                        key={url + i}
-                                        href={url}
-                                        target="_blank"
-                                        rel="noreferrer"
-                                        className="inline-flex items-center gap-2 rounded-full bg-gray-100 px-3 py-1 text-xs text-gray-700 hover:bg-gray-200"
-                                        title={fileName}
-                                      >
-                                        <span className="truncate max-w-[12rem]">{fileName}</span>
-                                        <span className="text-gray-500">↗</span>
-                                      </a>
-                                    );
-                                  })}
+              ) : tickets.map((t) => {
+                  const atts = collectAttachments(t);
+                  return (
+                    <React.Fragment key={t._id}>
+                      <tr className="border-t">
+                        <td className="px-4 py-3 font-medium">{t.subject}</td>
+                        <td className="px-4 py-3">{t.email}</td>
+                        <td className="px-4 py-3">{(t as any).category || '—'}</td>
+                        <td className="px-4 py-3 capitalize">{(t as any).priority}</td>
+                        <td className="px-4 py-3">
+                          <select
+                            value={(t as any).status}
+                            onChange={(e) => updateTicketStatus(t._id, e.target.value as TicketStatus)}
+                            className="rounded-md border border-gray-300 px-2 py-1 text-xs"
+                          >
+                            {statusOptions.filter(s => s.value !== 'all').map(s => (
+                              <option key={s.value} value={s.value as string}>{s.label}</option>
+                            ))}
+                          </select>
+                        </td>
+                        <td className="px-4 py-3">{new Date((t as any).createdAt).toLocaleString()}</td>
+                        <td className="px-4 py-3">
+                          <button
+                            onClick={() => setExpanded(expanded === t._id ? null : t._id)}
+                            className="rounded-md px-2 py-1 text-xs text-indigo-600 hover:bg-indigo-50"
+                          >
+                            {expanded === t._id ? 'Hide' : 'View'}
+                          </button>
+                        </td>
+                      </tr>
+                      {expanded === t._id && (
+                        <tr className="bg-gray-50">
+                          <td colSpan={7} className="px-4 py-4">
+                            <div className="grid gap-4 lg:grid-cols-3">
+                              {/* Message & Meta */}
+                              <div className="lg:col-span-2 space-y-3">
+                                <div>
+                                  <div className="text-xs uppercase text-gray-500">Message</div>
+                                  <div className="whitespace-pre-wrap rounded-md bg-white p-3">{(t as any).message}</div>
                                 </div>
-                              ) : (
-                                <div className="text-xs text-gray-500">No attachments</div>
-                              )}
+                                <div className="grid grid-cols-2 gap-3 text-sm">
+                                  <div>
+                                    <div className="text-xs uppercase text-gray-500">Phone</div>
+                                    <div>{(t as any).phone || '—'}</div>
+                                  </div>
+                                  <div>
+                                    <div className="text-xs uppercase text-gray-500">Order</div>
+                                    <div>{(t as any).orderId || '—'}</div>
+                                  </div>
+                                  <div>
+                                    <div className="text-xs uppercase text-gray-500">Created</div>
+                                    <div>{new Date((t as any).createdAt).toLocaleString()}</div>
+                                  </div>
+                                  <div>
+                                    <div className="text-xs uppercase text-gray-500">Updated</div>
+                                    <div>{new Date(((t as any).updatedAt || (t as any).createdAt)).toLocaleString()}</div>
+                                  </div>
+                                </div>
+                              </div>
+
+                              {/* Attachments */}
+                              <div className="space-y-2">
+                                <div className="flex items-center justify-between">
+                                  <div className="text-xs uppercase text-gray-500">Attachments</div>
+                                  {atts.length > 0 && (
+                                    <span className="text-xs text-gray-600">{atts.length}</span>
+                                  )}
+                                </div>
+
+                                {atts.length === 0 ? (
+                                  <div className="rounded-md border border-dashed border-gray-300 bg-white p-3 text-xs text-gray-500">
+                                    No attachments
+                                  </div>
+                                ) : (
+                                  <div className="grid grid-cols-2 gap-2">
+                                    {atts.map((att, i) => {
+                                      const img = isImage(att);
+                                      const label = att.name || att.url.split('/').pop() || `file-${i+1}`;
+                                      return (
+                                        <div key={att.url + i} className="group rounded-md border border-gray-200 bg-white overflow-hidden">
+                                          {img ? (
+                                            <a
+                                              href={att.url}
+                                              target="_blank"
+                                              rel="noreferrer"
+                                              className="block aspect-[4/3] bg-gray-50 overflow-hidden"
+                                              title={label}
+                                            >
+                                              <img
+                                                src={att.url}
+                                                alt={label}
+                                                className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+                                                loading="lazy"
+                                              />
+                                            </a>
+                                          ) : (
+                                            <div className="aspect-[4/3] flex items-center justify-center bg-gray-50 text-gray-500 text-xs">
+                                              <span className="px-3 text-center break-all">{label}</span>
+                                            </div>
+                                          )}
+                                          <div className="border-t px-2 py-1.5 text-[11px] flex items-center justify-between gap-1">
+                                            <a
+                                              className="truncate text-indigo-600 hover:underline"
+                                              href={att.url}
+                                              target="_blank"
+                                              rel="noreferrer"
+                                              title={label}
+                                            >
+                                              {label}
+                                            </a>
+                                            <div className="flex items-center gap-1 shrink-0">
+                                              {att.size ? <span className="text-gray-500">{formatBytes(att.size)}</span> : null}
+                                              <a
+                                                className="rounded px-1.5 py-0.5 hover:bg-gray-100"
+                                                href={att.url}
+                                                download
+                                                title="Download"
+                                              >
+                                                ⬇
+                                              </a>
+                                              <button
+                                                type="button"
+                                                className="rounded px-1.5 py-0.5 hover:bg-gray-100"
+                                                onClick={() => copyLink(att.url)}
+                                                title="Copy link"
+                                              >
+                                                ⧉
+                                              </button>
+                                            </div>
+                                          </div>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                )}
+                              </div>
                             </div>
-                          </div>
-                        </div>
-                      </td>
-                    </tr>
-                  )}
-                </React.Fragment>
-              ))}
+                          </td>
+                        </tr>
+                      )}
+                    </React.Fragment>
+                  );
+                })}
             </tbody>
           </table>
         </div>

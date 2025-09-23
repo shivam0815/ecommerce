@@ -5,7 +5,7 @@ import {
   getSupportFaqs,
   createSupportTicket,
   getMySupportTickets,
-  presignSupportUpload,          // <-- added
+  presignSupportUpload,
   type SupportConfig,
   type SupportFaq,
   type TicketPriority,
@@ -24,12 +24,15 @@ type SupportTicket = {
   status: TicketStatus;
   createdAt: string;
   updatedAt?: string;
-  // attachments?: { url: string; name?: string; type?: string; size?: number; key?: string }[]; // optional
 };
 
 const inputBase =
   'mt-1 block w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm placeholder-gray-400 shadow-sm focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500/40 disabled:opacity-60';
 const sectionCard = 'bg-white border border-gray-200 rounded-xl p-5';
+
+// S3 client-side constraints (mirror your backend)
+const ACCEPT = "image/jpeg,image/png,image/webp,image/avif,image/svg+xml";
+const MAX_FILES = 3;
 
 const HelpSupport: React.FC = () => {
   // Auth
@@ -103,6 +106,7 @@ const HelpSupport: React.FC = () => {
       setLoadingMy(true);
       const res = await getMySupportTickets();
       if (res?.success) {
+        // sort by updatedAt desc, fallback to createdAt
         const sorted = [...(res.tickets || [])].sort((a, b) => {
           const ad = new Date(a.updatedAt || a.createdAt).getTime();
           const bd = new Date(b.updatedAt || b.createdAt).getTime();
@@ -137,16 +141,22 @@ const HelpSupport: React.FC = () => {
   // Handlers
   const onFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files) return;
-    setFiles(Array.from(e.target.files).slice(0, 3));
+    const picked = Array.from(e.target.files);
+    if (picked.length > MAX_FILES) {
+      toast.error(`Max ${MAX_FILES} files allowed`);
+    }
+    const valid = picked
+      .slice(0, MAX_FILES)
+      .filter(f => ACCEPT.split(',').includes(f.type));
+    if (valid.length !== picked.length) {
+      toast.error('One or more files have an unsupported type');
+    }
+    setFiles(valid);
   };
 
-  // --- S3 uploader ---
+  /** Upload a single file to S3 using a presigned URL */
   const uploadToS3 = async (file: File) => {
-    const { uploadUrl, url, key } = await presignSupportUpload({
-      filename: file.name,
-      contentType: file.type || 'application/octet-stream',
-      dir: 'support',
-    });
+    const { uploadUrl, url, key } = await presignSupportUpload(file);
 
     await fetch(uploadUrl, {
       method: 'PUT',
@@ -171,35 +181,30 @@ const HelpSupport: React.FC = () => {
     // Only require email if not logged in
     const emailOk = isLoggedIn || /\S+@\S+\.\S+/.test(email);
     if (!subject.trim() || !message.trim() || !emailOk) {
-      return toast.error(isLoggedIn
-        ? 'Please fill subject and message'
-        : 'Please fill subject, message, and a valid email');
+      return toast.error(
+        isLoggedIn ? 'Please fill subject and message' : 'Please fill subject, message, and a valid email'
+      );
     }
 
     try {
       setSubmitting(true);
 
-      // 1) Upload selected files to S3 (if any)
-      let attachmentsUrls:
-        | Array<{ url: string; name: string; type: string; size: number; key?: string }>
-        | undefined;
-
+      // 1) Upload chosen files to S3 (if any)
+      let attachmentsUrls: Array<{url: string; name?: string; type?: string; size?: number; key?: string}> = [];
       if (files.length > 0) {
-        toast.loading('Uploading attachments...', { id: 'upload' });
         attachmentsUrls = await Promise.all(files.map(uploadToS3));
-        toast.success('Attachments uploaded', { id: 'upload' });
       }
 
-      // 2) Create the ticket (JSON with S3 URLs)
+      // 2) Create ticket with S3 URLs (or without attachments if none)
       const res = await createSupportTicket({
         subject: subject.trim(),
         message: message.trim(),
-        email: email.trim(), // backend falls back to authed email if empty + logged in
+        email: (email || '').trim(), // backend can fallback to authed email if empty + logged in
         phone: phone.trim() || undefined,
         orderId: orderId.trim() || undefined,
         category: ticketCategory || undefined,
         priority,
-        attachmentsUrls, // << use S3 URLs (do not send raw files)
+        attachmentsUrls, // <-- S3 flow
       });
 
       if (res?.success) {
@@ -219,7 +224,6 @@ const HelpSupport: React.FC = () => {
         toast.error('Could not create ticket');
       }
     } catch (err: any) {
-      toast.dismiss('upload');
       toast.error(err?.response?.data?.error || err?.message || 'Failed to create ticket');
     } finally {
       setSubmitting(false);
@@ -405,7 +409,12 @@ const HelpSupport: React.FC = () => {
                         <td className="px-3 py-2 font-mono">{t._id.slice(-8)}</td>
                         <td className="px-3 py-2">{t.subject}</td>
                         <td className="px-3 py-2">
-                          <span className={`px-2 py-1 rounded-full text-xs ${statusBadge(t.status)}`}>{t.status}</span>
+                          <span className={`px-2 py-1 rounded-full text-xs ${
+                            t.status === 'open' ? 'bg-amber-100 text-amber-700'
+                            : t.status === 'in_progress' ? 'bg-indigo-100 text-indigo-700'
+                            : t.status === 'resolved' ? 'bg-emerald-100 text-emerald-700'
+                            : 'bg-gray-200 text-gray-700'
+                          }`}>{t.status}</span>
                         </td>
                         <td className="px-3 py-2 capitalize">{t.priority}</td>
                         <td className="px-3 py-2">{t.orderId || '—'}</td>
@@ -432,7 +441,7 @@ const HelpSupport: React.FC = () => {
             </label>
             <label className="block">
               <span className="text-sm font-medium text-gray-700">
-                {isLoggedIn ? 'Email' : 'Email*'}
+                Email {isLoggedIn ? '(optional)' : '*'}
               </span>
               <input className={inputBase} type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
             </label>
@@ -470,13 +479,15 @@ const HelpSupport: React.FC = () => {
 
           <div className="grid gap-2">
             <label className="block">
-              <span className="text-sm font-medium text-gray-700">Attachments (up to 3)</span>
+              <span className="text-sm font-medium text-gray-700">Attachments (up to {MAX_FILES})</span>
               <input
                 className="mt-1 block w-full text-sm file:mr-3 file:rounded-md file:border file:border-gray-300 file:bg-white file:px-3 file:py-2 file:text-gray-700 hover:file:bg-gray-50"
                 type="file"
                 multiple
+                accept={ACCEPT}
                 onChange={onFileChange}
               />
+              <div className="mt-1 text-xs text-gray-500">Allowed: JPEG, PNG, WebP, AVIF, SVG</div>
             </label>
             {files.length > 0 && (
               <ul className="flex flex-wrap gap-2">

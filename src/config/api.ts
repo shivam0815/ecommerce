@@ -130,7 +130,6 @@ export interface SupportTicket {
   status: TicketStatus;
   createdAt: string;
   updatedAt?: string;
-  // attachments?: { url: string; name?: string; type?: string; size?: number; key?: string }[]; // (backend optional)
 }
 
 /* ============================== SUPPORT (calls) ============================= */
@@ -140,21 +139,38 @@ export const getSupportConfig = () =>
 export const getSupportFaqs = (params?: { q?: string; category?: string }) =>
   api.get("/support/faqs", { params }).then((r) => r.data as { success: boolean; faqs: SupportFaq[] });
 
-/** Presign S3 upload for support attachments */
-export const presignSupportUpload = async (payload: {
-  filename: string;
-  contentType?: string;
-  dir?: string; // e.g. 'support'
-}) => {
-  const { data } = await api.post("/uploads/presign", payload);
-  // Expecting: { uploadUrl: string, key: string, url?: string }
-  return data as { uploadUrl: string; key: string; url?: string };
+/** S3 presign for support uploads */
+export const presignSupportUpload = async (file: File) => {
+  const { data } = await api.post("/uploads/sign", {
+    filename: file.name,
+    contentType: file.type || "application/octet-stream",
+    folder: "support",
+    size: file.size,
+  });
+
+  if (!data?.success) {
+    throw new Error(data?.message || "Could not sign upload");
+  }
+
+  return {
+    uploadUrl: data.uploadUrl as string,
+    key: data.key as string,
+    url: data.publicUrl as string,
+  };
+};
+
+type AttachmentUrl = {
+  url: string;
+  name?: string;
+  type?: string;
+  size?: number;
+  key?: string; // S3 object key
 };
 
 /**
- * Create Support Ticket
- * - If `attachmentsUrls` present, send JSON.
- * - Else if `attachments` (File[]) present, send multipart.
+ * Create a support ticket.
+ * - If `attachmentsUrls` is provided, sends JSON with those URLs/metadata.
+ * - Else, if `attachments` (Files) is provided, falls back to multipart upload via API.
  */
 export const createSupportTicket = async (payload: {
   subject: string;
@@ -165,11 +181,11 @@ export const createSupportTicket = async (payload: {
   category?: string;
   priority?: TicketPriority;
   attachments?: File[];
-  attachmentsUrls?: Array<{ url: string; name?: string; type?: string; size?: number; key?: string }>;
+  attachmentsUrls?: AttachmentUrl[];
 }) => {
-  // JSON path (S3 already uploaded)
+  // Prefer S3-based flow with pre-uploaded URLs
   if (payload.attachmentsUrls && payload.attachmentsUrls.length > 0) {
-    const body = {
+    const { data } = await api.post("/support/tickets", {
       subject: payload.subject,
       message: payload.message,
       email: payload.email,
@@ -177,13 +193,12 @@ export const createSupportTicket = async (payload: {
       orderId: payload.orderId,
       category: payload.category,
       priority: payload.priority,
-      attachments: payload.attachmentsUrls, // backend should accept this array
-    };
-    const { data } = await api.post("/support/tickets", body);
+      attachmentsUrls: payload.attachmentsUrls,
+    });
     return data as { success: boolean; ticket: { _id: string; status: TicketStatus } };
   }
 
-  // Multipart path (legacy)
+  // Back-compat: direct multipart upload to your API (if still supported)
   const form = new FormData();
   form.append("subject", payload.subject);
   form.append("message", payload.message);
@@ -194,22 +209,20 @@ export const createSupportTicket = async (payload: {
   if (payload.priority) form.append("priority", payload.priority);
   (payload.attachments || []).forEach((f) => form.append("attachments", f));
 
-  // ✅ No Content-Type override here either
   const { data } = await api.post("/support/tickets", form);
   return data as { success: boolean; ticket: { _id: string; status: TicketStatus } };
 };
 
 // Public OTP endpoints (skip 401 redirects)
 export const getMySupportTickets = () =>
-  api.get("/support/tickets/my", { params: { skip401: 1 } })
-     .then((r) => r.data as { success: boolean; tickets: SupportTicket[] });
+  api
+    .get("/support/tickets/my", { params: { skip401: 1 } })
+    .then((r) => r.data as { success: boolean; tickets: SupportTicket[] });
 
 export const sendPhoneOtp = (phone: string) =>
-  api.post("/auth/phone/send-otp", { phone }, { params: { skip401: 1 } })
-     .then((r) => r.data);
+  api.post("/auth/phone/send-otp", { phone }, { params: { skip401: 1 } }).then((r) => r.data);
 
 export const verifyPhoneOtp = (phone: string, otp: string) =>
-  api.post("/auth/phone/verify", { phone, otp }, { params: { skip401: 1 } })
-     .then((r) => r.data);
+  api.post("/auth/phone/verify", { phone, otp }, { params: { skip401: 1 } }).then((r) => r.data);
 
 export default api;
