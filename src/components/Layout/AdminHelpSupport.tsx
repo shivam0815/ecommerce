@@ -61,6 +61,36 @@ const collectAttachments = (t: any): Attachment[] => {
   });
 };
 
+// ---- attachments helpers ----
+type Att = { url: string; name?: string; type?: string; size?: number; key?: string };
+
+const normalizeAttachments = (t: any): Att[] => {
+  const raw = (t?.attachmentsUrls ?? t?.attachments ?? []) as any[];
+  const list: Att[] = [];
+  for (const x of raw) {
+    if (!x) continue;
+    if (typeof x === 'string') {
+      list.push({ url: x, name: x.split('?')[0].split('/').pop() });
+    } else if (x.url) {
+      list.push({
+        url: x.url,
+        name: x.name || x.key?.split('/').pop(),
+        type: x.type,
+        size: x.size,
+        key: x.key,
+      });
+    }
+  }
+  return list;
+};
+
+const looksLikeImage = (u: string, mime?: string) => {
+  if (mime?.startsWith('image/')) return true;
+  const ext = u.split('?')[0].split('.').pop()?.toLowerCase();
+  return ['jpg','jpeg','png','webp','gif','svg','avif'].includes(ext || '');
+};
+
+
 const isImage = (att: Attachment) => {
   const t = (att.type || '').toLowerCase();
   if (t.startsWith('image/')) return true;
@@ -363,115 +393,87 @@ const AdminHelpSupport: React.FC = () => {
                         </td>
                       </tr>
                       {expanded === t._id && (
-                        <tr className="bg-gray-50">
-                          <td colSpan={7} className="px-4 py-4">
-                            <div className="grid gap-4 lg:grid-cols-3">
-                              {/* Message & Meta */}
-                              <div className="lg:col-span-2 space-y-3">
-                                <div>
-                                  <div className="text-xs uppercase text-gray-500">Message</div>
-                                  <div className="whitespace-pre-wrap rounded-md bg-white p-3">{(t as any).message}</div>
-                                </div>
-                                <div className="grid grid-cols-2 gap-3 text-sm">
-                                  <div>
-                                    <div className="text-xs uppercase text-gray-500">Phone</div>
-                                    <div>{(t as any).phone || '—'}</div>
-                                  </div>
-                                  <div>
-                                    <div className="text-xs uppercase text-gray-500">Order</div>
-                                    <div>{(t as any).orderId || '—'}</div>
-                                  </div>
-                                  <div>
-                                    <div className="text-xs uppercase text-gray-500">Created</div>
-                                    <div>{new Date((t as any).createdAt).toLocaleString()}</div>
-                                  </div>
-                                  <div>
-                                    <div className="text-xs uppercase text-gray-500">Updated</div>
-                                    <div>{new Date(((t as any).updatedAt || (t as any).createdAt)).toLocaleString()}</div>
-                                  </div>
-                                </div>
-                              </div>
+  <tr className="bg-gray-50">
+    <td colSpan={7} className="px-4 py-4">
+      <div className="grid gap-4 md:grid-cols-2">
+        {/* LEFT: message + meta */}
+        <div className="space-y-3">
+          <div>
+            <div className="text-xs uppercase text-gray-500">Message</div>
+            <div className="whitespace-pre-wrap rounded-md bg-white p-3 border border-gray-200">
+              {t.message}
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3 text-sm">
+            <div>
+              <div className="text-xs uppercase text-gray-500">Phone</div>
+              <div>{t.phone || '—'}</div>
+            </div>
+            <div>
+              <div className="text-xs uppercase text-gray-500">Order</div>
+              <div>{t.orderId || '—'}</div>
+            </div>
+            <div>
+              <div className="text-xs uppercase text-gray-500">Created</div>
+              <div>{new Date(t.createdAt).toLocaleString()}</div>
+            </div>
+            <div>
+              <div className="text-xs uppercase text-gray-500">Updated</div>
+              <div>{new Date(t.updatedAt || t.createdAt).toLocaleString()}</div>
+            </div>
+          </div>
+        </div>
 
-                              {/* Attachments */}
-                              <div className="space-y-2">
-                                <div className="flex items-center justify-between">
-                                  <div className="text-xs uppercase text-gray-500">Attachments</div>
-                                  {atts.length > 0 && (
-                                    <span className="text-xs text-gray-600">{atts.length}</span>
-                                  )}
-                                </div>
-
-                                {atts.length === 0 ? (
-                                  <div className="rounded-md border border-dashed border-gray-300 bg-white p-3 text-xs text-gray-500">
-                                    No attachments
-                                  </div>
-                                ) : (
-                                  <div className="grid grid-cols-2 gap-2">
-                                    {atts.map((att, i) => {
-                                      const img = isImage(att);
-                                      const label = att.name || att.url.split('/').pop() || `file-${i+1}`;
-                                      return (
-                                        <div key={att.url + i} className="group rounded-md border border-gray-200 bg-white overflow-hidden">
-                                          {img ? (
-                                            <a
-                                              href={att.url}
-                                              target="_blank"
-                                              rel="noreferrer"
-                                              className="block aspect-[4/3] bg-gray-50 overflow-hidden"
-                                              title={label}
-                                            >
-                                              <img
-                                                src={att.url}
-                                                alt={label}
-                                                className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
-                                                loading="lazy"
-                                              />
-                                            </a>
-                                          ) : (
-                                            <div className="aspect-[4/3] flex items-center justify-center bg-gray-50 text-gray-500 text-xs">
-                                              <span className="px-3 text-center break-all">{label}</span>
-                                            </div>
-                                          )}
-                                          <div className="border-t px-2 py-1.5 text-[11px] flex items-center justify-between gap-1">
-                                            <a
-                                              className="truncate text-indigo-600 hover:underline"
-                                              href={att.url}
-                                              target="_blank"
-                                              rel="noreferrer"
-                                              title={label}
-                                            >
-                                              {label}
-                                            </a>
-                                            <div className="flex items-center gap-1 shrink-0">
-                                              {att.size ? <span className="text-gray-500">{formatBytes(att.size)}</span> : null}
-                                              <a
-                                                className="rounded px-1.5 py-0.5 hover:bg-gray-100"
-                                                href={att.url}
-                                                download
-                                                title="Download"
-                                              >
-                                                ⬇
-                                              </a>
-                                              <button
-                                                type="button"
-                                                className="rounded px-1.5 py-0.5 hover:bg-gray-100"
-                                                onClick={() => copyLink(att.url)}
-                                                title="Copy link"
-                                              >
-                                                ⧉
-                                              </button>
-                                            </div>
-                                          </div>
-                                        </div>
-                                      );
-                                    })}
-                                  </div>
-                                )}
-                              </div>
-                            </div>
-                          </td>
-                        </tr>
+        {/* RIGHT: attachments */}
+        <div>
+          <div className="text-xs uppercase text-gray-500 mb-2">Attachments</div>
+          {(() => {
+            const files = normalizeAttachments(t);
+            if (!files.length) {
+              return (
+                <div className="rounded-md border border-dashed border-gray-300 bg-white p-3 text-xs text-gray-500">
+                  No attachments
+                </div>
+              );
+            }
+            return (
+              <ul className="grid grid-cols-2 sm:grid-cols-3 gap-3">
+                {files.map((f, i) => (
+                  <li key={f.url + i} className="group">
+                    <a
+                      href={f.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="block rounded-md overflow-hidden border border-gray-200 bg-white hover:shadow"
+                      title={f.name || f.url}
+                    >
+                      {looksLikeImage(f.url, f.type) ? (
+                        <img
+                          src={f.url}
+                          alt={f.name || `Attachment ${i + 1}`}
+                          className="h-28 w-full object-cover"
+                          loading="lazy"
+                        />
+                      ) : (
+                        <div className="h-28 w-full flex items-center justify-center text-xs text-gray-600">
+                          {f.name || 'File'}
+                        </div>
                       )}
+                    </a>
+                    <div className="mt-1 text-[11px] text-gray-600 truncate" title={f.name || f.url}>
+                      {f.name || f.url.split('?')[0].split('/').pop()}
+                    </div>
+                  </li>
+                ))}
+              </ul>
+            );
+          })()}
+        </div>
+      </div>
+    </td>
+  </tr>
+)}
+
                     </React.Fragment>
                   );
                 })}
