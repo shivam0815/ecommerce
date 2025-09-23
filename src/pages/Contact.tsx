@@ -265,7 +265,7 @@ const Contact: React.FC = () => {
         }, // Closed
       ],
       sameAs: [
-        'https://www.facebook.com/jitendra.kothari.121/',
+        'https://www.facebook.com/jitukumarkothari/',
         'https://x.com/_nakodamobile_?t=yJpXFZwym_u7fbB_3ORckQ&s=08',
         'https://www.instagram.com/v2m_nakoda_mobile/',
         'https://www.youtube.com/@V2MNakodaMobile',
@@ -611,7 +611,7 @@ const Contact: React.FC = () => {
                 </p>
                 <div className="flex space-x-4">
                   {[
-                    { icon: Facebook, color: 'text-blue-600', bg: 'bg-blue-100', href: 'https://www.facebook.com/jitendra.kothari.121/' },
+                    { icon: Facebook, color: 'text-blue-600', bg: 'bg-blue-100', href: 'https://www.facebook.com/jitukumarkothari/' },
                     { icon: Twitter, color: 'text-blue-400', bg: 'bg-blue-50', href: 'https://x.com/_nakodamobile_?t=yJpXFZwym_u7fbB_3ORckQ&s=08' },
                     { icon: Instagram, color: 'text-pink-600', bg: 'bg-pink-100', href: 'https://www.instagram.com/v2m_nakoda_mobile/' },
                     { icon: Youtube, color: 'text-red-600', bg: 'bg-red-100', href: 'https://www.youtube.com/@V2MNakodaMobile' },

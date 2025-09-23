@@ -36,7 +36,7 @@ const Footer: React.FC = () => {
               Quality products, competitive prices, and exceptional service.
             </p>
             <div className="flex space-x-4">
-              <a href="https://www.facebook.com/jitendra.kothari.121/" className="text-gray-300 hover:text-blue-400 transition-colors">
+              <a href="https://www.facebook.com/jitukumarkothari/" className="text-gray-300 hover:text-blue-400 transition-colors">
                 <Facebook className="h-5 w-5" />
               </a>
               <a href="https://x.com/_nakodamobile_?t=yJpXFZwym_u7fbB_3ORckQ&s=08" className="text-gray-300 hover:text-blue-400 transition-colors">

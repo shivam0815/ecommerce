@@ -797,7 +797,7 @@ With strict quality checks and honest pricing, Nakoda Mobile is here to support 
               </p>
 
               <div className="flex justify-center space-x-4 mt-8">
-                <motion.a href="https://www.facebook.com/jitendra.kothari.121/" whileHover={{ scale: 1.1 }} className="text-gray-400 hover:text-white" rel="noreferrer" aria-label="Facebook">
+                <motion.a href="https://www.facebook.com/jitukumarkothari/" whileHover={{ scale: 1.1 }} className="text-gray-400 hover:text-white" rel="noreferrer" aria-label="Facebook">
                   <Facebook className="h-6 w-6" />
                 </motion.a>
                 <motion.a href="https://x.com/_nakodamobile_?t=yJpXFZwym_u7fbB_3ORckQ&s=08" whileHover={{ scale: 1.1 }} className="text-gray-400 hover:text-white" rel="noreferrer" aria-label="Twitter">
