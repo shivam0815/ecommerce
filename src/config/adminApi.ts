@@ -185,6 +185,36 @@ export interface SupportTicket {
 }
 
 
+// ---- attachments helpers ----
+type Att = { url: string; name?: string; type?: string; size?: number; key?: string };
+
+const normalizeAttachments = (t: any): Att[] => {
+  const raw = (t?.attachmentsUrls ?? t?.attachments ?? []) as any[];
+  const list: Att[] = [];
+  for (const x of raw) {
+    if (!x) continue;
+    if (typeof x === 'string') {
+      list.push({ url: x, name: x.split('?')[0].split('/').pop() });
+    } else if (x.url) {
+      list.push({
+        url: x.url,
+        name: x.name || x.key?.split('/').pop(),
+        type: x.type,
+        size: x.size,
+        key: x.key,
+      });
+    }
+  }
+  return list;
+};
+
+const looksLikeImage = (u: string, mime?: string) => {
+  if (mime?.startsWith('image/')) return true;
+  const ext = u.split('?')[0].split('.').pop()?.toLowerCase();
+  return ['jpg','jpeg','png','webp','gif','svg','avif'].includes(ext || '');
+};
+
+
 // Normalize arrays from various payload shapes
 const pickReviewArray = (payload: any): Review[] => {
   if (Array.isArray(payload)) return payload;
