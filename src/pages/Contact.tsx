@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { contactService } from '../services/contactService';
+import SEO from '../components/Layout/SEO';
 
 // ---------------- Contact constants (single source of truth)
 const ADDRESS_TEXT =
@@ -277,6 +278,18 @@ const Contact: React.FC = () => {
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Structured data */}
+       <SEO
+              title="Home "
+              description="Shop OEM/wholesale mobile accessories—TWS, neckbands, chargers, cables, ICs & more, delhi, brand name, best seller, Car Charger, Aux Cable, data Cable, Bluetooth Speaker, Power Bank, Ear Phone, Mobile fast Charger, Mat * Rubber, Mobile Repairing tools, Mobile accessries, Oem Services."
+              canonicalPath="/"
+              jsonLd={{
+                '@context': 'https://schema.org',
+                '@type': 'Organization',
+                name: 'Nakoda Mobile',
+                url: 'https://nakodamobile.in',
+                logo: 'https://nakodamobile.in/favicon-512.png'
+              }}
+            />
       <script
         type="application/ld+json"
         dangerouslySetInnerHTML={{ __html: JSON.stringify(jsonLd) }}

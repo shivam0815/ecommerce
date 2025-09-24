@@ -163,7 +163,7 @@ const Home: React.FC = () => {
     <div className="min-h-screen">
       <SEO
         title="Home "
-        description="Shop OEM/wholesale mobile accessories—TWS, neckbands, chargers, cables, ICs & more."
+        description="Shop OEM/wholesale mobile accessories—TWS, neckbands, chargers, cables, ICs & more, delhi, brand name, best seller, Car Charger, Aux Cable, data Cable, Bluetooth Speaker, Power Bank, Ear Phone, Mobile fast Charger, Mat * Rubber, Mobile Repairing tools, Mobile accessries, Oem Services."
         canonicalPath="/"
         jsonLd={{
           '@context': 'https://schema.org',
@@ -171,7 +171,7 @@ const Home: React.FC = () => {
           name: 'Nakoda Mobile',
           url: 'https://nakodamobile.in',
           logo: 'https://nakodamobile.in/favicon-512.png'
-        }}
+        }}    
       />
 
       {/* 🔥 Top Promotional Banner Section */}

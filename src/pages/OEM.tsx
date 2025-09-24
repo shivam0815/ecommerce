@@ -196,7 +196,7 @@ const OEM: React.FC = () => {
     <div className="min-h-screen bg-gray-50">
       <SEO
         title="OEM Services"
-        description="Bulk manufacturing, custom branding & white-label mobile accessories. Get an OEM quote from Nakoda Mobile."
+        description="Bulk manufacturing, custom branding & white-label mobile accessories.Oem Services, Oem in delhi,  Get an OEM quote from Nakoda Mobile."
         canonicalPath="/oem"
         jsonLd={{
           '@context': 'https://schema.org',

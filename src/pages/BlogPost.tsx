@@ -3,6 +3,7 @@ import { useParams, Link } from 'react-router-dom';
 import SEO from '../components/Layout/SEO';
 import { blogService } from '../services/blogService';
 
+
 type Post = {
   title: string;
   slug: string;
@@ -40,7 +41,16 @@ const BlogPost: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-gray-50">
-      <SEO title={post.title} description={post.excerpt || 'Nakoda blog post'} canonicalPath={`/blog/${post.slug}`} image={post.coverImage} />
+      <SEO
+  title={post.title || 'Nakoda Blog — Mobile Accessories, OEM & Repair Insights'}
+  description={
+    post.excerpt ||
+    'Read the latest Nakoda Mobile blog posts on OEM wholesale, mobile accessories, repair tools, and industry insights.'
+  }
+  canonicalPath={`/blog/${post.slug}`}
+  image={post.coverImage || '/og/default-blog.jpg'}
+/>
+
       <section className="bg-gradient-to-r from-gray-900 to-black text-white py-16">
         <div className="max-w-4xl mx-auto px-4">
           <Link to="/blog" className="text-sm text-gray-300 underline">← Back to Blog</Link>

@@ -108,7 +108,7 @@ const CategoriesPage: React.FC = () => {
       <div className="min-h-screen bg-white text-gray-800 flex items-center justify-center">
         <SEO
   title="Browse Categories"
-  description="Explore categories like TWS, neckbands, chargers, cables, ICs, and more."
+  description="Explore categories like TWS, neckbands, chargers, cables, ICs, Car Charger, Aux Cable, data Cable, Bluetooth Speaker, Power Bank, Ear Phone, Mobile fast Charger, Mat * Rubber, Mobile Repairing tools, Mobile accessries, Oem Services  and more."
   canonicalPath="/categories"
   jsonLd={{
     '@context': 'https://schema.org',
