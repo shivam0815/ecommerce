@@ -1,4 +1,4 @@
-// src/pages/Cart.tsx — compact, fully responsive + WhatsApp bulk-order rule
+// src/pages/Cart.tsx — compact, fully responsive + WhatsApp bulk-order rule (>100 switches to WhatsApp)
 import React, { useEffect, useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
@@ -9,9 +9,9 @@ import toast from 'react-hot-toast';
 import type { CartItem } from '../types';
 
 /* ----------------------------- Config ----------------------------- */
-// Put your WhatsApp number in international format WITHOUT "+" or spaces.
+// WhatsApp number in international format WITHOUT "+" or spaces.
 const WHATSAPP_NUMBER = '919650516703';
-const BULK_THRESHOLD = 110; // switch to WhatsApp when any cart line reaches this qty
+const OVER_LIMIT = 100; // checkout allowed up to and including 100; above this => WhatsApp flow
 
 /* -------- Category-wise MOQ fallback (used if product.minOrderQty is absent) -------- */
 const CATEGORY_MOQ: Record<string, number> = {
@@ -32,18 +32,11 @@ const CATEGORY_MOQ: Record<string, number> = {
 const MAX_PER_LINE = 1000;
 const clampCartQty = (q: number) => Math.max(1, Math.min(Math.floor(q || 1), MAX_PER_LINE));
 
-/** Frontend MOQ rule mirrors backend:
- *  effective MOQ = min(per-product MOQ, category MOQ); fallback to category or 1
- */
+/** Frontend MOQ rule mirrors backend */
 const getMOQFromItem = (item: any): number => {
   const p = item?.productId || item || {};
   const catMOQ = CATEGORY_MOQ[p?.category || ''] ?? 1;
-
-  const pMOQ =
-    typeof p?.minOrderQty === 'number' && p.minOrderQty >= 1
-      ? p.minOrderQty
-      : undefined;
-
+  const pMOQ = typeof p?.minOrderQty === 'number' && p.minOrderQty >= 1 ? p.minOrderQty : undefined;
   return typeof pMOQ === 'number' ? Math.min(pMOQ, catMOQ) : catMOQ;
 };
 
@@ -54,22 +47,11 @@ const getMaxQtyFromItem = (item: any): number => {
 };
 
 const getItemId = (item: any): string =>
-  String(
-    item?.productId?._id ||
-      item?.productId?.id ||
-      item?.productId ||
-      item?._id ||
-      item?.id ||
-      ''
-  );
+  String(item?.productId?._id || item?.productId?.id || item?.productId || item?._id || item?.id || '');
 
 /* --------------------- WhatsApp helpers (>100 rule) --------------------- */
-const getItemName = (item: any): string =>
-  String(item?.productId?.name ?? item?.name ?? 'Product');
-
-const getUnitPrice = (item: any): number =>
-  Number(item?.price ?? item?.productId?.price ?? 0);
-
+const getItemName = (item: any): string => String(item?.productId?.name ?? item?.name ?? 'Product');
+const getUnitPrice = (item: any): number => Number(item?.price ?? item?.productId?.price ?? 0);
 const fmtINR = (v: number) => `₹${Number(v || 0).toLocaleString('en-IN')}`;
 
 const buildWhatsAppText = (items: any[], total: number, originHref: string) => {
@@ -81,14 +63,13 @@ const buildWhatsAppText = (items: any[], total: number, originHref: string) => {
     return `• ${name}\n  Qty: ${qty}\n  Unit: ${fmtINR(unit)}\n  Line: ${fmtINR(lineTotal)}`;
   });
 
-  const msg =
+  return (
     `Hi, I'd like to place a bulk order:\n\n` +
     `${lines.join('\n\n')}\n\n` +
     `Cart Total (approx): ${fmtINR(total)}\n` +
     `Link: ${originHref}\n\n` +
-    `Please confirm best quote & availability.`;
-
-  return msg;
+    `Please confirm best quote & availability.`
+  );
 };
 
 const Cart: React.FC = () => {
@@ -106,7 +87,7 @@ const Cart: React.FC = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
 
-  // ✅ Guarantee a fresh load when visiting /cart
+  // fresh load on visit
   useEffect(() => {
     refreshCart(true);
   }, [refreshCart]);
@@ -114,9 +95,9 @@ const Cart: React.FC = () => {
   const totalPrice = getTotalPrice();
   const totalItems = getTotalItems();
 
-  // ✅ Bulk rule trigger: any line with qty >= BULK_THRESHOLD
-  const hasBulkOver100 = useMemo(
-    () => (cartItems || []).some((it: any) => Number(it?.quantity ?? 0) >= BULK_THRESHOLD),
+  // ✅ Switch to WhatsApp ONLY if any line qty > OVER_LIMIT (strictly greater than 100)
+  const hasOverLimit = useMemo(
+    () => (cartItems || []).some((it: any) => Number(it?.quantity ?? 0) > OVER_LIMIT),
     [cartItems]
   );
 
@@ -127,8 +108,7 @@ const Cart: React.FC = () => {
   }, [cartItems, totalPrice]);
 
   const handleCheckout = () => {
-    // If bulk threshold reached, force WhatsApp flow
-    if (hasBulkOver100) {
+    if (hasOverLimit) {
       window.open(whatsappLink, '_blank', 'noopener,noreferrer');
       return;
     }
@@ -150,15 +130,13 @@ const Cart: React.FC = () => {
     const moq = getMOQFromItem(item);
     const maxQty = getMaxQtyFromItem(item);
 
-    // Respect MOQ and Stock silently
+    // Enforce MOQ & stock
     const finalQty = Math.max(moq, Math.min(clamped, maxQty));
 
-    // If result falls below 1, remove item
     if (finalQty < 1) {
       handleRemoveItem(itemId);
       return;
     }
-
     updateQuantity(itemId, finalQty);
   };
 
@@ -255,8 +233,8 @@ const Cart: React.FC = () => {
           </div>
         )}
 
-        {/* Bulk notice (red) */}
-        {hasBulkOver100 && (
+        {/* Bulk notice (red) — only when any line > 100 */}
+        {hasOverLimit && (
           <div className="mb-4 sm:mb-6 p-3 sm:p-4 rounded-md border border-red-300 bg-red-50 text-red-800 text-sm">
             Quantity must be between 1 and 100. For higher quantities, please place a bulk enquiry on WhatsApp.
             <a
@@ -300,7 +278,6 @@ const Cart: React.FC = () => {
                         productPrice = Number(item.price ?? 0);
                         productCategory = String(item.category || '');
                       }
-
                       itemQuantity = Number(item.quantity || 0);
                     } catch {
                       return (
@@ -441,7 +418,7 @@ const Cart: React.FC = () => {
                 </div>
               </div>
 
-              {!hasBulkOver100 ? (
+              {!hasOverLimit ? (
                 user ? (
                   <button
                     onClick={handleCheckout}
@@ -492,7 +469,7 @@ const Cart: React.FC = () => {
             <div className="text-base font-semibold">₹{totalPrice.toLocaleString()}</div>
           </div>
 
-          {!hasBulkOver100 ? (
+          {!hasOverLimit ? (
             user ? (
               <button
                 onClick={handleCheckout}
