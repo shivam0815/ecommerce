@@ -23,7 +23,7 @@ interface AuthenticatedUser {
 const MAX_ORDER_QTY = 1000;
 
 // 🚩 WhatsApp-only threshold
-const WHATSAPP_QTY_THRESHOLD = 100;
+const WHATSAPP_QTY_THRESHOLD = 110;
 
 // Dynamic price resolver (mirrors Product.getUnitPriceForQty used in cart)
 const getUnitPriceFor = (product: any, qty: number): number => {
@@ -158,8 +158,9 @@ export const createOrder = async (req: Request, res: Response): Promise<void> =>
       res.status(422).json({
         success: false,
         code: "WHATSAPP_REQUIRED",
-        message:
-          "For quantities above 100, please complete your order with our sales team on WhatsApp.",
+    
+          message: `For quantities above ${WHATSAPP_QTY_THRESHOLD}, please complete your order with our sales team on WhatsApp.`,
+
         whatsapp: true,
       });
       return;

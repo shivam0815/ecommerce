@@ -1,73 +1,63 @@
-// src/controllers/cartController.ts
+// src/controllers/orderController.ts
+// COMPLETE VERSION — Email automation + MAX(1000), MOQ clamping, dynamic pricing (shared), GST mapping
+// Stock is decremented during CREATE; updateOrderStatus does NOT deduct again.
+
 import { Request, Response } from "express";
 import mongoose from "mongoose";
-import NodeCache from "node-cache";
+import Order from "../models/Order";
 import Cart from "../models/Cart";
 import Product from "../models/Product";
+import EmailAutomationService from "../config/emailService";
+import { resolveUnitPrice } from "../config/pricing"; // ✅ shared dynamic pricing
+import type {} from "../types/express";
 
-/* ────────────────────────────────────────────────────────────── */
-/* CACHE                                                          */
-/* ────────────────────────────────────────────────────────────── */
-const cartCache = new NodeCache({ stdTTL: 10, checkperiod: 20 }); // cache per user 10s
+/* ───────────────── Types ───────────────── */
+interface AuthenticatedUser {
+  id: string;
+  email: string;
+  role: string;
+  name?: string;
+}
 
-/** ──────────────────────────────────────────────────────────────
- *  Global hard cap: no single cart line can exceed this quantity
- *  ────────────────────────────────────────────────────────────── */
+/* ───────────────── Business Rules: MAX & MOQ ───────────────── */
 const MAX_ORDER_QTY = 1000;
-const WHATSAPP_QTY_THRESHOLD = 100; // >100 routes to WhatsApp on UI
-console.warn("⚠️ MAX_ORDER_QTY is set to", MAX_ORDER_QTY);
 
-/** Category-wise Minimum Order Quantity (MOQ) */
+// 🚩 WhatsApp-only threshold (strictly greater than this routes to WhatsApp)
+const WHATSAPP_QTY_THRESHOLD = 110;
+
 const CATEGORY_MOQ: Record<string, number> = {
   "Car Chargers": 10,
   "Bluetooth Neckbands": 10,
-  TWS: 10,
+  "TWS": 10,
   "Data Cables": 10,
   "Mobile Chargers": 10,
   "Bluetooth Speakers": 10,
   "Power Banks": 10,
-  "Mobile ICs": 10,
+  "Integrated Circuits & Chips": 10,
   "Mobile Repairing Tools": 10,
   Electronics: 10,
   Accessories: 10,
   Others: 10,
 };
 
-/* ────────────────────────────────────────────────────────────── */
-/* MOQ / Step helpers                                             */
-/* ────────────────────────────────────────────────────────────── */
-
 const getEffectiveMOQ = (product: any): number => {
-  // prefer product override/virtual (already provided by your model)
   const pMOQ =
     typeof product?.minOrderQty === "number" && product.minOrderQty > 0
       ? product.minOrderQty
       : undefined;
-
   if (typeof pMOQ === "number") return pMOQ;
 
   const byCategory = CATEGORY_MOQ[product?.category || ""];
   return typeof byCategory === "number" && byCategory > 0 ? byCategory : 1;
 };
 
-/** choose step size
- *  If you want to strictly enforce packSize or incrementStep, uncomment the priority below.
- */
-const getStepSize = (product: any): number => {
-  const moq = getEffectiveMOQ(product);
-  // Prefer explicit step fields if you use them:
-  // const step = Number(product?.incrementStep || product?.packSize || moq) || moq;
-  const step = moq; // as per your current UX (step = MOQ)
-  return step < 1 ? 1 : step;
-};
-
-/** Clamp & snap (ceil to step) within [MOQ … min(stock, MAX_ORDER_QTY)] */
+/** Clamp helper: snap to multiples of MOQ within [MOQ … min(stock, MAX_ORDER_QTY)] */
 const clampQty = (desired: number, product: any): number => {
   const moq = getEffectiveMOQ(product);
-  const step = getStepSize(product);
+  const step = moq;
   const stockCap = Math.max(0, Number(product?.stockQuantity ?? 0));
   const hardMax = Math.max(0, Math.min(stockCap, MAX_ORDER_QTY));
-  if (hardMax < moq) return 0; // not enough stock to even meet MOQ
+  if (hardMax < moq) return 0;
 
   const want = Math.max(1, Number(desired || 0));
   let snapped = Math.ceil(want / step) * step;
@@ -76,315 +66,858 @@ const clampQty = (desired: number, product: any): number => {
     snapped = Math.floor(hardMax / step) * step;
   }
 
-  if (snapped < moq) return 0;
-  return snapped;
+  return snapped >= moq ? snapped : 0;
 };
 
-/* ────────────────────────────────────────────────────────────── */
-/* Pricing helper (unit)                                         */
-/* ────────────────────────────────────────────────────────────── */
+/* ───────────────── Small helpers ───────────────── */
+const cleanGstin = (s?: any) =>
+  (s ?? "").toString().toUpperCase().replace(/[^0-9A-Z]/g, "").slice(0, 15);
 
-const getUnitPriceFor = (product: any, qty: number): number => {
-  // Uses your mongoose method (defined on Product schema)
+/* ───────────────── CREATE ORDER (with stock deduction, GST & emails) ───────────────── */
+export const createOrder = async (req: Request, res: Response): Promise<void> => {
   try {
-    if (typeof product?.getUnitPriceForQty === "function") {
-      return Number(product.getUnitPriceForQty(qty)) || Number(product.price) || 0;
-    }
-  } catch {
-    /* fall back */
-  }
-  return Number(product?.price) || 0;
-};
+    const { shippingAddress, paymentMethod, billingAddress, extras } = req.body;
 
-/* ────────────────────────────────────────────────────────────── */
-/* Auth interface                                                */
-/* ────────────────────────────────────────────────────────────── */
-interface AuthenticatedUser {
-  id: string;
-  role: string;
-  email?: string;
-  name?: string;
-}
-
-/* ────────────────────────────────────────────────────────────── */
-/* Utility: recompute cart money + flags                         */
-/* ────────────────────────────────────────────────────────────── */
-const recomputeCartAndFlags = async (cartDoc: any) => {
-  let total = 0;
-  let requiresWhatsapp = false;
-
-  // Ensure products are populated for pricing + category/minOrderQty etc.
-  await cartDoc.populate("items.productId");
-
-  cartDoc.items = cartDoc.items.map((it: any) => {
-    const p = it.productId;
-    if (!p || !p.isActive || !p.inStock) return it;
-
-    const moq = getEffectiveMOQ(p);
-    const step = getStepSize(p);
-
-    // re-clamp server-side to avoid client bypass
-    const clamped = clampQty(it.quantity, p) || moq;
-    it.quantity = clamped;
-
-    // dynamic pricing per line based on qty
-    const unitPrice = getUnitPriceFor(p, clamped);
-    it.price = unitPrice; // store unit price on the line (your Cart model already had 'price')
-
-    const lineTotal = unitPrice * clamped;
-    total += lineTotal;
-
-    if (clamped > WHATSAPP_QTY_THRESHOLD) {
-      requiresWhatsapp = true;
+    if (!req.user) {
+      res.status(401).json({ message: "User not authenticated" });
+      return;
     }
 
-    return it;
-  });
-
-  cartDoc.totalAmount = Math.max(0, Math.floor(total));
-  return { requiresWhatsapp };
-};
-
-/* ────────────────────────────────────────────────────────────── */
-/* GET CART                                                       */
-/* ────────────────────────────────────────────────────────────── */
-export const getCart = async (req: Request, res: Response): Promise<void> => {
-  try {
     const user = req.user as AuthenticatedUser;
-    if (!user?.id) {
-      res.status(401).json({ message: "Unauthorized: No user id" });
+    const userId = user.id;
+
+    // Load cart
+    const cart = await Cart.findOne({ userId }).populate("items.productId");
+    if (!cart || !cart.items || cart.items.length === 0) {
+      res.status(400).json({ message: "Cart is empty" });
       return;
     }
 
-    const cacheKey = `cart:${user.id}`;
-    const cached = cartCache.get(cacheKey);
-    if (cached) {
-      res.json({ cart: cached, cached: true });
-      return;
-    }
+    const orderItems: Array<{
+      productId: mongoose.Types.ObjectId;
+      name: string;
+      price: number;     // unit price (dynamic)
+      quantity: number;
+      image: string;
+    }> = [];
 
-    const cart = await Cart.findOne({ userId: user.id });
-    const cartData = cart || new Cart({ userId: user.id, items: [], totalAmount: 0 });
+    let subtotal = 0;
+    let requiresWhatsapp = false;
 
-    // Always recompute totals/prices/flags on read for integrity
-    const { requiresWhatsapp } = await recomputeCartAndFlags(cartData);
-    await cartData.save();
+    // Build items with SILENT clamping + dynamic pricing
+    for (const cartItem of cart.items) {
+      const product = cartItem.productId as any;
 
-    cartCache.set(cacheKey, cartData);
-    res.json({ cart: cartData, requiresWhatsapp, cached: false });
-  } catch (error) {
-    console.error("Get cart error:", error);
-    res.status(500).json({ message: "Server error" });
-  }
-};
-
-/* ────────────────────────────────────────────────────────────── */
-/* ADD TO CART                                                    */
-/* ────────────────────────────────────────────────────────────── */
-export const addToCart = async (req: Request, res: Response): Promise<void> => {
-  try {
-    const { productId, quantity = 1 } = req.body;
-    const user = req.user as AuthenticatedUser;
-
-    if (!productId || !user?.id) {
-      res.status(400).json({ message: "Product ID and user authentication required" });
-      return;
-    }
-
-    // Find product
-    let product: any;
-    if (mongoose.Types.ObjectId.isValid(productId)) {
-      product = await Product.findById(productId);
-    } else {
-      // Fallback index mode (kept from your code)
-      const allProducts = await Product.find({ isActive: true }).sort({ createdAt: 1 });
-      const productIndex = parseInt(productId, 10) - 1;
-      if (productIndex >= 0 && productIndex < allProducts.length) {
-        product = allProducts[productIndex];
+      if (!product || !product.isActive || !product.inStock) {
+        res.status(400).json({
+          message: `Product unavailable: ${product?.name || "Unknown"}`,
+        });
+        return;
       }
+
+      const clampedQty = clampQty(cartItem.quantity, product);
+      if (clampedQty < 1) {
+        res.status(400).json({
+          message: `Insufficient stock for ${product?.name || "item"}.`,
+        });
+        return;
+      }
+
+      // 🚩 WhatsApp guard
+      if (clampedQty > WHATSAPP_QTY_THRESHOLD) requiresWhatsapp = true;
+
+      // ✅ Resolve server-side unit price from current tiers (shared helper)
+      const unitPrice = Number(resolveUnitPrice(product, clampedQty)) || Number(product.price) || 0;
+
+      orderItems.push({
+        productId: product._id,
+        name: product.name,
+        price: unitPrice,
+        quantity: clampedQty,
+        image: product.images?.[0] || "",
+      });
+
+      subtotal += unitPrice * clampedQty;
     }
 
-    if (!product || !product.isActive || !product.inStock) {
-      res.status(404).json({ message: "Product not found or unavailable" });
-      return;
-    }
+    // If any line exceeds WhatsApp threshold, stop normal checkout
+    if (requiresWhatsapp) {
+      res.status(422).json({
+        success: false,
+        code: "WHATSAPP_REQUIRED",
+        message:
+        `For quantities above ${WHATSAPP_QTY_THRESHOLD}, please complete your order with our sales team on WhatsApp.`,
 
-    if (product.stockQuantity < 1) {
-      res.status(400).json({
-        message: "Insufficient stock",
-        available: product.stockQuantity,
-        requested: Number(quantity) || 1,
+        whatsapp: true,
       });
       return;
     }
 
-    let cart = await Cart.findOne({ userId: user.id });
+    // Pricing (server-side). Adjust to your rules as needed.
+    const shipping = subtotal > 500 ? 0 : 50;     // free above ₹500
+    const tax = Math.round(subtotal * 0.18);      // 18% GST rounded
+    const total = subtotal + shipping + tax;
 
-    const initialClamp = clampQty(Number(quantity) || 1, product);
-    if (initialClamp < 1) {
-      res.status(400).json({
-        message: "Insufficient stock",
-        available: product.stockQuantity,
-        requested: Number(quantity) || 1,
-      });
-      return;
-    }
+    // IDs
+    const orderNumber = `NK${Date.now()}${Math.floor(Math.random() * 1000)}`;
+    const paymentOrderId = `PAY${Date.now()}${Math.floor(Math.random() * 1000)}`;
 
-    if (!cart) {
-      cart = new Cart({
-        userId: user.id,
-        items: [{ productId: product._id, quantity: initialClamp, price: 0 }], // price filled by recompute
-      });
-    } else {
-      const existingItemIndex = cart.items.findIndex(
-        (item) => item.productId.toString() === product._id.toString()
-      );
+    // Build GST block
+    const gstBlock = buildGstBlock(req.body, shippingAddress, { subtotal, tax });
 
-      if (existingItemIndex > -1) {
-        const desired = cart.items[existingItemIndex].quantity + Number(quantity || 0);
-        const clamped = clampQty(desired, product);
-        if (clamped < 1) {
-          res.status(400).json({
-            message: "Cannot add more items - insufficient stock",
-            available: product.stockQuantity,
-            currentInCart: cart.items[existingItemIndex].quantity,
-          });
-          return;
+    // Create and save
+    const order = new Order({
+      userId: new mongoose.Types.ObjectId(userId),
+      orderNumber,
+      items: orderItems,
+      shippingAddress,
+      billingAddress: billingAddress || shippingAddress,
+      paymentMethod,
+      paymentOrderId,
+      subtotal,
+      tax,
+      shipping,
+      total,
+      status: "pending",
+      orderStatus: "pending",
+      paymentStatus: paymentMethod === "cod" ? "cod_pending" : "awaiting_payment",
+
+      gst: gstBlock,
+      customerNotes: (extras?.orderNotes || "").toString().trim() || undefined,
+    });
+
+    const savedOrder = await order.save();
+
+    // REAL-TIME STOCK DEDUCTION
+    try {
+      for (const item of savedOrder.items) {
+        const updated = await Product.findOneAndUpdate(
+          { _id: item.productId, stockQuantity: { $gte: item.quantity } },
+          { $inc: { stockQuantity: -item.quantity } },
+          { new: true }
+        ).lean();
+
+        if (!updated) {
+          throw new Error(`Stock changed for an item during order save`);
         }
-        cart.items[existingItemIndex].quantity = clamped;
-        // price will be recomputed with dynamic pricing
-      } else {
-        cart.items.push({ productId: product._id, quantity: initialClamp, price: 0 });
       }
+    } catch (stockError) {
+      await Order.findByIdAndDelete(savedOrder._id);
+      res.status(409).json({ message: "Stock changed. Please try again." });
+      return;
     }
 
-    // Recompute prices/totals/flags
-    const { requiresWhatsapp } = await recomputeCartAndFlags(cart);
-    await cart.save();
+    // Clear cart
+    await Cart.findOneAndDelete({ userId });
 
-    // send populated
-    await cart.populate("items.productId");
+    // EMAIL AUTOMATION (non-blocking)
+    const emailResults = {
+      customerEmailSent: false,
+      adminEmailSent: false,
+      emailError: null as string | null,
+    };
 
-    cartCache.del(`cart:${user.id}`); // invalidate cache
+    try {
+      emailResults.customerEmailSent =
+        await EmailAutomationService.sendOrderConfirmation(
+          savedOrder as any,
+          savedOrder.shippingAddress.email
+        );
+      emailResults.adminEmailSent =
+        await EmailAutomationService.notifyAdminNewOrder(savedOrder as any);
+    } catch (emailError: any) {
+      emailResults.emailError = emailError.message || "Email error";
+    }
 
-    res.status(200).json({
+    // Socket pushes
+    if (req.io) {
+      interface IUserSummary {
+        _id: mongoose.Types.ObjectId;
+        name?: string;
+        email?: string;
+      }
+
+      let userDoc: IUserSummary | null = null;
+      try {
+        userDoc = await mongoose
+          .model<IUserSummary>("User")
+          .findById(savedOrder.userId)
+          .select("name email")
+          .lean()
+          .exec();
+      } catch {
+        userDoc = null;
+      }
+
+      const userSummary = {
+        _id: savedOrder.userId.toString(),
+        name: userDoc?.name || savedOrder.shippingAddress?.fullName,
+        email: userDoc?.email || savedOrder.shippingAddress?.email,
+      };
+
+      req.io.to("admins").emit("orderCreated", {
+        _id: (savedOrder._id as mongoose.Types.ObjectId).toString(),
+        orderNumber: savedOrder.orderNumber,
+        status: savedOrder.status || savedOrder.orderStatus || "pending",
+        orderStatus: savedOrder.orderStatus,
+        paymentMethod,
+        paymentStatus: savedOrder.paymentStatus,
+        total: savedOrder.total,
+        items: orderItems,
+        userId: userSummary,
+        createdAt: savedOrder.createdAt,
+        gst: savedOrder.gst,
+      });
+    }
+
+    res.status(201).json({
       success: true,
-      message: "Item added to cart successfully",
-      cart,
-      requiresWhatsapp,
+      message: "Order created successfully",
+      order: {
+        _id: savedOrder._id,
+        orderNumber: savedOrder.orderNumber,
+        total: savedOrder.total,
+        orderStatus: savedOrder.orderStatus,
+        paymentStatus: savedOrder.paymentStatus,
+        items: orderItems,
+        gst: savedOrder.gst,
+        emailStatus: emailResults,
+      },
     });
   } catch (error: any) {
-    console.error("❌ Add to cart error:", error);
-    res.status(500).json({ success: false, message: error.message || "Internal server error" });
+    res.status(500).json({
+      success: false,
+      message: error.message || "Server error",
+    });
   }
 };
 
-/* ────────────────────────────────────────────────────────────── */
-/* UPDATE CART ITEM                                               */
-/* ────────────────────────────────────────────────────────────── */
-export const updateCartItem = async (req: Request, res: Response): Promise<void> => {
+/* ───────────────── GET USER ORDERS (paginated) ───────────────── */
+export const getOrders = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { productId, quantity } = req.body;
+    const { page = 1, limit = 10, status } = req.query;
+
+    if (!req.user) {
+      res.status(401).json({ message: "User not authenticated" });
+      return;
+    }
+
     const user = req.user as AuthenticatedUser;
+    const userId = user.id;
 
-    if (Number(quantity) < 1) {
-      res.status(400).json({ message: "Quantity must be at least 1" });
+    const query: any = { userId: new mongoose.Types.ObjectId(userId) };
+    if (status) query.orderStatus = status;
+
+    const orders = await Order.find(query)
+      .sort({ createdAt: -1 })
+      .limit(Number(limit))
+      .skip((Number(page) - 1) * Number(limit))
+      .populate("items.productId", "name images price category")
+      .lean();
+
+    const totalCount = await Order.countDocuments(query);
+
+    res.json({
+      success: true,
+      orders,
+      pagination: {
+        currentPage: Number(page),
+        totalPages: Math.ceil(totalCount / Number(limit)),
+        totalOrders: totalCount,
+        hasNextPage: Number(page) < Math.ceil(totalCount / Number(limit)),
+        hasPrevPage: Number(page) > 1,
+      },
+    });
+  } catch (error: any) {
+    res.status(500).json({
+      success: false,
+      message: "Server error",
+    });
+  }
+};
+
+/* ───────────────── GET SINGLE ORDER (by user) ───────────────── */
+export const getOrder = async (req: Request, res: Response): Promise<void> => {
+  try {
+    if (!req.user) {
+      res.status(401).json({ message: "User not authenticated" });
       return;
     }
 
-    const cart = await Cart.findOne({ userId: user?.id });
-    if (!cart) {
-      res.status(404).json({ message: "Cart not found" });
+    const user = req.user as AuthenticatedUser;
+    const userId = user.id;
+
+    if (!mongoose.Types.ObjectId.isValid(req.params.id)) {
+      res.status(400).json({
+        success: false,
+        message: "Invalid order ID format",
+      });
       return;
     }
 
-    const itemIndex = cart.items.findIndex(
-      (item) => item.productId.toString() === String(productId)
+    const order = await Order.findOne({
+      _id: new mongoose.Types.ObjectId(req.params.id),
+      userId: new mongoose.Types.ObjectId(userId),
+    })
+      .populate("items.productId", "name images price category description")
+      .lean();
+
+    if (!order) {
+      res.status(404).json({
+        success: false,
+        message: "Order not found",
+      });
+      return;
+    }
+
+    res.json({
+      success: true,
+      order,
+    });
+  } catch (error: any) {
+    res.status(500).json({
+      success: false,
+      message: "Server error",
+    });
+  }
+};
+
+/* ───────────────── GET ORDER DETAILS (user/admin) ───────────────── */
+export const getOrderDetails = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { orderId } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(orderId)) {
+      res.status(400).json({ success: false, message: "Invalid order ID format" });
+      return;
+    }
+
+    const isAdmin =
+      !!req.user && ["admin", "super_admin"].includes((req.user as any).role);
+    const userId = (req.user as any)?.id;
+
+    const query = isAdmin
+      ? { _id: new mongoose.Types.ObjectId(orderId) }
+      : {
+          _id: new mongoose.Types.ObjectId(orderId),
+          userId: new mongoose.Types.ObjectId(userId),
+        };
+
+    const order = await Order.findOne(query)
+      .populate({
+        path: "items.productId",
+        select: "name images price category description stockQuantity",
+      })
+      .lean();
+
+    if (!order) {
+      res
+        .status(404)
+        .json({ success: false, message: "Order not found or access denied" });
+      return;
+    }
+
+    const statusOrder = ["pending", "confirmed", "processing", "shipped", "delivered"];
+    const currentStatusIndex = statusOrder.indexOf(order.orderStatus);
+    const orderProgress =
+      currentStatusIndex >= 0
+        ? ((currentStatusIndex + 1) / statusOrder.length) * 100
+        : 0;
+
+    res.json({
+      success: true,
+      order: {
+        ...order,
+        orderProgress,
+        canCancel: ["pending", "confirmed"].includes(order.orderStatus),
+        canTrack: ["shipped", "out_for_delivery"].includes(order.orderStatus),
+        estimatedDelivery:
+          order.estimatedDelivery ||
+          new Date(Date.now() + 5 * 24 * 60 * 60 * 1000),
+      },
+    });
+  } catch (e: any) {
+    res.status(500).json({ success: false, message: "Failed to fetch order details" });
+  }
+};
+
+/* ───────────────── UPDATE ORDER STATUS (emails + sockets) ───────────────── */
+export const updateOrderStatus = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { status, trackingNumber, notes, carrierName, trackingUrl } = req.body;
+
+    if (!req.user) {
+      res.status(401).json({ message: "Authentication required" });
+      return;
+    }
+
+    const user = req.user as AuthenticatedUser;
+    if (!["admin", "super_admin"].includes(user.role)) {
+      res.status(403).json({ message: "Admin access required" });
+      return;
+    }
+
+    const order = await Order.findById(req.params.id);
+    if (!order) {
+      res.status(404).json({ success: false, message: "Order not found" });
+      return;
+    }
+
+    const previousStatus = order.orderStatus;
+
+    if (["delivered", "cancelled"].includes(previousStatus)) {
+      res
+        .status(400)
+        .json({ success: false, message: `Order already ${previousStatus}` });
+      return;
+    }
+
+    order.orderStatus = status;
+    order.status = status;
+
+    if (trackingNumber) order.trackingNumber = trackingNumber;
+    if (carrierName) order.carrierName = carrierName;
+    if (trackingUrl) order.trackingUrl = trackingUrl;
+    if (notes) order.notes = notes;
+
+    switch (status) {
+      case "confirmed":
+        if (!order.paidAt && order.paymentStatus === "paid")
+          order.paidAt = new Date();
+        break;
+      case "shipped":
+        order.shippedAt = new Date();
+        break;
+      case "delivered":
+        order.deliveredAt = new Date();
+        break;
+      case "cancelled":
+        order.cancelledAt = new Date();
+        break;
+    }
+
+    const updatedOrder = await order.save();
+
+    let emailSent = false;
+    try {
+      emailSent = await EmailAutomationService.sendOrderStatusUpdate(
+        updatedOrder as any,
+        previousStatus
+      );
+    } catch {}
+
+    if (req.io) {
+      const payload = {
+        _id: updatedOrder._id,
+        userId: updatedOrder.userId.toString(),
+        orderNumber: updatedOrder.orderNumber,
+        orderStatus: updatedOrder.orderStatus,
+        trackingNumber: updatedOrder.trackingNumber,
+        carrierName: updatedOrder.carrierName,
+        trackingUrl: updatedOrder.trackingUrl,
+        updatedAt: updatedOrder.updatedAt,
+      };
+      req.io.to("admins").emit("orderStatusUpdated", payload);
+      req.io.to(updatedOrder.userId.toString()).emit("orderStatusUpdated", payload);
+    }
+
+    res.json({
+      success: true,
+      message: "Order status updated successfully",
+      order: {
+        _id: updatedOrder._id,
+        orderNumber: updatedOrder.orderNumber,
+        orderStatus: updatedOrder.orderStatus,
+        trackingNumber: updatedOrder.trackingNumber,
+        carrierName: updatedOrder.carrierName,
+        trackingUrl: updatedOrder.trackingUrl,
+        updatedAt: updatedOrder.updatedAt,
+      },
+      emailSent,
+    });
+  } catch (error: any) {
+    res
+      .status(500)
+      .json({ success: false, message: "Server error", error: error.message });
+  }
+};
+
+/* ───────────────── ADMIN: GET ALL ORDERS (filters + summary) ───────────────── */
+export const getAllOrders = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const {
+      page = 1,
+      limit = 20,
+      status,
+      paymentMethod,
+      dateFrom,
+      dateTo,
+      search,
+    } = req.query;
+
+    if (!req.user) {
+      res.status(401).json({ message: "Authentication required" });
+      return;
+    }
+    const user = req.user as AuthenticatedUser;
+    if (!["admin", "super_admin"].includes(user.role)) {
+      res.status(403).json({ message: "Admin access required" });
+      return;
+    }
+
+    const query: any = {};
+
+    if (status) query.orderStatus = status;
+    if (paymentMethod) query.paymentMethod = paymentMethod;
+
+    if (dateFrom || dateTo) {
+      query.createdAt = {};
+      if (dateFrom) query.createdAt.$gte = new Date(dateFrom as string);
+      if (dateTo) query.createdAt.$lte = new Date(dateTo as string);
+    }
+
+    if (search) {
+      query.$or = [
+        { orderNumber: { $regex: search, $options: "i" } },
+        { "shippingAddress.fullName": { $regex: search, $options: "i" } },
+        { "shippingAddress.email": { $regex: search, $options: "i" } },
+        { "shippingAddress.phoneNumber": { $regex: search, $options: "i" } },
+      ];
+    }
+
+    const orders = await Order.find(query)
+      .sort({ createdAt: -1 })
+      .limit(Number(limit))
+      .skip((Number(page) - 1) * Number(limit))
+      .populate("userId", "name email phone")
+      .populate("items.productId", "name images category")
+      .lean();
+
+    const totalCount = await Order.countDocuments(query);
+    const totalValue = orders.reduce((sum, o: any) => sum + (o.total || 0), 0);
+
+    const statusCounts = await Order.aggregate([
+      { $match: query },
+      { $group: { _id: "$orderStatus", count: { $sum: 1 } } },
+    ]);
+
+    res.json({
+      success: true,
+      orders,
+      pagination: {
+        currentPage: Number(page),
+        totalPages: Math.ceil(totalCount / Number(limit)),
+        totalOrders: totalCount,
+        hasNextPage: Number(page) < Math.ceil(totalCount / Number(limit)),
+        hasPrevPage: Number(page) > 1,
+      },
+      summary: {
+        totalValue,
+        averageOrderValue: totalCount > 0 ? totalValue / totalCount : 0,
+        statusBreakdown: statusCounts.reduce((acc: Record<string, number>, item) => {
+          acc[item._id] = item.count;
+          return acc;
+        }, {}),
+      },
+    });
+  } catch (error: any) {
+    res.status(500).json({
+      success: false,
+      message: "Server error",
+      error: error.message,
+    });
+  }
+};
+
+/* ───────────────── CANCEL ORDER (restores stock + email) ───────────────── */
+export const cancelOrder = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { reason } = req.body;
+
+    if (!req.user) {
+      res.status(401).json({ message: "Authentication required" });
+      return;
+    }
+
+    const user = req.user as AuthenticatedUser;
+    const userId = user.id;
+
+    const order = await Order.findOne({
+      _id: new mongoose.Types.ObjectId(req.params.id),
+      userId: new mongoose.Types.ObjectId(userId),
+    });
+
+    if (!order) {
+      res.status(404).json({
+        success: false,
+        message: "Order not found",
+      });
+      return;
+    }
+
+    if (!["pending", "confirmed"].includes(order.orderStatus)) {
+      res.status(400).json({
+        success: false,
+        message: "Order cannot be cancelled at this stage",
+      });
+      return;
+    }
+
+    const previousStatus = order.orderStatus;
+
+    order.orderStatus = "cancelled";
+    order.status = "cancelled";
+    order.cancelledAt = new Date();
+    (order as any).customerNotes = reason || "Cancelled by customer";
+
+    try {
+      for (const item of order.items) {
+        await Product.findByIdAndUpdate(item.productId, {
+          $inc: { stockQuantity: item.quantity },
+        });
+      }
+    } catch {}
+
+    const cancelledOrder = await order.save();
+
+    let emailSent = false;
+    try {
+      emailSent = await EmailAutomationService.sendOrderStatusUpdate(
+        cancelledOrder as any,
+        previousStatus
+      );
+    } catch {}
+
+    res.json({
+      success: true,
+      message: "Order cancelled successfully",
+      order: {
+        _id: cancelledOrder._id,
+        orderNumber: cancelledOrder.orderNumber,
+        orderStatus: cancelledOrder.orderStatus,
+        cancelledAt: cancelledOrder.cancelledAt,
+        customerNotes: (cancelledOrder as any).customerNotes,
+      },
+      emailSent,
+    });
+  } catch (error: any) {
+    res.status(500).json({
+      success: false,
+      message: "Server error",
+      error: error.message,
+    });
+  }
+};
+
+/* ───────────────── TRACK ORDER (customer view) ───────────────── */
+export const trackOrder = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { orderId } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(orderId)) {
+      res.status(400).json({
+        success: false,
+        message: "Invalid order ID format",
+      });
+      return;
+    }
+
+    const order = await Order.findById(orderId)
+      .populate("items.productId", "name images")
+      .lean();
+
+    if (!order) {
+      res.status(404).json({
+        success: false,
+        message: "Order not found",
+      });
+      return;
+    }
+
+    const timeline = [
+      {
+        status: "Order Placed",
+        date: order.createdAt,
+        completed: true,
+        description: "Your order has been placed successfully",
+      },
+      {
+        status: "Order Confirmed",
+        date: (order as any).paidAt,
+        completed: !!(order as any).paidAt,
+        description: "Your order has been confirmed and is being processed",
+      },
+      {
+        status: "Shipped",
+        date: (order as any).shippedAt,
+        completed: !!(order as any).shippedAt,
+        description: order.trackingNumber
+          ? `Shipped with tracking: ${order.trackingNumber}`
+          : "Your order has been shipped",
+      },
+      {
+        status: "Delivered",
+        date: (order as any).deliveredAt,
+        completed: !!(order as any).deliveredAt,
+        description: "Your order has been delivered successfully",
+      },
+    ];
+
+    res.json({
+      success: true,
+      order: {
+        orderNumber: order.orderNumber,
+        orderStatus: order.orderStatus,
+        trackingNumber: order.trackingNumber,
+        carrierName: (order as any).carrierName,
+        estimatedDelivery: (order as any).estimatedDelivery,
+        items: order.items,
+      },
+      timeline,
+    });
+  } catch (error: any) {
+    res.status(500).json({
+      success: false,
+      message: "Server error",
+      error: error.message,
+    });
+  }
+};
+
+/* ───────────────── SEND TEST EMAILS (admin) ───────────────── */
+export const sendTestOrderEmail = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { orderId } = req.params;
+
+    if (!req.user) {
+      res.status(401).json({ message: "Authentication required" });
+      return;
+    }
+    const user = req.user as AuthenticatedUser;
+    if (!["admin", "super_admin"].includes(user.role)) {
+      res.status(403).json({ message: "Admin access required" });
+      return;
+    }
+
+    const order = await Order.findById(orderId);
+    if (!order) {
+      res.status(404).json({ success: false, message: "Order not found" });
+      return;
+    }
+
+    const customerEmailSent = await EmailAutomationService.sendOrderConfirmation(
+      order as any,
+      order.shippingAddress.email
     );
-    if (itemIndex === -1) {
-      res.status(404).json({ message: "Item not found in cart" });
-      return;
-    }
+    const adminEmailSent = await EmailAutomationService.notifyAdminNewOrder(
+      order as any
+    );
 
-    const product = await Product.findById(productId);
-    if (!product || !product.isActive || !product.inStock) {
-      res.status(404).json({ message: "Product not found or unavailable" });
-      return;
-    }
-    if (product.stockQuantity < 1) {
-      res.status(400).json({ message: "Insufficient stock" });
-      return;
-    }
-
-    // clamp to MOQ/step/stock
-    const clamped = clampQty(Number(quantity) || 1, product);
-    if (clamped < 1) {
-      res.status(400).json({ message: "Insufficient stock" });
-      return;
-    }
-
-    cart.items[itemIndex].quantity = clamped;
-    // price recalculated in recompute step
-
-    const { requiresWhatsapp } = await recomputeCartAndFlags(cart);
-    await cart.save();
-    await cart.populate("items.productId");
-
-    cartCache.del(`cart:${user.id}`); // invalidate cache
-
-    res.json({ message: "Cart updated", cart, requiresWhatsapp });
+    res.json({
+      success: true,
+      message: "Test emails sent successfully",
+      results: {
+        customerEmailSent,
+        adminEmailSent,
+        orderNumber: order.orderNumber,
+        customerEmail: order.shippingAddress.email,
+      },
+    });
   } catch (error: any) {
-    console.error("Update cart error:", error);
-    res.status(500).json({ message: error.message || "Server error" });
+    res.status(500).json({
+      success: false,
+      message: "Email test failed",
+      error: error.message,
+    });
   }
 };
 
-/* ────────────────────────────────────────────────────────────── */
-/* REMOVE FROM CART                                               */
-/* ────────────────────────────────────────────────────────────── */
-export const removeFromCart = async (req: Request, res: Response): Promise<void> => {
+/* ───────────────── ADMIN: GET ORDER BY ID ───────────────── */
+export const getOrderByIdAdmin = async (req: Request, res: Response) => {
   try {
-    const { productId } = req.params;
-    const user = req.user as AuthenticatedUser;
-
-    const cart = await Cart.findOne({ userId: user?.id });
-    if (!cart) {
-      res.status(404).json({ message: "Cart not found" });
-      return;
+    if (!req.user) return res.status(401).json({ message: "Authentication required" });
+    const role = (req.user as any).role;
+    if (!["admin", "super_admin"].includes(role)) {
+      return res.status(403).json({ message: "Admin access required" });
     }
 
-    cart.items = cart.items.filter((item) => item.productId.toString() !== String(productId));
+    const { id } = req.params;
+    if (!mongoose.Types.ObjectId.isValid(id)) {
+      return res
+        .status(400)
+        .json({ success: false, message: "Invalid order ID format" });
+    }
 
-    const { requiresWhatsapp } = await recomputeCartAndFlags(cart);
-    await cart.save();
-    await cart.populate("items.productId");
+    const order = await Order.findById(id)
+      .populate("items.productId", "name images price category description")
+      .lean();
 
-    cartCache.del(`cart:${user.id}`); // invalidate cache
+    if (!order) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Order not found" });
+    }
 
-    res.json({ message: "Item removed from cart", cart, requiresWhatsapp });
-  } catch (error: any) {
-    console.error("Remove from cart error:", error);
-    res.status(500).json({ message: error.message || "Server error" });
+    res.json({ success: true, order });
+  } catch (e: any) {
+    res.status(500).json({ success: false, message: "Server error" });
   }
 };
 
-/* ────────────────────────────────────────────────────────────── */
-/* CLEAR CART                                                     */
-/* ────────────────────────────────────────────────────────────── */
-export const clearCart = async (req: Request, res: Response): Promise<void> => {
-  try {
-    const user = req.user as AuthenticatedUser;
+function buildGstBlock(
+  payload: any,
+  shippingAddress: any,
+  computed: { subtotal: number; tax: number }
+) {
+  const ex = payload?.extras || {};
 
-    // clearing the doc entirely is okay, but we keep integrity by creating empty doc if needed
-    const existing = await Cart.findOne({ userId: user?.id });
-    if (existing) {
-      await Cart.findOneAndDelete({ userId: user?.id });
-    }
+  const rawGstin =
+    ex.gstin ??
+    ex.gstNumber ??
+    ex.gst?.gstin ??
+    ex.gst?.gstNumber ??
+    payload.gstin ??
+    payload.gstNumber ??
+    payload.gst?.gstin;
+  const gstin = cleanGstin(rawGstin);
 
-    cartCache.del(`cart:${user.id}`); // invalidate cache
-    res.json({ message: "Cart cleared" });
-  } catch (error: any) {
-    console.error("Clear cart error:", error);
-    res.status(500).json({ message: error.message || "Server error" });
-  }
-};
+  const wantInvoice =
+    Boolean(
+      ex.wantGSTInvoice ??
+        ex.gst?.wantInvoice ??
+        payload.needGSTInvoice ??
+        payload.needGstInvoice ??
+        payload.gst?.wantInvoice ??
+        payload.gst?.requested
+    ) || !!gstin;
+
+  const taxPercent =
+    Number(payload?.pricing?.gstPercent ?? payload?.pricing?.taxRate) ||
+    (computed.subtotal > 0 ? Math.round((computed.tax / computed.subtotal) * 100) : 0);
+
+  const clientRequestedAt =
+    ex.gst?.requestedAt ?? payload.gst?.requestedAt ?? ex.requestedAt ?? payload.requestedAt;
+  const requestedAt = clientRequestedAt ? new Date(clientRequestedAt) : wantInvoice ? new Date() : undefined;
+
+  return {
+    wantInvoice,
+    gstin: gstin || undefined,
+    legalName:
+      (ex.gst?.legalName ??
+        ex.gstLegalName ??
+        payload.gst?.legalName ??
+        shippingAddress?.fullName)?.toString().trim() || undefined,
+    placeOfSupply:
+      (ex.gst?.placeOfSupply ??
+        ex.placeOfSupply ??
+        payload.gst?.placeOfSupply ??
+        shippingAddress?.state)?.toString().trim() || undefined,
+    taxPercent,
+    taxBase: computed.subtotal || 0,
+    taxAmount: computed.tax || 0,
+    requestedAt,
+    email:
+      (ex.gst?.email ?? payload.gst?.email ?? shippingAddress?.email)?.toString().trim() ||
+      undefined,
+  };
+}

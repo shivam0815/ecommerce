@@ -8,6 +8,7 @@ import User from '../models/User';
 import nodemailer from 'nodemailer';
 import crypto from 'crypto';
 import { Parser as Json2CsvParser } from 'json2csv';
+import { parsePricingTiers } from '../config/tiers';
 
 interface AuthRequest extends Request {
   user?: {
@@ -551,6 +552,7 @@ export const uploadProduct = async (req: AuthRequest, res: Response): Promise<vo
       specifications,
       compareAtPrice, // ✅ NEW
       originalPrice, // JSON string or object
+
     } = req.body as any;
 
     // Validation
@@ -652,6 +654,10 @@ export const uploadProduct = async (req: AuthRequest, res: Response): Promise<vo
       specifications: parseSpecs(specifications), // ✅ JSON -> object
       inStock: parsedStock > 0,
       isActive: true,
+       pricingTiers: parsePricingTiers((req.body as any).pricingTiers ?? (req.body as any).tiers),
+  minOrderQtyOverride: toNumber((req.body as any).minOrderQtyOverride),
+  packSize: Number((req.body as any).packSize ?? 1),
+  incrementStep: Number((req.body as any).incrementStep ?? 1),
       createdAt: new Date(),
       updatedAt: new Date(),
     });
@@ -719,6 +725,20 @@ export const updateProduct = async (req: AuthRequest, res: Response): Promise<vo
     if (patch.tags) patch.tags = asArray(patch.tags);
     if (patch.specifications) patch.specifications = parseSpecs(patch.specifications);
     if (patch.stock != null && patch.stockQuantity == null) patch.stockQuantity = Number(patch.stock);
+
+if ('pricingTiers' in patch || 'tiers' in patch) {
+  patch.pricingTiers = parsePricingTiers((patch as any).pricingTiers ?? (patch as any).tiers);
+}
+if ('minOrderQtyOverride' in patch) {
+  patch.minOrderQtyOverride = toNumber(patch.minOrderQtyOverride);
+}
+if ('packSize' in patch) {
+  patch.packSize = Number(patch.packSize ?? 1);
+}
+if ('incrementStep' in patch) {
+  patch.incrementStep = Number(patch.incrementStep ?? 1);
+}
+
 
     const updated = await Product.findByIdAndUpdate(
       id,
