@@ -15,7 +15,7 @@ const cartCache = new NodeCache({ stdTTL: 10, checkperiod: 20 }); // cache per u
  *  Global hard cap: no single cart line can exceed this quantity
  *  ────────────────────────────────────────────────────────────── */
 const MAX_ORDER_QTY = 1000;
-const WHATSAPP_QTY_THRESHOLD = 100; // >100 routes to WhatsApp on UI
+const WHATSAPP_QTY_THRESHOLD = 110; // >100 routes to WhatsApp on UI
 console.warn("⚠️ MAX_ORDER_QTY is set to", MAX_ORDER_QTY);
 
 /** Category-wise Minimum Order Quantity (MOQ) */
