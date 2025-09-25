@@ -1,3 +1,4 @@
+// src/middleware/auth.ts
 import { Request, Response, NextFunction } from 'express';
 import jwt from 'jsonwebtoken';
 import User, { IUserDocument } from '../models/User';
@@ -30,7 +31,7 @@ export interface JwtPayload {
   name?: string;
 }
 
-// ---- Helpers ---------------------------------------------------------------
+/* ------------------------------- Helpers ---------------------------------- */
 
 /** Try to pull a JWT from Authorization, x-auth-token, or cookies */
 function extractToken(req: Request): string | null {
@@ -68,7 +69,14 @@ function normalizeUserId(payload: JwtPayload): string | null {
   return (payload.id || payload._id || payload.userId || null) ?? null;
 }
 
-// ---- Public types ----------------------------------------------------------
+/** Detect if the request is for the cart routes to return a friendlier message */
+function wantsCartMessage(req: Request) {
+  // Works whether the router is mounted at /cart or /api/cart, etc.
+  const url = (req.baseUrl || req.originalUrl || '').toLowerCase();
+  return url.includes('/cart');
+}
+
+/* ------------------------------- Public types ----------------------------- */
 
 interface AuthenticatedUser {
   id: string;
@@ -85,7 +93,7 @@ declare module 'express-serve-static-core' {
   }
 }
 
-// ---- Middlewares -----------------------------------------------------------
+/* ------------------------------- Middlewares ------------------------------ */
 
 export const authenticate = async (
   req: Request,
@@ -95,21 +103,35 @@ export const authenticate = async (
   try {
     const token = extractToken(req);
     if (!token) {
-      res.status(401).json({ success: false, message: 'Access token missing' });
+      const cartMsg = wantsCartMessage(req);
+      res.status(401).json({
+        success: false,
+        code: 'AUTH_REQUIRED',
+        message: cartMsg ? 'Please log in to add items to your cart.' : 'Access token missing',
+      });
       return;
     }
 
     const decoded = jwt.verify(token, JWT_SECRET) as JwtPayload;
-
     const id = normalizeUserId(decoded);
     if (!id) {
-      res.status(401).json({ success: false, message: 'Invalid token payload' });
+      const cartMsg = wantsCartMessage(req);
+      res.status(401).json({
+        success: false,
+        code: 'INVALID_TOKEN',
+        message: cartMsg ? 'Please log in to add items to your cart.' : 'Invalid token payload',
+      });
       return;
     }
 
     const user = (await User.findById(id).select('-password')) as IUserDocument | null;
     if (!user) {
-      res.status(401).json({ success: false, message: 'User not found' });
+      const cartMsg = wantsCartMessage(req);
+      res.status(401).json({
+        success: false,
+        code: 'AUTH_REQUIRED',
+        message: cartMsg ? 'Please log in to add items to your cart.' : 'User not found',
+      });
       return;
     }
 
@@ -141,15 +163,21 @@ export const authenticate = async (
 
     next();
   } catch (err: any) {
-    // Keep messages stable for the client while giving yourself enough context in logs
+    const cartMsg = wantsCartMessage(req);
     if (err instanceof jwt.TokenExpiredError) {
-      console.warn('🔐 Token expired');
-      res.status(401).json({ success: false, message: 'Token has expired', code: 'TOKEN_EXPIRED' });
+      res.status(401).json({
+        success: false,
+        code: 'TOKEN_EXPIRED',
+        message: cartMsg ? 'Please log in to add items to your cart.' : 'Token has expired',
+      });
       return;
     }
     if (err instanceof jwt.JsonWebTokenError) {
-      console.warn('🔐 Invalid token:', err.message);
-      res.status(401).json({ success: false, message: 'Invalid token', code: 'INVALID_TOKEN' });
+      res.status(401).json({
+        success: false,
+        code: 'INVALID_TOKEN',
+        message: cartMsg ? 'Please log in to add items to your cart.' : 'Invalid token',
+      });
       return;
     }
     console.error('🔐 Auth error:', err);
@@ -263,14 +291,16 @@ export const validateSession = async (
       return;
     }
     next();
-  } catch (error) {
+  } catch (_error) {
     res.status(500).json({ success: false, message: 'Session validation failed' });
   }
 };
 
-
-
-export const optionalAuthenticate = async (req: Request, _res: Response, next: NextFunction) => {
+export const optionalAuthenticate = async (
+  req: Request,
+  _res: Response,
+  next: NextFunction
+) => {
   try {
     const auth = req.headers.authorization;
     if (!auth) return next();
@@ -299,7 +329,6 @@ export const optionalAuthenticate = async (req: Request, _res: Response, next: N
   next();
 };
 
-
 export const adminAuth = (req: Request, res: Response, next: NextFunction) => {
   // First run your normal authentication
   authenticate(req, res, (err?: any) => {
@@ -317,12 +346,17 @@ export const adminAuth = (req: Request, res: Response, next: NextFunction) => {
   });
 };
 
-// Grouped exports
+/* ----------------------------- Grouped exports ---------------------------- */
 export const adminOnly = [authenticate, authorize(['admin'])];
 export const userOrAdmin = [authenticate, authorize(['user', 'admin'])];
 export const verifiedUsersOnly = [authenticate, requireEmailVerification];
-export const secureAdminOnly = [authenticate, authorize(['admin']), rateLimitSensitive, auditLog('admin-access')];
+export const secureAdminOnly = [
+  authenticate,
+  authorize(['admin']),
+  rateLimitSensitive,
+  auditLog('admin-access'),
+];
 export const verifiedAdminOnly = [authenticate, authorize(['admin']), requireEmailVerification];
 export const twoFactorAdminOnly = [authenticate, authorize(['admin']), requireTwoFactor];
 
-export { isAuthorizedAdminEmail, getAuthorizedEmails }; 
+export { isAuthorizedAdminEmail, getAuthorizedEmails };

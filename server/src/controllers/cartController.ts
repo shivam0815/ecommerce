@@ -4,18 +4,16 @@ import mongoose from "mongoose";
 import NodeCache from "node-cache";
 import Cart from "../models/Cart";
 import Product from "../models/Product";
-import { resolveUnitPrice } from "../config/pricing"; // ✅ use this
+import { resolveUnitPrice } from "../config/pricing"; // ✅ dynamic pricing
 
 /* ────────────────────────────────────────────────────────────── */
 /* CACHE                                                          */
 /* ────────────────────────────────────────────────────────────── */
 const cartCache = new NodeCache({ stdTTL: 10, checkperiod: 20 }); // cache per user 10s
 
-/** ──────────────────────────────────────────────────────────────
- *  Global hard cap: no single cart line can exceed this quantity
- *  ────────────────────────────────────────────────────────────── */
+/** Global hard cap + WhatsApp threshold */
 const MAX_ORDER_QTY = 1000;
-const WHATSAPP_QTY_THRESHOLD = 110; // >100 routes to WhatsApp on UI
+const WHATSAPP_QTY_THRESHOLD = 110;
 console.warn("⚠️ MAX_ORDER_QTY is set to", MAX_ORDER_QTY);
 
 /** Category-wise Minimum Order Quantity (MOQ) */
@@ -37,7 +35,6 @@ const CATEGORY_MOQ: Record<string, number> = {
 /* ────────────────────────────────────────────────────────────── */
 /* MOQ / Step helpers                                             */
 /* ────────────────────────────────────────────────────────────── */
-
 const getEffectiveMOQ = (product: any): number => {
   const pMOQ =
     typeof product?.minOrderQty === "number" && product.minOrderQty > 0
@@ -49,22 +46,17 @@ const getEffectiveMOQ = (product: any): number => {
   return typeof byCategory === "number" && byCategory > 0 ? byCategory : 1;
 };
 
-/** choose step size (current UX = MOQ) */
 const getStepSize = (product: any): number => {
   const moq = getEffectiveMOQ(product);
-  // If you want packSize/incrementStep enforced, swap to:
-  // const step = Number(product?.incrementStep || product?.packSize || moq) || moq;
-  const step = moq;
-  return step < 1 ? 1 : step;
+  return moq < 1 ? 1 : moq;
 };
 
-/** Clamp & snap (ceil to step) within [MOQ … min(stock, MAX_ORDER_QTY)] */
 const clampQty = (desired: number, product: any): number => {
   const moq = getEffectiveMOQ(product);
   const step = getStepSize(product);
   const stockCap = Math.max(0, Number(product?.stockQuantity ?? 0));
   const hardMax = Math.max(0, Math.min(stockCap, MAX_ORDER_QTY));
-  if (hardMax < moq) return 0; // not enough stock to meet MOQ
+  if (hardMax < moq) return 0;
 
   const want = Math.max(1, Number(desired || 0));
   let snapped = Math.ceil(want / step) * step;
@@ -94,30 +86,23 @@ const recomputeCartAndFlags = async (cartDoc: any) => {
   let total = 0;
   let requiresWhatsapp = false;
 
-  // Ensure products are populated for pricing + category/minOrderQty etc.
   await cartDoc.populate("items.productId");
 
   cartDoc.items = cartDoc.items.map((it: any) => {
     const p = it.productId;
     if (!p || !p.isActive || !p.inStock) return it;
 
-    // re-clamp server-side to avoid client bypass
     const clamped = clampQty(it.quantity, p);
     if (clamped < 1) return it;
     it.quantity = clamped;
 
-    // ✅ dynamic pricing per line based on qty (shared helper)
     const unitPrice = Number(resolveUnitPrice(p, clamped)) || Number(p.price) || 0;
-    it.price = unitPrice; // store final unit price on the line
+    it.price = unitPrice;
 
     const lineTotal = unitPrice * clamped;
     total += lineTotal;
 
-    // ✅ WhatsApp gate: ONLY if strictly greater than 100
-    if (clamped > WHATSAPP_QTY_THRESHOLD) {
-      requiresWhatsapp = true;
-    }
-
+    if (clamped > WHATSAPP_QTY_THRESHOLD) requiresWhatsapp = true;
     return it;
   });
 
@@ -132,7 +117,11 @@ export const getCart = async (req: Request, res: Response): Promise<void> => {
   try {
     const user = req.user as AuthenticatedUser;
     if (!user?.id) {
-      res.status(401).json({ message: "Unauthorized: No user id" });
+      res.status(401).json({
+        success: false,
+        code: "AUTH_REQUIRED",
+        message: "Please log in to view your cart.",
+      });
       return;
     }
 
@@ -146,7 +135,6 @@ export const getCart = async (req: Request, res: Response): Promise<void> => {
     const cart = await Cart.findOne({ userId: user.id });
     const cartData = cart || new Cart({ userId: user.id, items: [], totalAmount: 0 });
 
-    // Always recompute totals/prices/flags on read for integrity
     const { requiresWhatsapp } = await recomputeCartAndFlags(cartData);
     await cartData.save();
 
@@ -166,17 +154,23 @@ export const addToCart = async (req: Request, res: Response): Promise<void> => {
     const { productId, quantity = 1 } = req.body;
     const user = req.user as AuthenticatedUser;
 
-    if (!productId || !user?.id) {
-      res.status(400).json({ message: "Product ID and user authentication required" });
+    if (!user?.id) {
+      res.status(401).json({
+        success: false,
+        code: "AUTH_REQUIRED",
+        message: "Please log in to add items to your cart.",
+      });
+      return;
+    }
+    if (!productId) {
+      res.status(400).json({ message: "Product ID is required" });
       return;
     }
 
-    // Find product
     let product: any;
     if (mongoose.Types.ObjectId.isValid(productId)) {
       product = await Product.findById(productId);
     } else {
-      // Fallback index mode (kept from your code)
       const allProducts = await Product.find({ isActive: true }).sort({ createdAt: 1 });
       const productIndex = parseInt(productId, 10) - 1;
       if (productIndex >= 0 && productIndex < allProducts.length) {
@@ -188,7 +182,6 @@ export const addToCart = async (req: Request, res: Response): Promise<void> => {
       res.status(404).json({ message: "Product not found or unavailable" });
       return;
     }
-
     if (product.stockQuantity < 1) {
       res.status(400).json({
         message: "Insufficient stock",
@@ -199,7 +192,6 @@ export const addToCart = async (req: Request, res: Response): Promise<void> => {
     }
 
     let cart = await Cart.findOne({ userId: user.id });
-
     const initialClamp = clampQty(Number(quantity) || 1, product);
     if (initialClamp < 1) {
       res.status(400).json({
@@ -213,7 +205,7 @@ export const addToCart = async (req: Request, res: Response): Promise<void> => {
     if (!cart) {
       cart = new Cart({
         userId: user.id,
-        items: [{ productId: product._id, quantity: initialClamp, price: 0 }], // price filled by recompute
+        items: [{ productId: product._id, quantity: initialClamp, price: 0 }],
       });
     } else {
       const existingItemIndex = cart.items.findIndex(
@@ -232,21 +224,16 @@ export const addToCart = async (req: Request, res: Response): Promise<void> => {
           return;
         }
         cart.items[existingItemIndex].quantity = clamped;
-        // price will be recomputed with dynamic pricing
       } else {
         cart.items.push({ productId: product._id, quantity: initialClamp, price: 0 });
       }
     }
 
-    // Recompute prices/totals/flags
     const { requiresWhatsapp } = await recomputeCartAndFlags(cart);
     await cart.save();
-
-    // send populated
     await cart.populate("items.productId");
 
-    cartCache.del(`cart:${user.id}`); // invalidate cache
-
+    cartCache.del(`cart:${user.id}`);
     res.status(200).json({
       success: true,
       message: "Item added to cart successfully",
@@ -264,15 +251,23 @@ export const addToCart = async (req: Request, res: Response): Promise<void> => {
 /* ────────────────────────────────────────────────────────────── */
 export const updateCartItem = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { productId, quantity } = req.body;
     const user = req.user as AuthenticatedUser;
+    if (!user?.id) {
+      res.status(401).json({
+        success: false,
+        code: "AUTH_REQUIRED",
+        message: "Please log in to update your cart.",
+      });
+      return;
+    }
 
+    const { productId, quantity } = req.body;
     if (Number(quantity) < 1) {
       res.status(400).json({ message: "Quantity must be at least 1" });
       return;
     }
 
-    const cart = await Cart.findOne({ userId: user?.id });
+    const cart = await Cart.findOne({ userId: user.id });
     if (!cart) {
       res.status(404).json({ message: "Cart not found" });
       return;
@@ -296,7 +291,6 @@ export const updateCartItem = async (req: Request, res: Response): Promise<void>
       return;
     }
 
-    // clamp to MOQ/step/stock
     const clamped = clampQty(Number(quantity) || 1, product);
     if (clamped < 1) {
       res.status(400).json({ message: "Insufficient stock" });
@@ -304,14 +298,12 @@ export const updateCartItem = async (req: Request, res: Response): Promise<void>
     }
 
     cart.items[itemIndex].quantity = clamped;
-    // price recalculated in recompute step
 
     const { requiresWhatsapp } = await recomputeCartAndFlags(cart);
     await cart.save();
     await cart.populate("items.productId");
 
-    cartCache.del(`cart:${user.id}`); // invalidate cache
-
+    cartCache.del(`cart:${user.id}`);
     res.json({ message: "Cart updated", cart, requiresWhatsapp });
   } catch (error: any) {
     console.error("Update cart error:", error);
@@ -324,10 +316,18 @@ export const updateCartItem = async (req: Request, res: Response): Promise<void>
 /* ────────────────────────────────────────────────────────────── */
 export const removeFromCart = async (req: Request, res: Response): Promise<void> => {
   try {
-    const { productId } = req.params;
     const user = req.user as AuthenticatedUser;
+    if (!user?.id) {
+      res.status(401).json({
+        success: false,
+        code: "AUTH_REQUIRED",
+        message: "Please log in to modify your cart.",
+      });
+      return;
+    }
 
-    const cart = await Cart.findOne({ userId: user?.id });
+    const { productId } = req.params;
+    const cart = await Cart.findOne({ userId: user.id });
     if (!cart) {
       res.status(404).json({ message: "Cart not found" });
       return;
@@ -339,8 +339,7 @@ export const removeFromCart = async (req: Request, res: Response): Promise<void>
     await cart.save();
     await cart.populate("items.productId");
 
-    cartCache.del(`cart:${user.id}`); // invalidate cache
-
+    cartCache.del(`cart:${user.id}`);
     res.json({ message: "Item removed from cart", cart, requiresWhatsapp });
   } catch (error: any) {
     console.error("Remove from cart error:", error);
@@ -354,13 +353,21 @@ export const removeFromCart = async (req: Request, res: Response): Promise<void>
 export const clearCart = async (req: Request, res: Response): Promise<void> => {
   try {
     const user = req.user as AuthenticatedUser;
-
-    const existing = await Cart.findOne({ userId: user?.id });
-    if (existing) {
-      await Cart.findOneAndDelete({ userId: user?.id });
+    if (!user?.id) {
+      res.status(401).json({
+        success: false,
+        code: "AUTH_REQUIRED",
+        message: "Please log in to clear your cart.",
+      });
+      return;
     }
 
-    cartCache.del(`cart:${user.id}`); // invalidate cache
+    const existing = await Cart.findOne({ userId: user.id });
+    if (existing) {
+      await Cart.findOneAndDelete({ userId: user.id });
+    }
+
+    cartCache.del(`cart:${user.id}`);
     res.json({ message: "Cart cleared" });
   } catch (error: any) {
     console.error("Clear cart error:", error);
