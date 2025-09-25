@@ -364,8 +364,8 @@ const Cart: React.FC = () => {
                   <span className="font-medium">₹{totalPrice.toLocaleString()}</span>
                 </div>
                 <div className="flex justify-between">
-                  <span className="text-gray-600">Shipping</span>
-                  <span className="font-medium text-green-600">Free</span>
+                  <span className="text-gray-600"></span>
+                  <span className="font-medium text-green-600">Shipping fees will be added after your order is packed.</span>
                 </div>
                 <div className="border-t pt-3">
                   <div className="flex justify-between items-center">
