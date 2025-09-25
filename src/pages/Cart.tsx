@@ -9,8 +9,9 @@ import toast from 'react-hot-toast';
 import type { CartItem } from '../types';
 
 /* ----------------------------- Config ----------------------------- */
-// Set your WhatsApp number (E.164 without "+"), e.g. 919876543210
-const WHATSAPP_NUMBER = '+919650516703';
+// Put your WhatsApp number in international format WITHOUT "+" or spaces.
+const WHATSAPP_NUMBER = '919650516703';
+const BULK_THRESHOLD = 100; // switch to WhatsApp when any cart line reaches this qty
 
 /* -------- Category-wise MOQ fallback (used if product.minOrderQty is absent) -------- */
 const CATEGORY_MOQ: Record<string, number> = {
@@ -113,9 +114,9 @@ const Cart: React.FC = () => {
   const totalPrice = getTotalPrice();
   const totalItems = getTotalItems();
 
-  // ✅ Bulk rule trigger: any line with qty > 100
+  // ✅ Bulk rule trigger: any line with qty >= BULK_THRESHOLD
   const hasBulkOver100 = useMemo(
-    () => (cartItems || []).some((it: any) => Number(it?.quantity ?? 0) > 100),
+    () => (cartItems || []).some((it: any) => Number(it?.quantity ?? 0) >= BULK_THRESHOLD),
     [cartItems]
   );
 
@@ -126,8 +127,8 @@ const Cart: React.FC = () => {
   }, [cartItems, totalPrice]);
 
   const handleCheckout = () => {
+    // If bulk threshold reached, force WhatsApp flow
     if (hasBulkOver100) {
-      // Safeguard (UI already switches to WhatsApp CTA)
       window.open(whatsappLink, '_blank', 'noopener,noreferrer');
       return;
     }
@@ -254,11 +255,19 @@ const Cart: React.FC = () => {
           </div>
         )}
 
-        {/* Bulk notice */}
+        {/* Bulk notice (red) */}
         {hasBulkOver100 && (
-          <div className="mb-4 sm:mb-6 p-3 sm:p-4 rounded-md border border-green-300 bg-green-50 text-green-800 text-sm">
-            Quantity above <strong>100</strong> detected. For bulk orders, checkout is disabled.
-            Please place the enquiry on WhatsApp for best pricing & dispatch assistance.
+          <div className="mb-4 sm:mb-6 p-3 sm:p-4 rounded-md border border-red-300 bg-red-50 text-red-800 text-sm">
+            Quantity must be between 1 and 100. For higher quantities, please place a bulk enquiry on WhatsApp.
+            <a
+              href={whatsappLink}
+              target="_blank"
+              rel="noreferrer"
+              className="ml-2 underline font-medium"
+              title="Contact on WhatsApp"
+            >
+              Contact via WhatsApp
+            </a>
           </div>
         )}
 
