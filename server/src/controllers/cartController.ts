@@ -14,7 +14,7 @@ const cartCache = new NodeCache({ stdTTL: 10, checkperiod: 20 }); // cache per u
  *  Global hard cap: no single cart line can exceed this quantity
  *  ────────────────────────────────────────────────────────────── */
 const MAX_ORDER_QTY = 1000;
-
+console.warn("⚠️ MAX_ORDER_QTY is set to", MAX_ORDER_QTY);
 /** Category-wise Minimum Order Quantity (MOQ) */
 const CATEGORY_MOQ: Record<string, number> = {
   "Car Chargers": 10,
