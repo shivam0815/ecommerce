@@ -11,7 +11,7 @@ import type { CartItem } from '../types';
 /* ----------------------------- Config ----------------------------- */
 // Put your WhatsApp number in international format WITHOUT "+" or spaces.
 const WHATSAPP_NUMBER = '919650516703';
-const BULK_THRESHOLD = 100; // switch to WhatsApp when any cart line reaches this qty
+const BULK_THRESHOLD = 110; // switch to WhatsApp when any cart line reaches this qty
 
 /* -------- Category-wise MOQ fallback (used if product.minOrderQty is absent) -------- */
 const CATEGORY_MOQ: Record<string, number> = {
