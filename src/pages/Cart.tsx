@@ -1,12 +1,16 @@
-// src/pages/Cart.tsx — compact, fully responsive
-import React, { useEffect } from 'react';
+// src/pages/Cart.tsx — compact, fully responsive + WhatsApp bulk-order rule
+import React, { useEffect, useMemo } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Plus, Minus, Trash2, ShoppingBag, ArrowLeft, ImageIcon } from 'lucide-react';
+import { Plus, Minus, Trash2, ShoppingBag, ArrowLeft, ImageIcon, MessageCircle } from 'lucide-react';
 import { useCartContext } from '../context/CartContext';
 import { useAuth } from '../hooks/useAuth';
 import toast from 'react-hot-toast';
 import type { CartItem } from '../types';
+
+/* ----------------------------- Config ----------------------------- */
+// Set your WhatsApp number (E.164 without "+"), e.g. 919876543210
+const WHATSAPP_NUMBER = '+919650516703';
 
 /* -------- Category-wise MOQ fallback (used if product.minOrderQty is absent) -------- */
 const CATEGORY_MOQ: Record<string, number> = {
@@ -58,6 +62,34 @@ const getItemId = (item: any): string =>
       ''
   );
 
+/* --------------------- WhatsApp helpers (>100 rule) --------------------- */
+const getItemName = (item: any): string =>
+  String(item?.productId?.name ?? item?.name ?? 'Product');
+
+const getUnitPrice = (item: any): number =>
+  Number(item?.price ?? item?.productId?.price ?? 0);
+
+const fmtINR = (v: number) => `₹${Number(v || 0).toLocaleString('en-IN')}`;
+
+const buildWhatsAppText = (items: any[], total: number, originHref: string) => {
+  const lines = items.map((it) => {
+    const name = getItemName(it);
+    const qty = Number(it?.quantity ?? 0);
+    const unit = getUnitPrice(it);
+    const lineTotal = unit * qty;
+    return `• ${name}\n  Qty: ${qty}\n  Unit: ${fmtINR(unit)}\n  Line: ${fmtINR(lineTotal)}`;
+  });
+
+  const msg =
+    `Hi, I'd like to place a bulk order:\n\n` +
+    `${lines.join('\n\n')}\n\n` +
+    `Cart Total (approx): ${fmtINR(total)}\n` +
+    `Link: ${originHref}\n\n` +
+    `Please confirm best quote & availability.`;
+
+  return msg;
+};
+
 const Cart: React.FC = () => {
   const {
     cartItems,
@@ -78,7 +110,27 @@ const Cart: React.FC = () => {
     refreshCart(true);
   }, [refreshCart]);
 
+  const totalPrice = getTotalPrice();
+  const totalItems = getTotalItems();
+
+  // ✅ Bulk rule trigger: any line with qty > 100
+  const hasBulkOver100 = useMemo(
+    () => (cartItems || []).some((it: any) => Number(it?.quantity ?? 0) > 100),
+    [cartItems]
+  );
+
+  const whatsappLink = useMemo(() => {
+    const href = typeof window !== 'undefined' ? window.location.href : 'https://nakodamobile.in/cart';
+    const text = buildWhatsAppText(cartItems || [], totalPrice, href);
+    return `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(text)}`;
+  }, [cartItems, totalPrice]);
+
   const handleCheckout = () => {
+    if (hasBulkOver100) {
+      // Safeguard (UI already switches to WhatsApp CTA)
+      window.open(whatsappLink, '_blank', 'noopener,noreferrer');
+      return;
+    }
     if (!user) {
       navigate('/login', { state: { from: '/checkout' } });
       return;
@@ -180,9 +232,6 @@ const Cart: React.FC = () => {
     );
   }
 
-  const totalPrice = getTotalPrice();
-  const totalItems = getTotalItems();
-
   return (
     <div className="min-h-screen bg-gray-50 pb-24 sm:pb-8">
       <div className="max-w-5xl mx-auto px-3 sm:px-4 md:px-6 py-4 sm:py-6">
@@ -202,6 +251,14 @@ const Cart: React.FC = () => {
         {error && (
           <div className="mb-4 sm:mb-6 p-3 sm:p-4 bg-red-50 border border-red-200 rounded-md text-sm">
             <p className="text-red-600">{String(error)}</p>
+          </div>
+        )}
+
+        {/* Bulk notice */}
+        {hasBulkOver100 && (
+          <div className="mb-4 sm:mb-6 p-3 sm:p-4 rounded-md border border-green-300 bg-green-50 text-green-800 text-sm">
+            Quantity above <strong>100</strong> detected. For bulk orders, checkout is disabled.
+            Please place the enquiry on WhatsApp for best pricing & dispatch assistance.
           </div>
         )}
 
@@ -290,7 +347,7 @@ const Cart: React.FC = () => {
 
                             {/* Controls row (mobile-first) */}
                             <div className="mt-2 flex items-center justify-between gap-3">
-                              {/* Qty stepper (NO stray text, single + button) */}
+                              {/* Qty stepper (in ± MOQ steps) */}
                               <div className="inline-flex items-center rounded-md border bg-white">
                                 <button
                                   type="button"
@@ -375,22 +432,34 @@ const Cart: React.FC = () => {
                 </div>
               </div>
 
-              {user ? (
-                <Link
-                  to="/checkout"
-                  className="w-full mt-5 block text-center bg-blue-600 text-white py-2.5 px-4 rounded-md hover:bg-blue-700 transition-colors font-medium"
-                >
-                  Proceed to Checkout
-                </Link>
+              {!hasBulkOver100 ? (
+                user ? (
+                  <button
+                    onClick={handleCheckout}
+                    className="w-full mt-5 block text-center bg-blue-600 text-white py-2.5 px-4 rounded-md hover:bg-blue-700 transition-colors font-medium"
+                  >
+                    Proceed to Checkout
+                  </button>
+                ) : (
+                  <Link
+                    to="/login"
+                    state={{ from: '/checkout' }}
+                    className="w-full mt-5 block text-center bg-blue-600 text-white py-2.5 px-4 rounded-md hover:bg-blue-700 transition-colors font-medium"
+                  >
+                    Proceed to Checkout
+                    <span className="block text-xs text-blue-100 mt-1">(Login required)</span>
+                  </Link>
+                )
               ) : (
-                <Link
-                  to="/login"
-                  state={{ from: '/checkout' }}
-                  className="w-full mt-5 block text-center bg-blue-600 text-white py-2.5 px-4 rounded-md hover:bg-blue-700 transition-colors font-medium"
+                <a
+                  href={whatsappLink}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="w-full mt-5 inline-flex items-center justify-center gap-2 border-2 border-green-600 text-green-700 py-2.5 px-4 rounded-md hover:bg-green-50 font-medium"
                 >
-                  Proceed to Checkout
-                  <span className="block text-xs text-blue-100 mt-1">(Login required)</span>
-                </Link>
+                  <MessageCircle className="h-4 w-4" />
+                  WhatsApp Bulk Order
+                </a>
               )}
 
               <div className="mt-3">
@@ -414,21 +483,33 @@ const Cart: React.FC = () => {
             <div className="text-base font-semibold">₹{totalPrice.toLocaleString()}</div>
           </div>
 
-          {user ? (
-            <Link
-              to="/checkout"
-              className="flex-1 ml-2 inline-flex items-center justify-center gap-2 bg-blue-600 text-white py-2 rounded-md hover:bg-blue-700 text-sm font-medium"
-            >
-              Proceed to Checkout
-            </Link>
+          {!hasBulkOver100 ? (
+            user ? (
+              <button
+                onClick={handleCheckout}
+                className="flex-1 ml-2 inline-flex items-center justify-center gap-2 bg-blue-600 text-white py-2 rounded-md hover:bg-blue-700 text-sm font-medium"
+              >
+                Proceed to Checkout
+              </button>
+            ) : (
+              <Link
+                to="/login"
+                state={{ from: '/checkout' }}
+                className="flex-1 ml-2 inline-flex items-center justify-center gap-2 bg-blue-600 text-white py-2 rounded-md hover:bg-blue-700 text-sm font-medium"
+              >
+                Login to Checkout
+              </Link>
+            )
           ) : (
-            <Link
-              to="/login"
-              state={{ from: '/checkout' }}
-              className="flex-1 ml-2 inline-flex items-center justify-center gap-2 bg-blue-600 text-white py-2 rounded-md hover:bg-blue-700 text-sm font-medium"
+            <a
+              href={whatsappLink}
+              target="_blank"
+              rel="noreferrer"
+              className="flex-1 ml-2 inline-flex items-center justify-center gap-2 border-2 border-green-600 text-green-700 py-2 rounded-md hover:bg-green-50 text-sm font-medium"
             >
-              Login to Checkout
-            </Link>
+              <MessageCircle className="h-4 w-4" />
+              WhatsApp
+            </a>
           )}
         </div>
       </div>
@@ -438,11 +519,7 @@ const Cart: React.FC = () => {
 
 export default Cart;
 
-/* --------- Types cleanup ---------
-   Avoid exporting a const named CartItemType that shadows the TS type.
-   If you need a runtime schema, define it elsewhere or rename.
------------------------------------ */
-
+/* --------- Types cleanup --------- */
 export type CartItemWithProduct = CartItem & {
   productId?: {
     _id?: string;

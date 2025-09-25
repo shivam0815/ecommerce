@@ -14,12 +14,14 @@ const cartCache = new NodeCache({ stdTTL: 10, checkperiod: 20 }); // cache per u
  *  Global hard cap: no single cart line can exceed this quantity
  *  ────────────────────────────────────────────────────────────── */
 const MAX_ORDER_QTY = 1000;
+const WHATSAPP_QTY_THRESHOLD = 100; // >100 routes to WhatsApp on UI
 console.warn("⚠️ MAX_ORDER_QTY is set to", MAX_ORDER_QTY);
+
 /** Category-wise Minimum Order Quantity (MOQ) */
 const CATEGORY_MOQ: Record<string, number> = {
   "Car Chargers": 10,
   "Bluetooth Neckbands": 10,
-  'TWS': 10,
+  TWS: 10,
   "Data Cables": 10,
   "Mobile Chargers": 10,
   "Bluetooth Speakers": 10,
@@ -31,50 +33,117 @@ const CATEGORY_MOQ: Record<string, number> = {
   Others: 10,
 };
 
-/** Determine the effective MOQ for a product */
+/* ────────────────────────────────────────────────────────────── */
+/* MOQ / Step helpers                                             */
+/* ────────────────────────────────────────────────────────────── */
+
 const getEffectiveMOQ = (product: any): number => {
+  // prefer product override/virtual (already provided by your model)
   const pMOQ =
     typeof product?.minOrderQty === "number" && product.minOrderQty > 0
       ? product.minOrderQty
       : undefined;
+
   if (typeof pMOQ === "number") return pMOQ;
 
   const byCategory = CATEGORY_MOQ[product?.category || ""];
   return typeof byCategory === "number" && byCategory > 0 ? byCategory : 1;
 };
 
-/** Clamp helper: enforces [MOQ … min(stock, MAX_ORDER_QTY)] silently */
-/** Clamp helper: snap to multiples of MOQ within [MOQ … min(stock, MAX_ORDER_QTY)] */
+/** choose step size
+ *  If you want to strictly enforce packSize or incrementStep, uncomment the priority below.
+ */
+const getStepSize = (product: any): number => {
+  const moq = getEffectiveMOQ(product);
+  // Prefer explicit step fields if you use them:
+  // const step = Number(product?.incrementStep || product?.packSize || moq) || moq;
+  const step = moq; // as per your current UX (step = MOQ)
+  return step < 1 ? 1 : step;
+};
+
+/** Clamp & snap (ceil to step) within [MOQ … min(stock, MAX_ORDER_QTY)] */
 const clampQty = (desired: number, product: any): number => {
-  const moq = getEffectiveMOQ(product);      // e.g., 10
-  const step = moq;                           // step size = MOQ
+  const moq = getEffectiveMOQ(product);
+  const step = getStepSize(product);
   const stockCap = Math.max(0, Number(product?.stockQuantity ?? 0));
   const hardMax = Math.max(0, Math.min(stockCap, MAX_ORDER_QTY));
-  if (hardMax < moq) return 0;                // not enough stock to meet MOQ
+  if (hardMax < moq) return 0; // not enough stock to even meet MOQ
 
-  // What user “wants”
   const want = Math.max(1, Number(desired || 0));
-
-  // Snap UP to next multiple of step
   let snapped = Math.ceil(want / step) * step;
 
-  // Cap to allowed max; if that pushes below MOQ, try largest valid multiple ≤ hardMax
   if (snapped > hardMax) {
     snapped = Math.floor(hardMax / step) * step;
   }
 
-  // Final guard
   if (snapped < moq) return 0;
   return snapped;
 };
 
+/* ────────────────────────────────────────────────────────────── */
+/* Pricing helper (unit)                                         */
+/* ────────────────────────────────────────────────────────────── */
 
+const getUnitPriceFor = (product: any, qty: number): number => {
+  // Uses your mongoose method (defined on Product schema)
+  try {
+    if (typeof product?.getUnitPriceForQty === "function") {
+      return Number(product.getUnitPriceForQty(qty)) || Number(product.price) || 0;
+    }
+  } catch {
+    /* fall back */
+  }
+  return Number(product?.price) || 0;
+};
+
+/* ────────────────────────────────────────────────────────────── */
+/* Auth interface                                                */
+/* ────────────────────────────────────────────────────────────── */
 interface AuthenticatedUser {
   id: string;
   role: string;
   email?: string;
   name?: string;
 }
+
+/* ────────────────────────────────────────────────────────────── */
+/* Utility: recompute cart money + flags                         */
+/* ────────────────────────────────────────────────────────────── */
+const recomputeCartAndFlags = async (cartDoc: any) => {
+  let total = 0;
+  let requiresWhatsapp = false;
+
+  // Ensure products are populated for pricing + category/minOrderQty etc.
+  await cartDoc.populate("items.productId");
+
+  cartDoc.items = cartDoc.items.map((it: any) => {
+    const p = it.productId;
+    if (!p || !p.isActive || !p.inStock) return it;
+
+    const moq = getEffectiveMOQ(p);
+    const step = getStepSize(p);
+
+    // re-clamp server-side to avoid client bypass
+    const clamped = clampQty(it.quantity, p) || moq;
+    it.quantity = clamped;
+
+    // dynamic pricing per line based on qty
+    const unitPrice = getUnitPriceFor(p, clamped);
+    it.price = unitPrice; // store unit price on the line (your Cart model already had 'price')
+
+    const lineTotal = unitPrice * clamped;
+    total += lineTotal;
+
+    if (clamped > WHATSAPP_QTY_THRESHOLD) {
+      requiresWhatsapp = true;
+    }
+
+    return it;
+  });
+
+  cartDoc.totalAmount = Math.max(0, Math.floor(total));
+  return { requiresWhatsapp };
+};
 
 /* ────────────────────────────────────────────────────────────── */
 /* GET CART                                                       */
@@ -94,11 +163,15 @@ export const getCart = async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    const cart = await Cart.findOne({ userId: user.id }).populate("items.productId");
-    const cartData = cart || { items: [], totalAmount: 0 };
+    const cart = await Cart.findOne({ userId: user.id });
+    const cartData = cart || new Cart({ userId: user.id, items: [], totalAmount: 0 });
+
+    // Always recompute totals/prices/flags on read for integrity
+    const { requiresWhatsapp } = await recomputeCartAndFlags(cartData);
+    await cartData.save();
 
     cartCache.set(cacheKey, cartData);
-    res.json({ cart: cartData, cached: false });
+    res.json({ cart: cartData, requiresWhatsapp, cached: false });
   } catch (error) {
     console.error("Get cart error:", error);
     res.status(500).json({ message: "Server error" });
@@ -123,6 +196,7 @@ export const addToCart = async (req: Request, res: Response): Promise<void> => {
     if (mongoose.Types.ObjectId.isValid(productId)) {
       product = await Product.findById(productId);
     } else {
+      // Fallback index mode (kept from your code)
       const allProducts = await Product.find({ isActive: true }).sort({ createdAt: 1 });
       const productIndex = parseInt(productId, 10) - 1;
       if (productIndex >= 0 && productIndex < allProducts.length) {
@@ -146,24 +220,26 @@ export const addToCart = async (req: Request, res: Response): Promise<void> => {
 
     let cart = await Cart.findOne({ userId: user.id });
 
+    const initialClamp = clampQty(Number(quantity) || 1, product);
+    if (initialClamp < 1) {
+      res.status(400).json({
+        message: "Insufficient stock",
+        available: product.stockQuantity,
+        requested: Number(quantity) || 1,
+      });
+      return;
+    }
+
     if (!cart) {
-      const clamped = clampQty(Number(quantity) || 1, product);
-      if (clamped < 1) {
-        res.status(400).json({
-          message: "Insufficient stock",
-          available: product.stockQuantity,
-          requested: Number(quantity) || 1,
-        });
-        return;
-      }
       cart = new Cart({
         userId: user.id,
-        items: [{ productId: product._id, quantity: clamped, price: product.price }],
+        items: [{ productId: product._id, quantity: initialClamp, price: 0 }], // price filled by recompute
       });
     } else {
       const existingItemIndex = cart.items.findIndex(
         (item) => item.productId.toString() === product._id.toString()
       );
+
       if (existingItemIndex > -1) {
         const desired = cart.items[existingItemIndex].quantity + Number(quantity || 0);
         const clamped = clampQty(desired, product);
@@ -176,27 +252,27 @@ export const addToCart = async (req: Request, res: Response): Promise<void> => {
           return;
         }
         cart.items[existingItemIndex].quantity = clamped;
-        cart.items[existingItemIndex].price = product.price;
+        // price will be recomputed with dynamic pricing
       } else {
-        const clamped = clampQty(Number(quantity) || 1, product);
-        if (clamped < 1) {
-          res.status(400).json({
-            message: "Insufficient stock",
-            available: product.stockQuantity,
-            requested: Number(quantity) || 1,
-          });
-          return;
-        }
-        cart.items.push({ productId: product._id, quantity: clamped, price: product.price });
+        cart.items.push({ productId: product._id, quantity: initialClamp, price: 0 });
       }
     }
 
+    // Recompute prices/totals/flags
+    const { requiresWhatsapp } = await recomputeCartAndFlags(cart);
     await cart.save();
+
+    // send populated
     await cart.populate("items.productId");
 
     cartCache.del(`cart:${user.id}`); // invalidate cache
 
-    res.status(200).json({ success: true, message: "Item added to cart successfully", cart });
+    res.status(200).json({
+      success: true,
+      message: "Item added to cart successfully",
+      cart,
+      requiresWhatsapp,
+    });
   } catch (error: any) {
     console.error("❌ Add to cart error:", error);
     res.status(500).json({ success: false, message: error.message || "Internal server error" });
@@ -240,6 +316,7 @@ export const updateCartItem = async (req: Request, res: Response): Promise<void>
       return;
     }
 
+    // clamp to MOQ/step/stock
     const clamped = clampQty(Number(quantity) || 1, product);
     if (clamped < 1) {
       res.status(400).json({ message: "Insufficient stock" });
@@ -247,14 +324,15 @@ export const updateCartItem = async (req: Request, res: Response): Promise<void>
     }
 
     cart.items[itemIndex].quantity = clamped;
-    cart.items[itemIndex].price = product.price;
+    // price recalculated in recompute step
 
+    const { requiresWhatsapp } = await recomputeCartAndFlags(cart);
     await cart.save();
     await cart.populate("items.productId");
 
     cartCache.del(`cart:${user.id}`); // invalidate cache
 
-    res.json({ message: "Cart updated", cart });
+    res.json({ message: "Cart updated", cart, requiresWhatsapp });
   } catch (error: any) {
     console.error("Update cart error:", error);
     res.status(500).json({ message: error.message || "Server error" });
@@ -277,12 +355,13 @@ export const removeFromCart = async (req: Request, res: Response): Promise<void>
 
     cart.items = cart.items.filter((item) => item.productId.toString() !== String(productId));
 
+    const { requiresWhatsapp } = await recomputeCartAndFlags(cart);
     await cart.save();
     await cart.populate("items.productId");
 
     cartCache.del(`cart:${user.id}`); // invalidate cache
 
-    res.json({ message: "Item removed from cart", cart });
+    res.json({ message: "Item removed from cart", cart, requiresWhatsapp });
   } catch (error: any) {
     console.error("Remove from cart error:", error);
     res.status(500).json({ message: error.message || "Server error" });
@@ -295,10 +374,14 @@ export const removeFromCart = async (req: Request, res: Response): Promise<void>
 export const clearCart = async (req: Request, res: Response): Promise<void> => {
   try {
     const user = req.user as AuthenticatedUser;
-    await Cart.findOneAndDelete({ userId: user?.id });
+
+    // clearing the doc entirely is okay, but we keep integrity by creating empty doc if needed
+    const existing = await Cart.findOne({ userId: user?.id });
+    if (existing) {
+      await Cart.findOneAndDelete({ userId: user?.id });
+    }
 
     cartCache.del(`cart:${user.id}`); // invalidate cache
-
     res.json({ message: "Cart cleared" });
   } catch (error: any) {
     console.error("Clear cart error:", error);

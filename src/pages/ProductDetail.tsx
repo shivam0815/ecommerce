@@ -1,4 +1,4 @@
-// src/pages/ProductDetail.tsx — fully responsive & compact (badges/stock hidden, qty steps of 10)
+// src/pages/ProductDetail.tsx
 import React, { useState, useEffect, useMemo } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
@@ -12,13 +12,7 @@ import {
   ChevronRight,
   MessageCircle,
   CreditCard,
-
-  // 👇 Trust & Compliance strip
-  FileText,      // GST Invoice
-  Truck,         // Bulk Dispatch
-  Factory,       // OEM / Factory Tested
-  Package,       // Pan-India Shipping
-  ShieldCheck,   // QC Approved
+  FileText, Truck, Factory, Package, ShieldCheck,
 } from 'lucide-react';
 import { productService } from '../services/productService';
 import type { Product } from '../types';
@@ -30,9 +24,13 @@ import Reviews from '../components/Layout/Reviews';
 import { reviewsService } from '../services/reviewsService';
 import Breadcrumbs from './Breadcrumbs';
 
+/* ------------------------- Config ------------------------- */
+// 👉 Set your WhatsApp number here (E.164, no "+" sign):
+const WHATSAPP_NUMBER = '+919650516703';
+
 /* ------------------------- MOQ + MAX helpers ------------------------- */
 const MAX_PER_LINE = 1000;
-const STEP = 10; // 👈 jump in 10s
+const STEP = 10; // jump in 10s
 const CATEGORY_MOQ: Record<string, number> = {
   'Car Chargers': 10,
   'Bluetooth Neckbands': 10,
@@ -84,7 +82,7 @@ const renderSpecValue = (val: unknown) => {
   return <code className="text-xs whitespace-pre-wrap break-words">{JSON.stringify(val, null, 2)}</code>;
 };
 
-/* --------------------- Helpers for product rails/cards --------------------- */
+/* --------------------- Helpers for cards/price --------------------- */
 const fmtINR = (v?: number) => (typeof v === 'number' ? `₹${v.toLocaleString('en-IN')}` : 'Contact for price');
 
 const safeImage = (src?: string | null, w = 400, h = 400) => {
@@ -93,39 +91,45 @@ const safeImage = (src?: string | null, w = 400, h = 400) => {
   return `https://images.unsplash.com/photo-1586953208448-b95a79798f07?w=${w}&h=${h}&fit=crop&crop=center&auto=format&q=60`;
 };
 
+const getTierUnitPrice = (p: any, qty: number): number => {
+  const base = Number(p?.price ?? 0);
+  const tiers: Array<{ minQty: number; unitPrice: number }> = Array.isArray(p?.pricingTiers) ? p.pricingTiers : [];
+  let unit = base;
+  for (const t of tiers.sort((a, b) => a.minQty - b.minQty)) {
+    if (qty >= t.minQty) unit = Number(t.unitPrice);
+    else break;
+  }
+  return unit;
+};
+
 /** Hook: live review summary for a product card */
 const useReviewSummary = (productId?: string) => {
   const [avg, setAvg] = useState(0);
   const [count, setCount] = useState(0);
 
-  const load = async (pid: string) => {
-    try {
-      const s = await reviewsService.summary(pid);
-      setAvg(Number(s.averageRating || 0));
-      setCount(Number(s.reviewCount || 0));
-    } catch {/* ignore */}
-  };
-
   useEffect(() => {
     if (!productId) return;
-    let clean = false;
-    load(productId);
-
-    const onChanged = (e: any) => {
-      if (e?.detail?.productId === productId) load(productId);
+    let off = false;
+    const load = async () => {
+      try {
+        const s = await reviewsService.summary(productId);
+        if (!off) {
+          setAvg(Number(s.averageRating || 0));
+          setCount(Number(s.reviewCount || 0));
+        }
+      } catch {/* ignore */}
     };
+    load();
+
+    const onChanged = (e: any) => { if (e?.detail?.productId === productId) load(); };
     window.addEventListener('reviews:changed', onChanged);
-
-    const onStorage = (e: StorageEvent) => {
-      if (e.key === `reviews:changed:${productId}`) load(productId);
-    };
+    const onStorage = (e: StorageEvent) => { if (e.key === `reviews:changed:${productId}`) load(); };
     window.addEventListener('storage', onStorage);
 
     return () => {
-      if (clean) return;
+      off = true;
       window.removeEventListener('reviews:changed', onChanged);
       window.removeEventListener('storage', onStorage);
-      clean = true;
     };
   }, [productId]);
 
@@ -274,7 +278,7 @@ const ProductDetail: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [selectedImage, setSelectedImage] = useState<number>(0);
 
-  // ✅ quantity: number for validated value, quantityStr: for free typing in input
+  // quantity: validated + free-typed string
   const [quantity, setQuantity] = useState<number>(STEP);
   const [quantityStr, setQuantityStr] = useState<string>(String(STEP));
   const [activeTab, setActiveTab] = useState<'description' | 'specifications' | 'reviews'>('description');
@@ -337,7 +341,6 @@ const ProductDetail: React.FC = () => {
       Number((product as any).stockQuantity ?? MAX_PER_LINE) || MAX_PER_LINE
     );
 
-    // snap to a multiple of STEP and ≥ MOQ (always up)
     const base = Math.max(moq, STEP);
     const snapped = Math.ceil(base / STEP) * STEP;
     const finalQty = Math.min(stockCap, snapped);
@@ -368,7 +371,6 @@ const ProductDetail: React.FC = () => {
         setMoreFromBrand(Array.isArray(relBrand) ? (relBrand as Product[]) : []);
         setTrending(Array.isArray(top) ? (top as Product[]) : []);
       } catch {
-        // ignore rails errors
       } finally {
         setRailsLoading(false);
       }
@@ -399,7 +401,6 @@ const ProductDetail: React.FC = () => {
         Number((product as any).stockQuantity ?? MAX_PER_LINE) || MAX_PER_LINE
       );
 
-      // clamp & snap (ceil) the current validated quantity
       const base = Math.max(moq, Math.min(maxQty, quantity));
       const finalQty = Math.ceil(base / STEP) * STEP;
 
@@ -430,6 +431,24 @@ const ProductDetail: React.FC = () => {
       toast.error(err?.message || 'Could not proceed to checkout');
     }
   };
+
+  /* ---------------------- WhatsApp CTA logic (>100) ---------------------- */
+  const showWhatsAppOnly = quantity > 100;
+  const whatsappLink = useMemo(() => {
+    if (!product) return '#';
+    const pid: string = (product as any)._id || (product as any).id;
+    const url = typeof window !== 'undefined' ? window.location.href : '';
+    const unit = getTierUnitPrice(product, quantity || getMOQ(product as any));
+    const total = unit ? unit * (quantity || 0) : undefined;
+    const msg =
+      `Hi, I want to place a bulk order:\n\n` +
+      `• Product: ${product.name}\n` +
+      `• Qty: ${quantity}\n` +
+      (unit ? `• Unit Price (approx): ₹${unit.toLocaleString('en-IN')}\n` : '') +
+      (total ? `• Total (approx): ₹${total.toLocaleString('en-IN')}\n` : '') +
+      `• Link: ${url}\n\nPlease confirm availability & best quote.`;
+    return `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(msg)}`;
+  }, [product, quantity]);
 
   /* ---------------------------- Render guards ---------------------------- */
   if (loading) {
@@ -513,6 +532,10 @@ const ProductDetail: React.FC = () => {
     Number((product as any).stockQuantity ?? MAX_PER_LINE) || MAX_PER_LINE
   );
 
+  // dynamic unit/total using admin tiers
+  const unitPrice = getTierUnitPrice(product as any, quantity || moq);
+  const totalPrice = unitPrice ? unitPrice * (quantity || 0) : 0;
+
   /* -------------------------------- Render -------------------------------- */
   return (
     <div className="min-h-screen bg-gray-50 pb-24 sm:pb-10">
@@ -581,9 +604,11 @@ const ProductDetail: React.FC = () => {
                 </div>
               </div>
 
-              {/* Price */}
+              {/* Price (dynamic per tier) */}
               <div className="flex items-center flex-wrap gap-2 sm:gap-4">
-                <span className="text-2xl sm:text-3xl font-bold text-gray-900">₹{product.price?.toLocaleString('en-IN')}</span>
+                <span className="text-2xl sm:text-3xl font-bold text-gray-900">
+                  {fmtINR(unitPrice)} <span className="text-sm text-gray-500 font-normal">/ unit</span>
+                </span>
                 {(product as any).originalPrice && (product as any).originalPrice > (product.price ?? 0) && (
                   <>
                     <span className="text-lg sm:text-xl text-gray-500 line-through">₹{(product as any).originalPrice.toLocaleString('en-IN')}</span>
@@ -593,6 +618,7 @@ const ProductDetail: React.FC = () => {
                   </>
                 )}
               </div>
+              <div className="text-sm text-gray-600">Estimated total: <span className="font-semibold text-gray-900">{fmtINR(totalPrice)}</span></div>
 
               {/* Quantity (MOQ + step=10) */}
               <div className="flex items-center gap-3 sm:gap-4">
@@ -648,78 +674,89 @@ const ProductDetail: React.FC = () => {
                 </div>
               </div>
 
-              {/* Actions — mobile-first */}
+              {/* Actions — if qty > 100 show WhatsApp only */}
               <div className="grid grid-cols-2 gap-2 sm:flex sm:items-stretch sm:gap-3">
-                <motion.button
-                  whileHover={{ scale: 1.02 }}
-                  whileTap={{ scale: 0.98 }}
-                  onClick={handleAddToCart}
-                  disabled={isLoading}
-                  className="col-span-2 sm:col-auto h-11 px-4 rounded-lg font-medium inline-flex items-center justify-center gap-2 bg-blue-600 text-white hover:bg-blue-700 shadow-md hover:shadow-lg disabled:opacity-60"
-                  aria-label="Add to Cart"
-                >
-                  <ShoppingCart className="h-5 w-5" />
-                  <span>Add to Cart</span>
-                </motion.button>
+                {!showWhatsAppOnly ? (
+                  <>
+                    <motion.button
+                      whileHover={{ scale: 1.02 }}
+                      whileTap={{ scale: 0.98 }}
+                      onClick={handleAddToCart}
+                      disabled={isLoading}
+                      className="col-span-2 sm:col-auto h-11 px-4 rounded-lg font-medium inline-flex items-center justify-center gap-2 bg-blue-600 text-white hover:bg-blue-700 shadow-md hover:shadow-lg disabled:opacity-60"
+                      aria-label="Add to Cart"
+                    >
+                      <ShoppingCart className="h-5 w-5" />
+                      <span>Add to Cart</span>
+                    </motion.button>
 
-                <motion.button
-                  whileHover={{ scale: 1.05 }}
-                  whileTap={{ scale: 0.95 }}
-                  onClick={handleBuyNow}
-                  disabled={isLoading}
-                  className="col-span-2 sm:col-auto h-11 px-4 rounded-lg font-medium inline-flex items-center justify-center gap-2 bg-gray-900 text-white hover:bg-black disabled:opacity-60"
-                  aria-label="Buy Now"
-                >
-                  <CreditCard className="h-5 w-5" />
-                  <span>Buy Now</span>
-                </motion.button>
-
-                {/* icons row (share / WhatsApp) */}
-                <div className="col-span-2 flex items-center gap-2 mt-1 sm:mt-0">
-                  <motion.button
-                    whileHover={{ scale: 1.05 }}
-                    whileTap={{ scale: 0.95 }}
-                    className="w-10 h-10 sm:w-11 sm:h-11 shrink-0 p-0 border border-gray-300 rounded-lg hover:bg-gray-50
-                    inline-flex items-center justify-center" 
-                    onClick={() => {
-                      const url = window.location.href;
-                      const text = `${product.name} - ${product.description ?? ''}`.slice(0, 180);
-                      if ((navigator as any).share) (navigator as any).share({ title: product.name, text, url }).catch(() => {
-                        navigator.clipboard.writeText(url);
-                        toast.success('Product link copied to clipboard!');
-                      });
-                      else {
-                        navigator.clipboard.writeText(url);
-                        toast.success('Product link copied to clipboard!');
-                      }
-                    }}
-                    title="Share"
-                    aria-label="Share"
-                  >
-                    <Share2 className="h-5 w-5" />
-                  </motion.button>
-
+                    <motion.button
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
+                      onClick={handleBuyNow}
+                      disabled={isLoading}
+                      className="col-span-2 sm:col-auto h-11 px-4 rounded-lg font-medium inline-flex items-center justify-center gap-2 bg-gray-900 text-white hover:bg-black disabled:opacity-60"
+                      aria-label="Buy Now"
+                    >
+                      <CreditCard className="h-5 w-5" />
+                      <span>Buy Now</span>
+                    </motion.button>
+                  </>
+                ) : (
                   <a
-                    href={`https://wa.me/?text=${encodeURIComponent(`${product.name} ${window.location.href}`)}`}
+                    href={whatsappLink}
                     target="_blank"
                     rel="noreferrer"
-                    className="w-10 h-10 sm:w-11 sm:h-11 shrink-0 p-0 border border-green-300 rounded-lg hover:bg-green-50
-                               text-green-700 inline-flex items-center justify-center"
-                    title="Chat on WhatsApp"
-                    aria-label="Chat on WhatsApp"
+                    className="col-span-2 h-11 px-4 rounded-lg font-medium inline-flex items-center justify-center gap-2 border-2 border-green-600 text-green-700 hover:bg-green-50"
+                    aria-label="WhatsApp Enquiry"
+                    title="WhatsApp bulk order enquiry"
                   >
                     <MessageCircle className="h-5 w-5" />
+                    <span>Enquire on WhatsApp</span>
                   </a>
-                </div>
+                )}
+
+                {/* icons row (share / WhatsApp generic) */}
+                {!showWhatsAppOnly && (
+                  <div className="col-span-2 flex items-center gap-2 mt-1 sm:mt-0">
+                    <motion.button
+                      whileHover={{ scale: 1.05 }}
+                      whileTap={{ scale: 0.95 }}
+                      className="w-10 h-10 sm:w-11 sm:h-11 shrink-0 p-0 border border-gray-300 rounded-lg hover:bg-gray-50 inline-flex items-center justify-center"
+                      onClick={() => {
+                        const url = window.location.href;
+                        const text = `${product.name} - ${product.description ?? ''}`.slice(0, 180);
+                        if ((navigator as any).share) (navigator as any).share({ title: product.name, text, url }).catch(() => {
+                          navigator.clipboard.writeText(url);
+                          toast.success('Product link copied to clipboard!');
+                        });
+                        else {
+                          navigator.clipboard.writeText(url);
+                          toast.success('Product link copied to clipboard!');
+                        }
+                      }}
+                      title="Share"
+                      aria-label="Share"
+                    >
+                      <Share2 className="h-5 w-5" />
+                    </motion.button>
+
+                    <a
+                      href={`https://wa.me/?text=${encodeURIComponent(`${product.name} ${window.location.href}`)}`}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="w-10 h-10 sm:w-11 sm:h-11 shrink-0 p-0 border border-green-300 rounded-lg hover:bg-green-50 text-green-700 inline-flex items-center justify-center"
+                      title="Chat on WhatsApp"
+                      aria-label="Chat on WhatsApp"
+                    >
+                      <MessageCircle className="h-5 w-5" />
+                    </a>
+                  </div>
+                )}
               </div>
 
-              {/* 🔹 TRUST & COMPLIANCE STRIP — B2B badges row (below Add to Cart) */}
-              <motion.div
-                initial={{ opacity: 0, y: 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.4 }}
-                className="mt-2 sm:mt-3"
-              >
+              {/* TRUST & COMPLIANCE STRIP */}
+              <div className="mt-2 sm:mt-3">
                 <div className="grid grid-cols-2 sm:flex sm:flex-wrap gap-2 sm:gap-3">
                   <div className="inline-flex items-center gap-2 px-3 py-2 rounded-full border border-gray-200 bg-gray-50 text-gray-800 text-xs sm:text-sm shadow-sm">
                     <FileText className="h-4 w-4 text-blue-600" />
@@ -742,7 +779,7 @@ const ProductDetail: React.FC = () => {
                     <span className="font-medium">QC Approved</span>
                   </div>
                 </div>
-              </motion.div>
+              </div>
               {/* END strip */}
             </div>
           </div>
@@ -878,7 +915,7 @@ const ProductDetail: React.FC = () => {
               offers: {
                 '@type': 'Offer',
                 priceCurrency: 'INR',
-                price: product.price ?? undefined,
+                price: unitPrice ?? product.price ?? undefined,
                 url: typeof window !== 'undefined' ? window.location.href : undefined,
               },
             }),
@@ -890,23 +927,37 @@ const ProductDetail: React.FC = () => {
       <div className="fixed inset-x-0 bottom-0 sm:hidden border-t bg-white/95 backdrop-blur supports-[backdrop-filter]:bg-white/60 z-40">
         <div className="max-w-7xl mx-auto px-4 py-2 flex items-center gap-3">
           <div className="flex-1">
-            <div className="text-xs text-gray-500">Total</div>
-            <div className="text-lg font-semibold text-gray-900">₹{product.price?.toLocaleString('en-IN')}</div>
+            <div className="text-xs text-gray-500">Est. total</div>
+            <div className="text-lg font-semibold text-gray-900">{fmtINR(totalPrice)}</div>
           </div>
-          <button
-            onClick={handleAddToCart}
-            disabled={isLoading}
-            className="h-10 px-4 rounded-lg font-medium inline-flex items-center justify-center gap-2 bg-blue-600 text-white disabled:opacity-60"
-          >
-            <ShoppingCart className="h-4 w-4" /> Add
-          </button>
-          <button
-            onClick={handleBuyNow}
-            disabled={isLoading}
-            className="h-10 px-4 rounded-lg font-medium inline-flex items-center justify-center gap-2 bg-gray-900 text-white disabled:opacity-60"
-          >
-            <CreditCard className="h-4 w-4" /> Buy
-          </button>
+
+          {!showWhatsAppOnly ? (
+            <>
+              <button
+                onClick={handleAddToCart}
+                disabled={isLoading}
+                className="h-10 px-4 rounded-lg font-medium inline-flex items-center justify-center gap-2 bg-blue-600 text-white disabled:opacity-60"
+              >
+                <ShoppingCart className="h-4 w-4" /> Add
+              </button>
+              <button
+                onClick={handleBuyNow}
+                disabled={isLoading}
+                className="h-10 px-4 rounded-lg font-medium inline-flex items-center justify-center gap-2 bg-gray-900 text-white disabled:opacity-60"
+              >
+                <CreditCard className="h-4 w-4" /> Buy
+              </button>
+            </>
+          ) : (
+            <a
+              href={whatsappLink}
+              target="_blank"
+              rel="noreferrer"
+              className="h-10 px-4 rounded-lg font-medium inline-flex items-center justify-center gap-2 border-2 border-green-600 text-green-700 hover:bg-green-50"
+            >
+              <MessageCircle className="h-4 w-4" /> WhatsApp
+            </a>
+          )}
         </div>
       </div>
     </div>

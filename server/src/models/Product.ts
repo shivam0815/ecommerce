@@ -112,7 +112,7 @@ const productSchema = new Schema<IProduct>(
     description: {
       type: String,
       required: [true, 'Product description is required'],
-      maxlength: [40000, 'Description cannot exceed 1500 characters'],
+      maxlength: [40000, 'Description cannot exceed 40000 characters'],
     },
     price: {
       type: Number,
@@ -231,15 +231,15 @@ productSchema.pre('save', function (next) {
   next();
 });
 
-// Validate/sort pricing tiers
+// Validate/sort pricing tiers (+ enforce 2 windows: 10–40 and 50–100)
 productSchema.pre('validate', function (next) {
   const self = this as IProduct;
   const tiers = self.pricingTiers || [];
 
-  // sort by minQty asc
+  // 1) sort by minQty asc
   tiers.sort((a, b) => a.minQty - b.minQty);
 
-  // validations
+  // 2) basic validations (strictly increasing, non-negative price)
   for (let i = 0; i < tiers.length; i++) {
     const t = tiers[i];
     if (i > 0 && t.minQty <= tiers[i - 1].minQty) {
@@ -249,6 +249,29 @@ productSchema.pre('validate', function (next) {
       return next(new Error('pricingTiers.unitPrice cannot be negative'));
     }
   }
+
+  // 3) allow only 2 windows: 10–40 and 50–100
+  const windows = [
+    { label: '10-40',  min: 10, max: 40, found: false },
+    { label: '50-100', min: 50, max: 100, found: false },
+  ];
+
+  for (const t of tiers) {
+    const w = windows.find(w => t.minQty >= w.min && t.minQty <= w.max);
+    if (!w) {
+      return next(new Error('Only two tier windows allowed: minQty must lie in 10–40 or 50–100'));
+    }
+    if (w.found) {
+      return next(new Error(`Duplicate tier for window ${w.label} — keep only one entry per window`));
+    }
+    w.found = true;
+  }
+
+  // (Optional) force both windows to be present:
+  // if (!windows.every(w => w.found)) {
+  //   return next(new Error('Both windows (10–40 and 50–100) must be set'));
+  // }
+
   self.pricingTiers = tiers;
   next();
 });

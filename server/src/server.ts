@@ -339,6 +339,9 @@ app.use('/api/shiprocket', authenticate, adminOnly, shiprocketRoutes);
 app.use("/api/uploads/s3", uploadsS3);
 import debugRoutes from './routes/debug';
 app.use('/api', debugRoutes);
+import pricingRouter from './routes/pricing';
+app.use('/api', pricingRouter);
+
 // Health
 app.get('/api/health', async (_req, res): Promise<void> => {
   let dbStatus = 'Unknown';

@@ -22,6 +22,20 @@ interface AuthenticatedUser {
 
 const MAX_ORDER_QTY = 1000;
 
+// 🚩 WhatsApp-only threshold
+const WHATSAPP_QTY_THRESHOLD = 100;
+
+// Dynamic price resolver (mirrors Product.getUnitPriceForQty used in cart)
+const getUnitPriceFor = (product: any, qty: number): number => {
+  try {
+    if (typeof product?.getUnitPriceForQty === "function") {
+      const n = Number(product.getUnitPriceForQty(qty));
+      if (Number.isFinite(n)) return n;
+    }
+  } catch {}
+  return Number(product?.price) || 0;
+};
+
 const CATEGORY_MOQ: Record<string, number> = {
   "Car Chargers": 10,
   "Bluetooth Neckbands": 10,
@@ -48,21 +62,17 @@ const getEffectiveMOQ = (product: any): number => {
   return typeof byCategory === "number" && byCategory > 0 ? byCategory : 1;
 };
 
-/** Clamp helper: enforces [MOQ … min(stock, MAX_ORDER_QTY)] silently */
 /** Clamp helper: snap to multiples of MOQ within [MOQ … min(stock, MAX_ORDER_QTY)] */
 const clampQty = (desired: number, product: any): number => {
-  const moq = getEffectiveMOQ(product);      // e.g., 10
-  const step = moq;                           // step = MOQ
+  const moq = getEffectiveMOQ(product);
+  const step = moq;
   const stockCap = Math.max(0, Number(product?.stockQuantity ?? 0));
   const hardMax = Math.max(0, Math.min(stockCap, MAX_ORDER_QTY));
-  if (hardMax < moq) return 0;                // not enough stock for MOQ
+  if (hardMax < moq) return 0;
 
   const want = Math.max(1, Number(desired || 0));
-
-  // round UP to next multiple of step
   let snapped = Math.ceil(want / step) * step;
 
-  // cap by hardMax; if exceeds, fall back to largest valid multiple
   if (snapped > hardMax) {
     snapped = Math.floor(hardMax / step) * step;
   }
@@ -79,9 +89,8 @@ const cleanGstin = (s?: any) =>
 
 export const createOrder = async (req: Request, res: Response): Promise<void> => {
   try {
-   
     const { shippingAddress, paymentMethod, billingAddress, extras, pricing } = req.body;
-        
+
     if (!req.user) {
       res.status(401).json({ message: "User not authenticated" });
       return;
@@ -100,14 +109,15 @@ export const createOrder = async (req: Request, res: Response): Promise<void> =>
     const orderItems: Array<{
       productId: mongoose.Types.ObjectId;
       name: string;
-      price: number;
+      price: number;     // unit price
       quantity: number;
       image: string;
     }> = [];
 
     let subtotal = 0;
+    let requiresWhatsapp = false;
 
-    // Build items with SILENT clamping
+    // Build items with SILENT clamping + dynamic pricing
     for (const cartItem of cart.items) {
       const product = cartItem.productId as any;
 
@@ -126,27 +136,45 @@ export const createOrder = async (req: Request, res: Response): Promise<void> =>
         return;
       }
 
+      // 🚩 WhatsApp guard
+      if (clampedQty > WHATSAPP_QTY_THRESHOLD) requiresWhatsapp = true;
+
+      // ✅ Resolve server-side unit price from current tiers
+      const unitPrice = getUnitPriceFor(product, clampedQty);
+
       orderItems.push({
         productId: product._id,
         name: product.name,
-        price: cartItem.price,
+        price: unitPrice,
         quantity: clampedQty,
         image: product.images?.[0] || "",
       });
 
-      subtotal += cartItem.price * clampedQty;
+      subtotal += unitPrice * clampedQty;
     }
 
-    // Pricing (server-side). You can switch to your own rules as needed.
-    const shipping = subtotal > 500 ? 0 : 50;                 // free above ₹500
-    const tax = Math.round(subtotal * 0.18);                  // 18% GST rounded
+    // If any line exceeds WhatsApp threshold, stop normal checkout
+    if (requiresWhatsapp) {
+      res.status(422).json({
+        success: false,
+        code: "WHATSAPP_REQUIRED",
+        message:
+          "For quantities above 100, please complete your order with our sales team on WhatsApp.",
+        whatsapp: true,
+      });
+      return;
+    }
+
+    // Pricing (server-side). Adjust to your rules as needed.
+    const shipping = subtotal > 500 ? 0 : 50;     // free above ₹500
+    const tax = Math.round(subtotal * 0.18);      // 18% GST rounded
     const total = subtotal + shipping + tax;
 
     // IDs
     const orderNumber = `NK${Date.now()}${Math.floor(Math.random() * 1000)}`;
     const paymentOrderId = `PAY${Date.now()}${Math.floor(Math.random() * 1000)}`;
 
-    // Build GST block from extras + computed values
+    // Build GST block
     const gstBlock = buildGstBlock(req.body, shippingAddress, { subtotal, tax });
 
     // Create and save
@@ -166,14 +194,13 @@ export const createOrder = async (req: Request, res: Response): Promise<void> =>
       orderStatus: "pending",
       paymentStatus: paymentMethod === "cod" ? "cod_pending" : "awaiting_payment",
 
-      // ⬇️ persist GST & customer note if sent from checkout
       gst: gstBlock,
       customerNotes: (extras?.orderNotes || "").toString().trim() || undefined,
     });
 
     const savedOrder = await order.save();
 
-    // REAL-TIME STOCK DEDUCTION (based on SAVED ORDER ITEMS to match persisted quantities)
+    // REAL-TIME STOCK DEDUCTION
     try {
       for (const item of savedOrder.items) {
         const updated = await Product.findOneAndUpdate(
@@ -187,7 +214,6 @@ export const createOrder = async (req: Request, res: Response): Promise<void> =>
         }
       }
     } catch (stockError) {
-      // Rollback order if stock deduction fails
       await Order.findByIdAndDelete(savedOrder._id);
       res.status(409).json({ message: "Stock changed. Please try again." });
       return;
@@ -196,7 +222,7 @@ export const createOrder = async (req: Request, res: Response): Promise<void> =>
     // Clear cart
     await Cart.findOneAndDelete({ userId });
 
-    // EMAIL AUTOMATION (non-blocking error handling)
+    // EMAIL AUTOMATION (non-blocking)
     const emailResults = {
       customerEmailSent: false,
       adminEmailSent: false,
@@ -266,7 +292,7 @@ export const createOrder = async (req: Request, res: Response): Promise<void> =>
         orderStatus: savedOrder.orderStatus,
         paymentStatus: savedOrder.paymentStatus,
         items: orderItems,
-        gst: savedOrder.gst,                 // ⬅️ return gst for client/debug
+        gst: savedOrder.gst,
         emailStatus: emailResults,
       },
     });
@@ -416,7 +442,7 @@ export const getOrderDetails = async (req: Request, res: Response): Promise<void
     res.json({
       success: true,
       order: {
-        ...order, // includes gst
+        ...order,
         orderProgress,
         canCancel: ["pending", "confirmed"].includes(order.orderStatus),
         canTrack: ["shipped", "out_for_delivery"].includes(order.orderStatus),
@@ -455,7 +481,6 @@ export const updateOrderStatus = async (req: Request, res: Response): Promise<vo
 
     const previousStatus = order.orderStatus;
 
-    // Guard: immutable final states
     if (["delivered", "cancelled"].includes(previousStatus)) {
       res
         .status(400)
@@ -463,9 +488,6 @@ export const updateOrderStatus = async (req: Request, res: Response): Promise<vo
       return;
     }
 
-    // NOTE: We DO NOT deduct stock here (stock was deducted during createOrder)
-
-    // Apply fields
     order.orderStatus = status;
     order.status = status;
 
@@ -474,7 +496,6 @@ export const updateOrderStatus = async (req: Request, res: Response): Promise<vo
     if (trackingUrl) order.trackingUrl = trackingUrl;
     if (notes) order.notes = notes;
 
-    // Timestamps
     switch (status) {
       case "confirmed":
         if (!order.paidAt && order.paymentStatus === "paid")
@@ -493,18 +514,14 @@ export const updateOrderStatus = async (req: Request, res: Response): Promise<vo
 
     const updatedOrder = await order.save();
 
-    // Email (non-blocking)
     let emailSent = false;
     try {
       emailSent = await EmailAutomationService.sendOrderStatusUpdate(
         updatedOrder as any,
         previousStatus
       );
-    } catch (emailError: any) {
-      // swallow email failure
-    }
+    } catch {}
 
-    // Socket pushes
     if (req.io) {
       const payload = {
         _id: updatedOrder._id,
@@ -666,35 +683,28 @@ export const cancelOrder = async (req: Request, res: Response): Promise<void> =>
 
     const previousStatus = order.orderStatus;
 
-    // Mark cancelled
     order.orderStatus = "cancelled";
     order.status = "cancelled";
     order.cancelledAt = new Date();
     (order as any).customerNotes = reason || "Cancelled by customer";
 
-    // Restore inventory (since we deducted on create)
     try {
       for (const item of order.items) {
         await Product.findByIdAndUpdate(item.productId, {
           $inc: { stockQuantity: item.quantity },
         });
       }
-    } catch {
-      // non-blocking
-    }
+    } catch {}
 
     const cancelledOrder = await order.save();
 
-    // Email (non-blocking)
     let emailSent = false;
     try {
       emailSent = await EmailAutomationService.sendOrderStatusUpdate(
         cancelledOrder as any,
         previousStatus
       );
-    } catch {
-      // swallow email failure
-    }
+    } catch {}
 
     res.json({
       success: true,
@@ -754,8 +764,7 @@ export const trackOrder = async (req: Request, res: Response): Promise<void> => 
         status: "Order Confirmed",
         date: (order as any).paidAt,
         completed: !!(order as any).paidAt,
-        description:
-          "Your order has been confirmed and is being processed",
+        description: "Your order has been confirmed and is being processed",
       },
       {
         status: "Shipped",
@@ -883,7 +892,6 @@ function buildGstBlock(
 ) {
   const ex = payload?.extras || {};
 
-  // accept many variants including nested extras.gst.*
   const rawGstin =
     ex.gstin ??
     ex.gstNumber ??
