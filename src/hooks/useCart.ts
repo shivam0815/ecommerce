@@ -1,4 +1,4 @@
-// src/hooks/useCart.ts — guest-safe + server cart
+// src/hooks/useCart.ts — FIXED: no singleton guard, hydrate from cache immediately
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { cartService } from '../services/cartService';
 import type { CartItem } from '../types';
@@ -18,17 +18,11 @@ interface UseCartReturn {
   getTotalPrice: () => number;
 }
 
-const TOKEN_KEY = 'guestCart';
-const USER_KEY  = 'nakoda-user';
-const CART_KEY  = 'nakoda-cart';
+const isAuthed = () => !!(localStorage.getItem('nakoda-token') && localStorage.getItem('nakoda-user'));
 
-const isAuthed = () =>
-  !!(localStorage.getItem(TOKEN_KEY) && localStorage.getItem(USER_KEY));
-
-/* -------------------- Local cache (shared) -------------------- */
 const readCache = (): { items: CartItem[]; totalAmount: number } => {
   try {
-    const s = localStorage.getItem(CART_KEY);
+    const s = localStorage.getItem('nakoda-cart');
     if (!s) return { items: [], totalAmount: 0 };
     const j = JSON.parse(s);
     return {
@@ -40,36 +34,8 @@ const readCache = (): { items: CartItem[]; totalAmount: number } => {
   }
 };
 
-const writeCache = (payload: { items: CartItem[]; totalAmount: number }) => {
-  localStorage.setItem(CART_KEY, JSON.stringify(payload));
-};
-
-/* -------------------- Guest helpers -------------------- */
-type GuestLine = { productId: string; quantity: number; price?: number; name?: string; image?: string };
-
-const upsertGuest = (arr: GuestLine[], line: GuestLine) => {
-  const idx = arr.findIndex(i => String(i.productId) === String(line.productId));
-  if (idx >= 0) arr[idx].quantity = Math.min(100, (arr[idx].quantity || 0) + (line.quantity || 0));
-  else arr.push({ ...line, quantity: Math.min(100, Math.max(1, line.quantity || 1)) });
-};
-
-const setGuestQty = (arr: GuestLine[], productId: string, qty: number) => {
-  const i = arr.findIndex(x => String(x.productId) === String(productId));
-  if (i >= 0) arr[i].quantity = Math.min(100, Math.max(1, Math.floor(qty)));
-};
-
-const removeGuest = (arr: GuestLine[], productId: string) => {
-  const i = arr.findIndex(x => String(x.productId) === String(productId));
-  if (i >= 0) arr.splice(i, 1);
-};
-
-const recomputeGuestTotal = (items: GuestLine[]) =>
-  items.reduce((sum, it) => sum + (Number(it.price) || 0) * (Number(it.quantity) || 0), 0);
-
-/* ================================================================ */
-
 export const useCart = (): UseCartReturn => {
-  // Hydrate immediately from cache so UI never flashes empty
+  // ✅ Hydrate immediately from cache so Checkout never mounts “empty”
   const cached = readCache();
   const [cart, setCart] = useState<CartItem[]>(cached.items);
   const [totalAmount, setTotalAmount] = useState(cached.totalAmount);
@@ -81,7 +47,7 @@ export const useCart = (): UseCartReturn => {
   const lastFetchRef = useRef(0);
 
   const fetchCart = useCallback(async (force = false) => {
-    // Guests: serve cache only
+    // Guests: serve cache only (don’t throw, don’t blank)
     if (!isAuthed()) {
       const c = readCache();
       setCart(c.items);
@@ -99,20 +65,22 @@ export const useCart = (): UseCartReturn => {
       setIsLoading(true);
       setError(null);
 
-      const resp = await cartService.getCart(); // guest-safe service
+      const resp = await cartService.getCart(); // should be soft-safe per earlier fix
       const items = Array.isArray(resp?.cart?.items) ? resp.cart.items : [];
       const amount = Number(resp?.cart?.totalAmount ?? 0);
 
       setCart(items);
       setTotalAmount(amount);
-      writeCache({ items, totalAmount: amount });
+      localStorage.setItem('nakoda-cart', JSON.stringify({ items, totalAmount: amount }));
     } catch (e: any) {
+      // ❗ Don’t nuke existing UI on non-401 errors
       if (e?.response?.status === 401) {
         const c = readCache();
         setCart(c.items);
         setTotalAmount(c.totalAmount);
       } else {
         setError(e?.message || 'Failed to fetch cart');
+        // keep whatever we already had (likely from cache)
       }
     } finally {
       isFetchingRef.current = false;
@@ -120,29 +88,20 @@ export const useCart = (): UseCartReturn => {
     }
   }, []);
 
-  // Fetch on mount
-  useEffect(() => { fetchCart(false); }, [fetchCart]);
+  // Always fetch on mount (no global singleton). Service coalescing prevents bursts.
+  useEffect(() => {
+    fetchCart(false);
+  }, [fetchCart]);
 
-  /* -------------------- Actions -------------------- */
   const addToCart = useCallback(async (productId: string, quantity = 1) => {
-    const qty = Math.max(1, Math.floor(Number(quantity) || 1));
-
     if (!isAuthed()) {
-      const c = readCache();
-      const items = [...(c.items as any[])];
-      upsertGuest(items as any, { productId, quantity: qty });
-      const total = recomputeGuestTotal(items as any);
-      writeCache({ items: items as any, totalAmount: total });
-      setCart(items as any);
-      setTotalAmount(total);
-      setError(null);
+      setError('Please login to add items to cart');
       return;
     }
-
     try {
       setIsLoading(true);
       setError(null);
-      await cartService.addToCart(productId, qty);
+      await cartService.addToCart(productId, quantity);
       await fetchCart(true);
     } catch (e: any) {
       setError(e?.response?.data?.message || e?.message || 'Failed to add item to cart');
@@ -152,24 +111,14 @@ export const useCart = (): UseCartReturn => {
   }, [fetchCart]);
 
   const updateQuantity = useCallback(async (productId: string, quantity: number) => {
-    const qty = Math.max(1, Math.floor(Number(quantity) || 1));
-
     if (!isAuthed()) {
-      const c = readCache();
-      const items = [...(c.items as any[])];
-      setGuestQty(items as any, productId, qty);
-      const total = recomputeGuestTotal(items as any);
-      writeCache({ items: items as any, totalAmount: total });
-      setCart(items as any);
-      setTotalAmount(total);
-      setError(null);
+      setError('Please login to update cart');
       return;
     }
-
     try {
       setIsLoading(true);
       setError(null);
-      await cartService.updateCartItem(productId, qty);
+      await cartService.updateCartItem(productId, quantity);
       await fetchCart(true);
     } catch (e: any) {
       setError(e?.response?.data?.message || e?.message || 'Failed to update cart item');
@@ -180,17 +129,9 @@ export const useCart = (): UseCartReturn => {
 
   const removeFromCart = useCallback(async (productId: string) => {
     if (!isAuthed()) {
-      const c = readCache();
-      const items = [...(c.items as any[])];
-      removeGuest(items as any, productId);
-      const total = recomputeGuestTotal(items as any);
-      writeCache({ items: items as any, totalAmount: total });
-      setCart(items as any);
-      setTotalAmount(total);
-      setError(null);
+      setError('Please login to remove items from cart');
       return;
     }
-
     try {
       setIsLoading(true);
       setError(null);
@@ -205,20 +146,16 @@ export const useCart = (): UseCartReturn => {
 
   const clearCart = useCallback(async () => {
     if (!isAuthed()) {
-      writeCache({ items: [], totalAmount: 0 });
-      setCart([]);
-      setTotalAmount(0);
-      setError(null);
+      setError('Please login to clear cart');
       return;
     }
-
     try {
       setIsLoading(true);
       setError(null);
       await cartService.clearCart();
       setCart([]);
       setTotalAmount(0);
-      localStorage.removeItem(CART_KEY);
+      localStorage.removeItem('nakoda-cart');
     } catch (e: any) {
       setError(e?.response?.data?.message || e?.message || 'Failed to clear cart');
     } finally {
@@ -226,19 +163,13 @@ export const useCart = (): UseCartReturn => {
     }
   }, []);
 
-  /* -------------------- Derivations -------------------- */
-  const getTotalPrice = useCallback(
-    () => (cart || []).reduce(
-      (sum, it: any) => sum + (Number(it.price) || 0) * (Number(it.quantity ?? it.qty) || 0),
-      0
-    ),
-    [cart]
-  );
+  const getTotalPrice = useCallback(() => {
+    return (cart || []).reduce((sum, it) => sum + (Number(it.price) || 0) * (Number(it.quantity) || 0), 0);
+  }, [cart]);
 
-  const getTotalItems = useCallback(
-    () => (cart || []).reduce((sum, it: any) => sum + (Number(it.quantity ?? it.qty) || 0), 0),
-    [cart]
-  );
+  const getTotalItems = useCallback(() => {
+    return (cart || []).reduce((sum, it) => sum + (Number(it.quantity) || 0), 0);
+  }, [cart]);
 
   return {
     cart,

@@ -9,9 +9,6 @@ import { useWishlist } from '../../hooks/useWishlist';
 import { resolveImageUrl, getFirstImageUrl, getOptimizedImageUrl } from '../../utils/imageUtils';
 import toast from 'react-hot-toast';
 
-// ✅ NEW: guest-cart snapshot helpers
-import { addGuestItem } from '../../utils/cartGuest';
-
 export interface ProductCardProps {
   product: Product;
   viewMode?: 'grid' | 'list';
@@ -105,6 +102,21 @@ const btnDark =
   'bg-gray-900 text-white hover:bg-black focus:outline-none focus:ring-2 focus:ring-gray-900/40';
 const btnMinW = 'w-[112px] sm:w-[132px]';
 
+/** Helper: detect auth errors consistently */
+const isAuthError = (err: any): boolean => {
+  const s = err?.response?.status;
+  const code = err?.response?.data?.code;
+  const msg = (err?.response?.data?.message || err?.message || '').toLowerCase();
+  return (
+    s === 401 ||
+    code === 'AUTH_REQUIRED' ||
+    msg.includes('authentication required') ||
+    msg.includes('access token missing') ||
+    msg.includes('invalid token') ||
+    msg.includes('token has expired')
+  );
+};
+
 const ProductCard: React.FC<ProductCardProps> = ({
   product,
   viewMode = 'grid',
@@ -112,12 +124,9 @@ const ProductCard: React.FC<ProductCardProps> = ({
   showWishlist = false,
 }) => {
   const isList = viewMode === 'list';
-
   const navigate = useNavigate();
   const { addToCart, isLoading } = useCart();
-
-  // ✅ Detect login (same check you use elsewhere)
-  const isLoggedIn = !!(localStorage.getItem('nakoda-token') && localStorage.getItem('nakoda-user'));
+  const { addToWishlist, removeFromWishlist, isInWishlist, isLoading: wishlistLoading } = useWishlist();
 
   // Accept either _id or id from backend (sanitize to string)
   const rawId = (product as any)._id ?? (product as any).id;
@@ -175,7 +184,7 @@ const ProductCard: React.FC<ProductCardProps> = ({
     ? Math.round(((comparePrice! - product.price) / comparePrice!) * 100)
     : 0;
 
-  // —— Ratings/Reviews state —— (start with whatever came in, then always refresh)
+  // —— Ratings/Reviews state ——
   const [avgRating, setAvgRating] = useState<number>(getInitialAverageRating(product));
   const [revCount, setRevCount] = useState<number>(getInitialReviewCount(product));
   const [revLoading, setRevLoading] = useState<boolean>(false);
@@ -202,7 +211,7 @@ const ProductCard: React.FC<ProductCardProps> = ({
         setAvgRating(a);
         setRevCount(c);
       } catch {
-        // ignore; keep current
+        // ignore
       } finally {
         if (!ignore) setRevLoading(false);
       }
@@ -238,36 +247,37 @@ const ProductCard: React.FC<ProductCardProps> = ({
     };
   }, [productId]);
 
-  // 👉 Card has no quantity control; default to 1 (MOQ UI lives on PDP)
-  const selectedQty = 1;
-  const selectedVariantId = undefined; // keep if you add variants later
+  // ---------- AUTH-AWARE CART ACTIONS ----------
+  const goLogin = () => {
+    const next = encodeURIComponent(window.location.pathname + window.location.search);
+    navigate(`/login?next=${next}`);
+  };
 
   const handleAddToCart = async (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
     try {
-      if (!isLoggedIn) {
-        // ✅ Guest snapshot add (no ObjectId requirement)
-        addGuestItem({
-          productId: String(productId),
-          variantId: selectedVariantId,
-          name: product.name,
-          price: Number(product.price || 0),
-          image: imgSrc || rawPrimary || '',
-          sku: sku,
-          qty: selectedQty,
-        });
-      } else {
-        // Logged-in: keep your server flow (ObjectId guard applies)
-        if (!isValidObjectId(productId)) {
-          toast.error('Product ID not found or invalid link');
-          return;
-        }
-        await addToCart(productId, selectedQty);
+      if (!isValidObjectId(productId)) {
+        toast.error('Product ID not found or invalid link');
+        return;
       }
+
+      // Fast client-side check: no token => ask to log in
+      if (!localStorage.getItem('token')) {
+        toast.error('Please log in to add items to your cart.');
+        goLogin();
+        return;
+      }
+
+      await addToCart(productId, 1);
       toast.success('Added to cart!');
     } catch (error: any) {
-      toast.error(error?.message || 'Failed to add to cart');
+      if (isAuthError(error)) {
+        toast.error('Please log in to add items to your cart.');
+        goLogin();
+        return;
+      }
+      toast.error(error?.response?.data?.message || error?.message || 'Failed to add to cart');
     }
   };
 
@@ -275,30 +285,29 @@ const ProductCard: React.FC<ProductCardProps> = ({
     e.preventDefault();
     e.stopPropagation();
     try {
-      if (!isLoggedIn) {
-        addGuestItem({
-          productId: String(productId),
-          variantId: selectedVariantId,
-          name: product.name,
-          price: Number(product.price || 0),
-          image: imgSrc || rawPrimary || '',
-          sku: sku,
-          qty: selectedQty,
-        });
-      } else {
-        if (!isValidObjectId(productId)) {
-          toast.error('Product ID not found or invalid link');
-          return;
-        }
-        await addToCart(productId, selectedQty);
+      if (!isValidObjectId(productId)) {
+        toast.error('Product ID not found or invalid link');
+        return;
       }
+
+      if (!localStorage.getItem('token')) {
+        toast.error('Please log in to continue.');
+        goLogin();
+        return;
+      }
+
+      await addToCart(productId, 1);
       navigate('/cart');
     } catch (error: any) {
-      toast.error(error?.message || 'Could not proceed to checkout');
+      if (isAuthError(error)) {
+        toast.error('Please log in to continue.');
+        goLogin();
+        return;
+      }
+      toast.error(error?.response?.data?.message || error?.message || 'Could not proceed to checkout');
     }
   };
 
-  const { addToWishlist, removeFromWishlist, isInWishlist, isLoading: wishlistLoading } = useWishlist();
   const handleWishlistToggle = async (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -317,6 +326,7 @@ const ProductCard: React.FC<ProductCardProps> = ({
     }
   };
 
+  // Prefer slug route if available, else /product/:id; guard if invalid
   const detailPath =
     (product as any).slug
       ? `/product/${(product as any).slug}`
@@ -331,7 +341,6 @@ const ProductCard: React.FC<ProductCardProps> = ({
     }
   };
 
-  const currency = (product as any).currency || 'INR';
   const roundedAvg = useMemo(
     () => Math.max(0, Math.min(5, Math.round((avgRating ?? 0) * 10) / 10)),
     [avgRating]
@@ -441,9 +450,7 @@ const ProductCard: React.FC<ProductCardProps> = ({
           {/* Price + stock pill */}
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-baseline space-x-2">
-              <span className="text-xl font-bold text-gray-900">
-                {fmtPrice(product.price, (product as any).currency || 'INR')}
-              </span>
+              <span className="text-xl font-bold text-gray-900">{fmtPrice(product.price, (product as any).currency || 'INR')}</span>
               {hasDiscount && (
                 <span className="text-sm text-gray-500 line-through" aria-label="MRP">
                   {fmtPrice(comparePrice, (product as any).currency || 'INR')}
