@@ -1,10 +1,13 @@
-// src/services/cartService.ts - ROBUST PRODUCTION VERSION (guest-safe reads)
+// src/services/cartService.ts - ROBUST PRODUCTION VERSION (guest-safe + merge support)
 
 import api from '../config/api';
 import type { CartItem } from '../types';
 
+/* -----------------------------------------
+   Types
+------------------------------------------ */
 export interface CartPayload {
-  items: CartItem[];
+  items: CartItem[];       // [{ productId, variantId?, qty }]
   totalAmount: number;
 }
 
@@ -38,7 +41,6 @@ const debounceRequest = async <T>(
     const waitMs = MIN_REQUEST_INTERVAL - delta;
     await new Promise((r) => setTimeout(r, waitMs));
   }
-  // Mark AFTER waiting so we never “push time into the future”
   requestBuckets.set(key, Date.now());
   return request();
 };
@@ -47,12 +49,12 @@ const debounceRequest = async <T>(
    Auth helpers
 ------------------------------------------ */
 const TOKEN_KEY = 'nakoda-token';
-const USER_KEY = 'nakoda-user';
-const CART_KEY = 'nakoda-cart';
+const USER_KEY  = 'nakoda-user';
+const CART_KEY  = 'nakoda-cart';
 
 const validateAuthentication = (): boolean => {
   const token = localStorage.getItem(TOKEN_KEY);
-  const user = localStorage.getItem(USER_KEY);
+  const user  = localStorage.getItem(USER_KEY);
   if (!token || !user) return false;
 
   const parts = token.split('.');
@@ -81,7 +83,7 @@ const validateAuthentication = (): boolean => {
 const clearAuthData = (): void => {
   localStorage.removeItem(TOKEN_KEY);
   localStorage.removeItem(USER_KEY);
-  // don’t nuke CART_KEY here; let guest cache persist for UX
+  // Keep CART_KEY for guest UX
 };
 
 const safeProductIdConvert = (productId: string | number | any): string => {
@@ -96,17 +98,14 @@ const safeProductIdConvert = (productId: string | number | any): string => {
 };
 
 /* -----------------------------------------
-   Tiny memory cache + coalescing
+   Tiny inflight cache + coalescing
 ------------------------------------------ */
 const inflight = new Map<string, Promise<any>>();
 function coalesce<T>(key: string, fn: () => Promise<T>): Promise<T> {
   const hit = inflight.get(key);
   if (hit) return hit as Promise<T>;
   const p = fn()
-    .catch((e) => {
-      // ensure other callers don’t stay stuck if this one fails
-      throw e;
-    })
+    .catch((e) => { throw e; })
     .finally(() => inflight.delete(key));
   inflight.set(key, p);
   return p;
@@ -117,7 +116,7 @@ let lastCartFetchedAt = 0;
 const CART_TTL_MS = 1500;
 
 /* -----------------------------------------
-   Local cache helpers
+   Local cache helpers (shared with guest)
 ------------------------------------------ */
 const readCachedCart = (): CartPayload => {
   try {
@@ -143,11 +142,59 @@ const writeCachedCart = (payload?: CartPayload) => {
 };
 
 /* -----------------------------------------
+   Guest cart helpers (localStorage)
+------------------------------------------ */
+type GuestCartItem = { productId: string; variantId?: string; qty: number };
+
+function readGuestPayload(): CartPayload {
+  const cached = readCachedCart();
+  const items = (cached.items || []).map((it: any) => ({
+    productId: String(it.productId),
+    variantId: it.variantId ? String(it.variantId) : undefined,
+    qty: Number(it.qty ?? it.quantity ?? 1),
+  }));
+  return { items: items as any, totalAmount: Number(cached.totalAmount || 0) };
+}
+
+function writeGuestPayload(p: CartPayload) {
+  writeCachedCart({
+    items: (p.items || []).map((it: any) => ({
+      id: String(it.productId),
+      productId: String(it.productId),
+      product: it.product || {},
+      name: it.name || '',
+      price: it.price || 0,
+      variantId: it.variantId ? String(it.variantId) : undefined,
+      quantity: Number(it.qty ?? it.quantity ?? 1),
+    })),
+    totalAmount: Number(p.totalAmount || 0),
+  });
+}
+
+function upsertGuest(items: GuestCartItem[], incoming: GuestCartItem) {
+  const key = (x: GuestCartItem) => `${x.productId}::${x.variantId || ''}`;
+  const idx = items.findIndex((x) => key(x) === key(incoming));
+  if (idx >= 0) items[idx].qty = Math.min(100, items[idx].qty + incoming.qty);
+  else items.push({ ...incoming, qty: Math.min(100, Math.max(1, incoming.qty)) });
+}
+
+function setGuestQty(items: GuestCartItem[], target: GuestCartItem) {
+  const key = (x: GuestCartItem) => `${x.productId}::${x.variantId || ''}`;
+  const idx = items.findIndex((x) => key(x) === key(target));
+  if (idx >= 0) items[idx].qty = Math.min(100, Math.max(1, target.qty));
+}
+
+function removeGuest(items: GuestCartItem[], target: GuestCartItem) {
+  const key = (x: GuestCartItem) => `${x.productId}::${x.variantId || ''}`;
+  const idx = items.findIndex((x) => key(x) === key(target));
+  if (idx >= 0) items.splice(idx, 1);
+}
+
+/* -----------------------------------------
    Service
 ------------------------------------------ */
 export const cartService = {
-  /* READ cart: never throw just because user is logged out.
-     Return cached/empty so the Cart page and Checkout link can render. */
+  /* READ cart: guest-safe (returns cached/empty if logged out) */
   async getCart(): Promise<CartResponse> {
     const isAuthed = validateAuthentication();
 
@@ -157,9 +204,9 @@ export const cartService = {
       return lastCartMemory;
     }
 
-    // If not authenticated, serve cached (or empty) cart without throwing
+    // Guest path: serve local cache
     if (!isAuthed) {
-      const cached = readCachedCart();
+      const cached = readGuestPayload();
       const resp: CartResponse = { success: true, cart: cached };
       lastCartMemory = resp;
       lastCartFetchedAt = Date.now();
@@ -172,7 +219,6 @@ export const cartService = {
         const response = await debounceRequest('GET:/cart', () => api.get('/cart'));
         const data = (response?.data ?? {}) as CartResponse;
 
-        // normalize shape
         const normalized: CartResponse = {
           success: Boolean(data.success ?? true),
           cart: {
@@ -187,17 +233,15 @@ export const cartService = {
         lastCartFetchedAt = Date.now();
         return normalized;
       } catch (error: any) {
-        // On 401, clear tokens and still return cached/empty (don’t break UI)
         if (error?.response?.status === 401) {
           clearAuthData();
-          const cached = readCachedCart();
+          const cached = readGuestPayload();
           const fallback: CartResponse = { success: true, cart: cached, message: 'Session expired' };
           lastCartMemory = fallback;
           lastCartFetchedAt = Date.now();
           return fallback;
         }
-        // On any other error, return cached (soft-fail)
-        const cached = readCachedCart();
+        const cached = readGuestPayload();
         const soft: CartResponse = { success: false, cart: cached, message: 'Failed to fetch cart' };
         lastCartMemory = soft;
         lastCartFetchedAt = Date.now();
@@ -206,19 +250,37 @@ export const cartService = {
     });
   },
 
-  /* ADD item (requires auth) */
-  async addToCart(productId: string | number, quantity: number = 1): Promise<CartItemResponse> {
+  /* ADD item (guest-safe) */
+  async addToCart(
+    productId: string | number,
+    quantity: number = 1,
+    variantId?: string
+  ): Promise<CartItemResponse> {
     return debounceRequest('POST:/cart', async () => {
+      const q = Math.floor(Number(quantity));
+      if (!q || q < 1 || q > 100) throw new Error('Quantity must be between 1 and 100');
+      const cleanProductId = safeProductIdConvert(productId);
+
+      // Guest path
+      if (!validateAuthentication()) {
+        const guest = readGuestPayload();
+        const items: GuestCartItem[] = guest.items as any;
+        upsertGuest(items, { productId: cleanProductId, variantId, qty: q });
+        writeGuestPayload({ items: items as any, totalAmount: guest.totalAmount });
+
+        const resp: CartItemResponse = {
+          success: true,
+          message: 'Added to cart',
+          cart: { items: items as any, totalAmount: guest.totalAmount },
+        };
+        lastCartMemory = resp as unknown as CartResponse;
+        lastCartFetchedAt = Date.now();
+        return resp;
+      }
+
+      // Authenticated path
       try {
-        if (!validateAuthentication()) {
-          throw new Error('Please login to add items to cart');
-        }
-
-        const cleanProductId = safeProductIdConvert(productId);
-        const q = Math.floor(Number(quantity));
-        if (!q || q < 1 || q > 100) throw new Error('Quantity must be between 1 and 100');
-
-        const response = await api.post('/cart', { productId: cleanProductId, quantity: q });
+        const response = await api.post('/cart', { productId: cleanProductId, quantity: q, variantId });
         const data = response?.data as CartItemResponse;
 
         const normalized: CartItemResponse = {
@@ -233,40 +295,58 @@ export const cartService = {
         writeCachedCart(normalized.cart);
         lastCartMemory = normalized as unknown as CartResponse;
         lastCartFetchedAt = Date.now();
-
         return normalized;
       } catch (error: any) {
         if (error?.response?.status === 401) {
           clearAuthData();
-          throw new Error('Session expired. Please login again.');
+          // fallback to guest add
+          const guest = readGuestPayload();
+          const items: GuestCartItem[] = guest.items as any;
+          upsertGuest(items, { productId: cleanProductId, variantId, qty: q });
+          writeGuestPayload({ items: items as any, totalAmount: guest.totalAmount });
+          return {
+            success: true,
+            message: 'Added to cart (guest)',
+            cart: { items: items as any, totalAmount: guest.totalAmount },
+          };
         }
-        if (error?.response?.status === 400) {
-          throw new Error(error?.response?.data?.message || 'Invalid request');
-        }
-        if (error?.response?.status === 404) {
-          throw new Error('Product not found or unavailable');
-        }
-        if (error?.response?.status >= 500) {
-          throw new Error('Server error. Please try again later.');
-        }
+        if (error?.response?.status === 404) throw new Error('Product not found or unavailable');
+        if (error?.response?.status === 400) throw new Error(error?.response?.data?.message || 'Invalid request');
+        if (error?.response?.status >= 500) throw new Error('Server error. Please try again later.');
         throw new Error(error?.response?.data?.message || error?.message || 'Failed to add item to cart');
       }
     });
   },
 
-  /* UPDATE quantity (requires auth) */
-  async updateCartItem(productId: string | number, quantity: number): Promise<CartItemResponse> {
+  /* UPDATE quantity (guest-safe) */
+  async updateCartItem(
+    productId: string | number,
+    quantity: number,
+    variantId?: string
+  ): Promise<CartItemResponse> {
     return debounceRequest('PUT:/cart/item', async () => {
+      const q = Math.floor(Number(quantity));
+      if (!q || q < 1 || q > 100) throw new Error('Quantity must be between 1 and 100');
+      const cleanProductId = safeProductIdConvert(productId);
+
+      if (!validateAuthentication()) {
+        const guest = readGuestPayload();
+        const items: GuestCartItem[] = guest.items as any;
+        setGuestQty(items, { productId: cleanProductId, variantId, qty: q });
+        writeGuestPayload({ items: items as any, totalAmount: guest.totalAmount });
+
+        const resp: CartItemResponse = {
+          success: true,
+          message: 'Cart updated',
+          cart: { items: items as any, totalAmount: guest.totalAmount },
+        };
+        lastCartMemory = resp as unknown as CartResponse;
+        lastCartFetchedAt = Date.now();
+        return resp;
+      }
+
       try {
-        if (!validateAuthentication()) {
-          throw new Error('Please login to update cart');
-        }
-
-        const cleanProductId = safeProductIdConvert(productId);
-        const q = Math.floor(Number(quantity));
-        if (!q || q < 1 || q > 100) throw new Error('Quantity must be between 1 and 100');
-
-        const response = await api.put('/cart/item', { productId: cleanProductId, quantity: q });
+        const response = await api.put('/cart/item', { productId: cleanProductId, quantity: q, variantId });
         const data = response?.data as CartItemResponse;
 
         const normalized: CartItemResponse = {
@@ -281,31 +361,51 @@ export const cartService = {
         writeCachedCart(normalized.cart);
         lastCartMemory = normalized as unknown as CartResponse;
         lastCartFetchedAt = Date.now();
-
         return normalized;
       } catch (error: any) {
         if (error?.response?.status === 401) {
           clearAuthData();
-          throw new Error('Session expired. Please login again.');
+          // guest fallback
+          const guest = readGuestPayload();
+          const items: GuestCartItem[] = guest.items as any;
+          setGuestQty(items, { productId: cleanProductId, variantId, qty: q });
+          writeGuestPayload({ items: items as any, totalAmount: guest.totalAmount });
+          return {
+            success: true,
+            message: 'Cart updated (guest)',
+            cart: { items: items as any, totalAmount: guest.totalAmount },
+          };
         }
-        if (error?.response?.status === 404) {
-          throw new Error('Item not found in cart');
-        }
+        if (error?.response?.status === 404) throw new Error('Item not found in cart');
         throw new Error(error?.response?.data?.message || error?.message || 'Failed to update cart item');
       }
     });
   },
 
-  /* REMOVE item (requires auth) */
-  async removeFromCart(productId: string | number): Promise<CartItemResponse> {
+  /* REMOVE item (guest-safe) */
+  async removeFromCart(productId: string | number, variantId?: string): Promise<CartItemResponse> {
     return debounceRequest('DELETE:/cart/item', async () => {
-      try {
-        if (!validateAuthentication()) {
-          throw new Error('Please login to remove items from cart');
-        }
+      const cleanProductId = safeProductIdConvert(productId);
 
-        const cleanProductId = safeProductIdConvert(productId);
-        const response = await api.delete(`/cart/item/${cleanProductId}`);
+      if (!validateAuthentication()) {
+        const guest = readGuestPayload();
+        const items: GuestCartItem[] = guest.items as any;
+        removeGuest(items, { productId: cleanProductId, variantId, qty: 1 });
+        writeGuestPayload({ items: items as any, totalAmount: guest.totalAmount });
+
+        const resp: CartItemResponse = {
+          success: true,
+          message: 'Item removed',
+          cart: { items: items as any, totalAmount: guest.totalAmount },
+        };
+        lastCartMemory = resp as unknown as CartResponse;
+        lastCartFetchedAt = Date.now();
+        return resp;
+      }
+
+      try {
+        // note: include variantId in body if your API needs it
+        const response = await api.delete(`/cart/item/${cleanProductId}`, { data: { variantId } as any });
         const data = response?.data as CartItemResponse;
 
         const normalized: CartItemResponse = {
@@ -320,44 +420,99 @@ export const cartService = {
         writeCachedCart(normalized.cart);
         lastCartMemory = normalized as unknown as CartResponse;
         lastCartFetchedAt = Date.now();
-
         return normalized;
       } catch (error: any) {
         if (error?.response?.status === 401) {
           clearAuthData();
-          throw new Error('Session expired. Please login again.');
+          // guest fallback
+          const guest = readGuestPayload();
+          const items: GuestCartItem[] = guest.items as any;
+          removeGuest(items, { productId: cleanProductId, variantId, qty: 1 });
+          writeGuestPayload({ items: items as any, totalAmount: guest.totalAmount });
+          return {
+            success: true,
+            message: 'Item removed (guest)',
+            cart: { items: items as any, totalAmount: guest.totalAmount },
+          };
         }
-        if (error?.response?.status === 404) {
-          throw new Error('Item not found in cart');
-        }
+        if (error?.response?.status === 404) throw new Error('Item not found in cart');
         throw new Error(error?.response?.data?.message || error?.message || 'Failed to remove item from cart');
       }
     });
   },
 
-  /* CLEAR cart (requires auth) */
+  /* CLEAR cart (guest-safe) */
   async clearCart(): Promise<{ success: boolean; message: string }> {
     return debounceRequest('DELETE:/cart/clear', async () => {
-      try {
-        if (!validateAuthentication()) {
-          throw new Error('Please login to clear cart');
-        }
-        const response = await api.delete('/cart/clear');
+      if (!validateAuthentication()) {
+        writeGuestPayload({ items: [], totalAmount: 0 });
+        lastCartMemory = { success: true, cart: { items: [], totalAmount: 0 } };
+        lastCartFetchedAt = Date.now();
+        return { success: true, message: 'Cart cleared' };
+      }
 
-        // clear memory + local cache
+      try {
+        const response = await api.delete('/cart/clear');
         writeCachedCart({ items: [], totalAmount: 0 });
         lastCartMemory = { success: true, cart: { items: [], totalAmount: 0 } };
         lastCartFetchedAt = Date.now();
-
         return response?.data ?? { success: true, message: 'Cart cleared' };
       } catch (error: any) {
         if (error?.response?.status === 401) {
           clearAuthData();
-          throw new Error('Session expired. Please login again.');
+          // UX fallback
+          writeGuestPayload({ items: [], totalAmount: 0 });
+          lastCartMemory = { success: true, cart: { items: [], totalAmount: 0 } };
+          lastCartFetchedAt = Date.now();
+          return { success: true, message: 'Cart cleared (guest)' };
         }
         throw new Error(error?.response?.data?.message || error?.message || 'Failed to clear cart');
       }
     });
+  },
+
+  /* MERGE guest → server (call right after login success) */
+  async mergeGuestCart(): Promise<CartResponse> {
+    if (!validateAuthentication()) {
+      return { success: true, cart: readGuestPayload() }; // nothing to do
+    }
+
+    const guest = readGuestPayload();
+    const items = (guest.items || []).map((i: any) => ({
+      productId: String(i.productId),
+      variantId: i.variantId ? String(i.variantId) : undefined,
+      qty: Number(i.qty ?? i.quantity ?? 1),
+    }));
+
+    if (!items.length) {
+      // Still refresh server cart so UI is accurate
+      return this.getCart();
+    }
+
+    try {
+      const res = await api.post('/cart/merge', { items });
+      const data = (res?.data ?? {}) as CartResponse;
+
+      const normalized: CartResponse = {
+        success: Boolean(data.success ?? true),
+        cart: {
+          items: Array.isArray(data?.cart?.items) ? data.cart.items : [],
+          totalAmount: Number(data?.cart?.totalAmount ?? 0),
+        },
+        message: data.message,
+      };
+
+      // Clear guest cache after successful merge
+      writeGuestPayload({ items: [], totalAmount: 0 });
+      writeCachedCart(normalized.cart);
+      lastCartMemory = normalized;
+      lastCartFetchedAt = Date.now();
+
+      return normalized;
+    } catch (e) {
+      // keep guest cache so user doesn’t lose items
+      return { success: false, cart: guest, message: 'Cart merge failed' };
+    }
   },
 
   /* GET cached cart (always safe) */
@@ -374,6 +529,7 @@ export const {
   removeFromCart,
   clearCart,
   getCachedCart,
+  mergeGuestCart,
 } = cartService;
 
 export default cartService;

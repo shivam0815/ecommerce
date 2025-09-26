@@ -347,6 +347,78 @@ export const removeFromCart = async (req: Request, res: Response): Promise<void>
   }
 };
 
+export const mergeGuestCart = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const user = req.user as AuthenticatedUser;
+    if (!user?.id) {
+      res.status(401).json({
+        success: false,
+        code: "AUTH_REQUIRED",
+        message: "Please log in to merge your cart.",
+      });
+      return;
+    }
+
+    const incoming = Array.isArray((req.body as any)?.items) ? (req.body as any).items : [];
+
+    // Normalize & dedupe guest items: key = productId::variantId (variantId ignored in current model)
+    const map = new Map<string, { productId: string; qty: number }>();
+    for (const it of incoming) {
+      const pid = String(it?.productId || "").trim();
+      if (!mongoose.Types.ObjectId.isValid(pid)) continue;
+      const qty = Math.max(1, Math.min(Number(it?.qty ?? it?.quantity ?? 1) || 1, 100));
+      const key = `${pid}::`; // variantId not used in Cart model for now
+      const prev = map.get(key);
+      if (prev) prev.qty = Math.min(100, prev.qty + qty);
+      else map.set(key, { productId: pid, qty });
+    }
+    const guestItems = Array.from(map.values());
+    if (!guestItems.length) {
+      // Nothing to merge; just return current server cart
+      const existing = await Cart.findOne({ userId: user.id }) || new Cart({ userId: user.id, items: [], totalAmount: 0 });
+      const { requiresWhatsapp } = await recomputeCartAndFlags(existing);
+      await existing.save();
+      await existing.populate("items.productId");
+      cartCache.del(`cart:${user.id}`);
+      res.json({ success: true, cart: existing, requiresWhatsapp, message: "No guest items to merge" });
+      return;
+    }
+
+    // Fetch or create user cart
+    const cart = (await Cart.findOne({ userId: user.id })) || new Cart({ userId: user.id, items: [], totalAmount: 0 });
+
+    // Merge: sum quantities with existing lines
+    for (const g of guestItems) {
+      const idx = cart.items.findIndex((line: any) => String(line.productId) === g.productId);
+      if (idx >= 0) {
+        cart.items[idx].quantity = Math.min(1000, Number(cart.items[idx].quantity || 0) + g.qty);
+      } else {
+        // price will be recomputed by recomputeCartAndFlags
+        cart.items.push({ productId: new mongoose.Types.ObjectId(g.productId), quantity: g.qty, price: 0 } as any);
+      }
+    }
+
+    // Recompute totals, pricing & flags with your existing logic
+    const { requiresWhatsapp } = await recomputeCartAndFlags(cart);
+
+    // Optionally drop any lines that ended up clamped to 0 (rare but safe)
+    cart.items = cart.items.filter((it: any) => Number(it.quantity) > 0);
+
+    await cart.save();
+    await cart.populate("items.productId");
+
+    // Invalidate cache for this user
+    cartCache.del(`cart:${user.id}`);
+
+    res.json({ success: true, cart, requiresWhatsapp, message: "Guest cart merged" });
+  } catch (error: any) {
+    console.error("Cart merge failed:", error);
+    res.status(500).json({ success: false, message: error?.message || "Cart merge failed" });
+  }
+};
+
+
+
 /* ────────────────────────────────────────────────────────────── */
 /* CLEAR CART                                                     */
 /* ────────────────────────────────────────────────────────────── */
