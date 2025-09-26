@@ -23,6 +23,8 @@ import SEO from '../components/Layout/SEO';
 import Reviews from '../components/Layout/Reviews';
 import { reviewsService } from '../services/reviewsService';
 import Breadcrumbs from './Breadcrumbs';
+import { addGuestItem } from '../utils/cartGuest';
+
 
 /* ------------------------- Config ------------------------- */
 // 👉 Set your WhatsApp number here (E.164, no "+" sign):
@@ -284,6 +286,8 @@ const ProductDetail: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'description' | 'specifications' | 'reviews'>('description');
 
   const { addToCart, isLoading } = useCart();
+// same check you use elsewhere
+const isLoggedIn = !!(localStorage.getItem('nakoda-token') && localStorage.getItem('nakoda-user'));
 
   /* Normalize images */
   const normalizedImages = useMemo<string[]>(() => {
@@ -390,47 +394,77 @@ const ProductDetail: React.FC = () => {
   }, []);
 
   const handleAddToCart = async () => {
-    if (!product) return;
-    try {
-      const productId: string = (product as any)._id || (product as any).id;
-      if (!productId) return toast.error('Product ID not found');
+  if (!product) return;
+  try {
+    const productId: string = (product as any)._id || (product as any).id;
+    if (!productId) return toast.error('Product ID not found');
 
-      const moq = getMOQ(product as any);
-      const maxQty = Math.min(
-        MAX_PER_LINE,
-        Number((product as any).stockQuantity ?? MAX_PER_LINE) || MAX_PER_LINE
-      );
+    const moq = getMOQ(product as any);
+    const maxQty = Math.min(
+      MAX_PER_LINE,
+      Number((product as any).stockQuantity ?? MAX_PER_LINE) || MAX_PER_LINE
+    );
 
-      const base = Math.max(moq, Math.min(maxQty, quantity));
-      const finalQty = Math.ceil(base / STEP) * STEP;
+    const base = Math.max(moq, Math.min(maxQty, quantity));
+    const finalQty = Math.ceil(base / STEP) * STEP;
 
+    if (!isLoggedIn) {
+      // ✅ Guest snapshot write (no backend call)
+      addGuestItem({
+        productId: String(productId),
+        // add variantId if/when you support variants on PDP
+        name: product.name,
+        price: Number(getTierUnitPrice(product as any, finalQty) || product.price || 0),
+        image: safeImage(currentImage),
+        sku: (product as any).sku,
+        qty: finalQty,
+      });
+    } else {
+      // Logged-in path unchanged (server enforces MOQ/stock/pricing)
       await addToCart(productId, finalQty);
-      toast.success(`Added ${finalQty} ${finalQty === 1 ? 'item' : 'items'} to cart!`);
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to add to cart');
     }
-  };
 
-  const handleBuyNow = async () => {
-    if (!product) return;
-    try {
-      const productId: string = (product as any)._id || (product as any).id;
-      if (!productId) return toast.error('Product ID not found');
+    toast.success(`Added ${finalQty} ${finalQty === 1 ? 'item' : 'items'} to cart!`);
+  } catch (err: any) {
+    toast.error(err.message || 'Failed to add to cart');
+  }
+};
 
-      const moq = getMOQ(product as any);
-      const maxQty = Math.min(
-        MAX_PER_LINE,
-        Number((product as any).stockQuantity ?? MAX_PER_LINE) || MAX_PER_LINE
-      );
-      const base = Math.max(moq, Math.min(maxQty, quantity));
-      const finalQty = Math.ceil(base / STEP) * STEP;
 
+ const handleBuyNow = async () => {
+  if (!product) return;
+  try {
+    const productId: string = (product as any)._id || (product as any).id;
+    if (!productId) return toast.error('Product ID not found');
+
+    const moq = getMOQ(product as any);
+    const maxQty = Math.min(
+      MAX_PER_LINE,
+      Number((product as any).stockQuantity ?? MAX_PER_LINE) || MAX_PER_LINE
+    );
+    const base = Math.max(moq, Math.min(maxQty, quantity));
+    const finalQty = Math.ceil(base / STEP) * STEP;
+
+    if (!isLoggedIn) {
+      addGuestItem({
+        productId: String(productId),
+        name: product.name,
+        price: Number(getTierUnitPrice(product as any, finalQty) || product.price || 0),
+        image: safeImage(currentImage),
+        sku: (product as any).sku,
+        qty: finalQty,
+      });
+    } else {
       await addToCart(productId, finalQty);
-      navigate('/checkout');
-    } catch (err: any) {
-      toast.error(err?.message || 'Could not proceed to checkout');
     }
-  };
+
+    // ✅ go to checkout/cart either way (your choice)
+    navigate('/checkout'); // or '/cart'
+  } catch (err: any) {
+    toast.error(err?.message || 'Could not proceed to checkout');
+  }
+};
+
 
   /* ---------------------- WhatsApp CTA logic (>100) ---------------------- */
   const showWhatsAppOnly = quantity > 100;

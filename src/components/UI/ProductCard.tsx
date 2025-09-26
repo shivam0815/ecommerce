@@ -2,12 +2,15 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Star, ShoppingCart, Tag, CreditCard, Heart } from 'lucide-react';
+import { Star, ShoppingCart, Tag, CreditCard } from 'lucide-react';
 import type { Product } from '../../types';
 import { useCart } from '../../hooks/useCart';
 import { useWishlist } from '../../hooks/useWishlist';
 import { resolveImageUrl, getFirstImageUrl, getOptimizedImageUrl } from '../../utils/imageUtils';
 import toast from 'react-hot-toast';
+
+// ✅ NEW: guest-cart snapshot helpers
+import { addGuestItem } from '../../utils/cartGuest';
 
 export interface ProductCardProps {
   product: Product;
@@ -101,8 +104,6 @@ const btnPrimary =
 const btnDark =
   'bg-gray-900 text-white hover:bg-black focus:outline-none focus:ring-2 focus:ring-gray-900/40';
 const btnMinW = 'w-[112px] sm:w-[132px]';
-const btnGhost =
-  'border border-gray-300 text-gray-700 hover:text-red-600 hover:border-red-300 focus:outline-none focus:ring-2 focus:ring-red-300/40';
 
 const ProductCard: React.FC<ProductCardProps> = ({
   product,
@@ -114,24 +115,23 @@ const ProductCard: React.FC<ProductCardProps> = ({
 
   const navigate = useNavigate();
   const { addToCart, isLoading } = useCart();
- 
+
+  // ✅ Detect login (same check you use elsewhere)
+  const isLoggedIn = !!(localStorage.getItem('nakoda-token') && localStorage.getItem('nakoda-user'));
 
   // Accept either _id or id from backend (sanitize to string)
   const rawId = (product as any)._id ?? (product as any).id;
   const productId = typeof rawId === 'string' ? rawId.trim() : rawId ? String(rawId) : '';
   const inStock = computeInStock(product);
-  
 
   // ----- IMAGE PIPELINE (optimized -> raw -> placeholder) -----
   const rawPrimary = useMemo(() => {
-    // Prefer explicit imageUrl if present; else first from images[]
     const explicit = product.imageUrl ? resolveImageUrl(product.imageUrl) : undefined;
     return explicit ?? getFirstImageUrl(product.images);
   }, [product.imageUrl, product.images]);
 
   const optimized = useMemo(() => {
     if (!rawPrimary) return undefined;
-    // Pick width/height by view mode; imageUtils guarantees string return
     const w = isList ? 300 : 600;
     const h = isList ? 300 : 600;
     return getOptimizedImageUrl(rawPrimary, w, h);
@@ -148,7 +148,6 @@ const ProductCard: React.FC<ProductCardProps> = ({
   }, [optimized, rawPrimary]);
 
   const onImgError = () => {
-    // If optimized failed, fallback to raw; if raw failed, clear
     if (imgSrc && optimized && imgSrc === optimized && rawPrimary && optimized !== rawPrimary) {
       setImgSrc(rawPrimary);
       setImageLoading(true);
@@ -216,7 +215,6 @@ const ProductCard: React.FC<ProductCardProps> = ({
     };
   }, [productId, refreshTick]);
 
-  // Listen for global "reviews:changed" signals and localStorage pings
   useEffect(() => {
     if (!isValidObjectId(productId)) return;
 
@@ -240,15 +238,33 @@ const ProductCard: React.FC<ProductCardProps> = ({
     };
   }, [productId]);
 
+  // 👉 Card has no quantity control; default to 1 (MOQ UI lives on PDP)
+  const selectedQty = 1;
+  const selectedVariantId = undefined; // keep if you add variants later
+
   const handleAddToCart = async (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
     try {
-      if (!isValidObjectId(productId)) {
-        toast.error('Product ID not found or invalid link');
-        return;
+      if (!isLoggedIn) {
+        // ✅ Guest snapshot add (no ObjectId requirement)
+        addGuestItem({
+          productId: String(productId),
+          variantId: selectedVariantId,
+          name: product.name,
+          price: Number(product.price || 0),
+          image: imgSrc || rawPrimary || '',
+          sku: sku,
+          qty: selectedQty,
+        });
+      } else {
+        // Logged-in: keep your server flow (ObjectId guard applies)
+        if (!isValidObjectId(productId)) {
+          toast.error('Product ID not found or invalid link');
+          return;
+        }
+        await addToCart(productId, selectedQty);
       }
-      await addToCart(productId, 1);
       toast.success('Added to cart!');
     } catch (error: any) {
       toast.error(error?.message || 'Failed to add to cart');
@@ -259,11 +275,23 @@ const ProductCard: React.FC<ProductCardProps> = ({
     e.preventDefault();
     e.stopPropagation();
     try {
-      if (!isValidObjectId(productId)) {
-        toast.error('Product ID not found or invalid link');
-        return;
+      if (!isLoggedIn) {
+        addGuestItem({
+          productId: String(productId),
+          variantId: selectedVariantId,
+          name: product.name,
+          price: Number(product.price || 0),
+          image: imgSrc || rawPrimary || '',
+          sku: sku,
+          qty: selectedQty,
+        });
+      } else {
+        if (!isValidObjectId(productId)) {
+          toast.error('Product ID not found or invalid link');
+          return;
+        }
+        await addToCart(productId, selectedQty);
       }
-      await addToCart(productId, 1);
       navigate('/cart');
     } catch (error: any) {
       toast.error(error?.message || 'Could not proceed to checkout');
@@ -289,7 +317,6 @@ const ProductCard: React.FC<ProductCardProps> = ({
     }
   };
 
-  // Prefer slug route if available, else /product/:id; guard if invalid
   const detailPath =
     (product as any).slug
       ? `/product/${(product as any).slug}`
@@ -369,8 +396,6 @@ const ProductCard: React.FC<ProductCardProps> = ({
             </div>
           )}
 
-         
-
           {/* Stock overlay */}
           {inStock === false && (
             <div className="absolute inset-0 bg-black/50 flex items-center justify-center z-10" aria-label="Out of stock">
@@ -416,7 +441,9 @@ const ProductCard: React.FC<ProductCardProps> = ({
           {/* Price + stock pill */}
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-baseline space-x-2">
-              <span className="text-xl font-bold text-gray-900">{fmtPrice(product.price, (product as any).currency || 'INR')}</span>
+              <span className="text-xl font-bold text-gray-900">
+                {fmtPrice(product.price, (product as any).currency || 'INR')}
+              </span>
               {hasDiscount && (
                 <span className="text-sm text-gray-500 line-through" aria-label="MRP">
                   {fmtPrice(comparePrice, (product as any).currency || 'INR')}
