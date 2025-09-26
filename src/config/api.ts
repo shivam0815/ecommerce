@@ -1,15 +1,15 @@
 import axios from "axios";
+import toast from "react-hot-toast";
 
-/** Base URL
+/**
+ * Base URL
  * Prefer env; otherwise use a RELATIVE "/api" so it works on any domain.
- * (Avoid hardcoding a domain to dodge typos and CORS issues.)
  */
 const API_BASE_URL = import.meta.env.VITE_API_URL?.trim() || "/api";
 
 /** One axios instance for the app */
 const api = axios.create({
   baseURL: API_BASE_URL,
-  // ❌ Do NOT set a global Content-Type; let axios infer it (JSON vs FormData)
   withCredentials: true,
   timeout: 20000,
 });
@@ -36,7 +36,10 @@ api.interceptors.request.use(
 /* -------------------------- RESPONSE INTERCEPTOR ------------------------- */
 const shouldSkip401Redirect = (config?: any): boolean => {
   const url: string = config?.url || "";
+  // For cart endpoints, show toast only, don’t redirect
+  if (url.includes("/cart")) return true;
   if (url.includes("/support/tickets/my")) return true;
+
   const p = config?.params || {};
   if (String(p.skip401) === "1" || String(p.skipRedirect) === "1") return true;
   return false;
@@ -46,6 +49,13 @@ api.interceptors.response.use(
   (r) => r,
   (error) => {
     const status = error?.response?.status;
+    const msg = error?.response?.data?.message;
+
+    // Always show server message as toast
+    if (msg) {
+      toast.error(msg);
+    }
+
     if (status === 401 && !shouldSkip401Redirect(error.config)) {
       localStorage.removeItem("nakoda-token");
       localStorage.removeItem("nakoda-user");
@@ -60,8 +70,34 @@ api.interceptors.response.use(
   }
 );
 
+/* ============================== EXAMPLE CART CALLS ============================== */
+/** 
+ * Use these patterns:
+ * - Await the API call
+ * - Toast success only if it resolves
+ * - Catch block stays empty → interceptor already toasts the error
+ */
+export const addToCart = async (productId: string, quantity = 1) => {
+  try {
+    await api.post("/cart", { productId, quantity });
+    toast.success("Added to cart");
+  } catch {
+    // Do nothing — interceptor already handled "Please log in…" or stock errors
+  }
+};
+
+export const getCart = async () => {
+  try {
+    const res = await api.get("/cart");
+    return res.data;
+  } catch {
+    return null;
+  }
+};
+
 /* ============================== RETURNS (user) ============================== */
-export const getMyReturns = () => api.get("/returns").then((r) => r.data);
+export const getMyReturns = () =>
+  api.get("/returns").then((r) => r.data);
 
 export const createReturn = (payload: {
   orderId: string;
@@ -85,14 +121,14 @@ export const createReturn = (payload: {
   if (payload.pickupAddress) fd.append("pickupAddress", JSON.stringify(payload.pickupAddress));
   (payload.images || []).forEach((f) => fd.append("images", f));
 
-  // ✅ No headers override: axios will set multipart/form-data with boundary
   return api.post("/returns", fd).then((r) => r.data);
 };
 
 export const cancelMyReturn = (id: string) =>
   api.patch(`/returns/${id}/cancel`, {}).then((r) => r.data);
 
-/* ============================== SUPPORT (types) ============================= */
+/* ============================== SUPPORT (types & calls) ============================== */
+
 export type TicketStatus = "open" | "in_progress" | "resolved" | "closed";
 export type TicketPriority = "low" | "normal" | "high";
 
@@ -132,16 +168,18 @@ export interface SupportTicket {
   updatedAt?: string;
 }
 
-/* ============================== SUPPORT (calls) ============================= */
 export const getSupportConfig = () =>
-  api.get("/support/config").then((r) => r.data as { success: boolean; config: SupportConfig });
+  api
+    .get("/support/config")
+    .then((r) => r.data as { success: boolean; config: SupportConfig });
 
 export const getSupportFaqs = (params?: { q?: string; category?: string }) =>
-  api.get("/support/faqs", { params }).then((r) => r.data as { success: boolean; faqs: SupportFaq[] });
+  api
+    .get("/support/faqs", { params })
+    .then((r) => r.data as { success: boolean; faqs: SupportFaq[] });
 
-/** S3 presign for support uploads */
 export const presignSupportUpload = async (file: File) => {
-  const { data } = await api.post('/uploads/s3/sign', {
+  const { data } = await api.post("/uploads/s3/sign", {
     filename: file.name,
     contentType: file.type || "application/octet-stream",
     folder: "support",
@@ -164,14 +202,9 @@ type AttachmentUrl = {
   name?: string;
   type?: string;
   size?: number;
-  key?: string; // S3 object key
+  key?: string;
 };
 
-/**
- * Create a support ticket.
- * - If `attachmentsUrls` is provided, sends JSON with those URLs/metadata.
- * - Else, if `attachments` (Files) is provided, falls back to multipart upload via API.
- */
 export const createSupportTicket = async (payload: {
   subject: string;
   message: string;
@@ -183,22 +216,14 @@ export const createSupportTicket = async (payload: {
   attachments?: File[];
   attachmentsUrls?: AttachmentUrl[];
 }) => {
-  // Prefer S3-based flow with pre-uploaded URLs
   if (payload.attachmentsUrls && payload.attachmentsUrls.length > 0) {
     const { data } = await api.post("/support/tickets", {
-      subject: payload.subject,
-      message: payload.message,
-      email: payload.email,
-      phone: payload.phone,
-      orderId: payload.orderId,
-      category: payload.category,
-      priority: payload.priority,
+      ...payload,
       attachmentsUrls: payload.attachmentsUrls,
     });
     return data as { success: boolean; ticket: { _id: string; status: TicketStatus } };
   }
 
-  // Back-compat: direct multipart upload to your API (if still supported)
   const form = new FormData();
   form.append("subject", payload.subject);
   form.append("message", payload.message);
@@ -213,7 +238,6 @@ export const createSupportTicket = async (payload: {
   return data as { success: boolean; ticket: { _id: string; status: TicketStatus } };
 };
 
-// Public OTP endpoints (skip 401 redirects)
 export const getMySupportTickets = () =>
   api
     .get("/support/tickets/my", { params: { skip401: 1 } })
