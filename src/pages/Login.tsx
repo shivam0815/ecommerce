@@ -7,7 +7,6 @@ import {
 import toast from 'react-hot-toast';
 import { useAuth } from '../hooks/useAuth';
 import { sendPhoneOtp, verifyPhoneOtp } from '../config/api'; // <- uses your api.ts helpers
-import { mergeGuestCart } from '../services/cartService';
 
 interface LoginFormData {
   email: string;
@@ -62,11 +61,10 @@ const Login: React.FC = () => {
       if (result?.requiresTwoFactor) {
         setRequiresTwoFactor(true);
         toast('🔐 Enter your two-factor authentication code');
-      }  else {
-  try { await mergeGuestCart(); } catch {}
-  toast.success('Welcome back! 🎉');
-  navigate(from, { replace: true });
-}
+      } else {
+        toast.success('Welcome back! 🎉');
+        navigate(from, { replace: true });
+      }
     } catch (error: any) {
       console.error('Login error:', error);
       if (error.response?.status === 429) {
@@ -144,12 +142,9 @@ const Login: React.FC = () => {
         setAuthState({ token: token || null, user: user || null });
       }
 
-     // after setting token/user (+ optional setAuthState)
-try { await mergeGuestCart(); } catch {}
-toast.success('Phone verified! You are now logged in.');
-setOtpOpen(false);
-navigate(from, { replace: true });
-
+      toast.success('Phone verified! You are now logged in.');
+      setOtpOpen(false);
+      navigate(from, { replace: true });
     } catch (e: any) {
       toast.error(e?.response?.data?.message || 'Invalid OTP');
     } finally {

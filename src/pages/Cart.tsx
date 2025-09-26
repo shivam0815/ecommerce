@@ -7,11 +7,6 @@ import { useCartContext } from '../context/CartContext';
 import { useAuth } from '../hooks/useAuth';
 import toast from 'react-hot-toast';
 import type { CartItem } from '../types';
-import {
-  updateGuestQty,
-  removeGuestItem,
-  getGuestCart,
-} from '../utils/cartGuest';
 
 /* ----------------------------- Config ----------------------------- */
 // Put your WhatsApp number in international format WITHOUT "+" or spaces.
@@ -145,55 +140,37 @@ const Cart: React.FC = () => {
     navigate('/checkout');
   };
 
- const handleQuantityUpdate = (item: any, newQuantity: number) => {
-  const itemId = getItemId(item);
-  if (!itemId || itemId === 'undefined' || itemId === 'null') {
-    toast.error('Unable to update item. Please refresh the page.');
-    return;
-  }
+  const handleQuantityUpdate = (item: any, newQuantity: number) => {
+    const itemId = getItemId(item);
+    if (!itemId || itemId === 'undefined' || itemId === 'null') {
+      toast.error('Unable to update item. Please refresh the page.');
+      return;
+    }
 
-  const clamped = clampCartQty(newQuantity);
-  const moq = getMOQFromItem(item);
-  const maxQty = getMaxQtyFromItem(item);
-  const finalQty = Math.max(moq, Math.min(clamped, maxQty));
+    const clamped = clampCartQty(newQuantity);
+    const moq = getMOQFromItem(item);
+    const maxQty = getMaxQtyFromItem(item);
 
-  if (finalQty < 1) {
-    handleRemoveItem(itemId);
-    return;
-  }
+    // Respect MOQ and Stock silently
+    const finalQty = Math.max(moq, Math.min(clamped, maxQty));
 
-  if (!user) {
-    // GUEST: write to localStorage and refresh view from snapshot
-    updateGuestQty(itemId, finalQty);
-    const { items } = getGuestCart();
-    // If your context doesn’t auto-refresh for guests, force it:
-    refreshCart(true);
-  } else {
-    // LOGGED-IN: server update (expects productId)
+    // If result falls below 1, remove item
+    if (finalQty < 1) {
+      handleRemoveItem(itemId);
+      return;
+    }
+
     updateQuantity(itemId, finalQty);
-  }
-};
+  };
 
-const handleRemoveItem = (itemId: string) => {
-  if (!itemId || itemId === 'undefined' || itemId === 'null') {
-    toast.error('Unable to remove item. Please refresh the page.');
-    return;
-  }
-
-  if (!user) {
-    // GUEST: remove from snapshot and refresh UI
-    removeGuestItem(itemId);
-    // force the context/hook to read the latest snapshot
-    refreshCart(true);
-    toast.success('Item removed from cart');
-  } else {
-    // LOGGED-IN: remove on server (controller expects productId in the URL)
+  const handleRemoveItem = (itemId: string) => {
+    if (!itemId || itemId === 'undefined' || itemId === 'null') {
+      toast.error('Unable to remove item. Please refresh the page.');
+      return;
+    }
     removeFromCart(itemId);
     toast.success('Item removed from cart');
-  }
-};
-
-
+  };
 
   const renderProductImage = (item: any) => {
     const productData = item.productId || {};
