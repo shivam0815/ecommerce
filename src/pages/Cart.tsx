@@ -145,7 +145,7 @@ const Cart: React.FC = () => {
     navigate('/checkout');
   };
 
-  const handleQuantityUpdate = (item: any, newQuantity: number) => {
+ const handleQuantityUpdate = (item: any, newQuantity: number) => {
   const itemId = getItemId(item);
   if (!itemId || itemId === 'undefined' || itemId === 'null') {
     toast.error('Unable to update item. Please refresh the page.');
@@ -155,7 +155,6 @@ const Cart: React.FC = () => {
   const clamped = clampCartQty(newQuantity);
   const moq = getMOQFromItem(item);
   const maxQty = getMaxQtyFromItem(item);
-
   const finalQty = Math.max(moq, Math.min(clamped, maxQty));
 
   if (finalQty < 1) {
@@ -164,32 +163,37 @@ const Cart: React.FC = () => {
   }
 
   if (!user) {
-    // Guest: update localStorage snapshot
+    // GUEST: write to localStorage and refresh view from snapshot
     updateGuestQty(itemId, finalQty);
-    // Ask context to refresh its view from cache/API
+    const { items } = getGuestCart();
+    // If your context doesn’t auto-refresh for guests, force it:
     refreshCart(true);
   } else {
-    // Logged-in: server update via context
+    // LOGGED-IN: server update (expects productId)
     updateQuantity(itemId, finalQty);
   }
 };
 
-  const handleRemoveItem = (itemId: string) => {
+const handleRemoveItem = (itemId: string) => {
   if (!itemId || itemId === 'undefined' || itemId === 'null') {
     toast.error('Unable to remove item. Please refresh the page.');
     return;
   }
 
   if (!user) {
+    // GUEST: remove from snapshot and refresh UI
     removeGuestItem(itemId);
+    // force the context/hook to read the latest snapshot
     refreshCart(true);
     toast.success('Item removed from cart');
   } else {
+    // LOGGED-IN: remove on server (controller expects productId in the URL)
     removeFromCart(itemId);
     toast.success('Item removed from cart');
   }
 };
-;
+
+
 
   const renderProductImage = (item: any) => {
     const productData = item.productId || {};
