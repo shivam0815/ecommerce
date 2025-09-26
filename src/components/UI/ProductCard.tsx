@@ -2,7 +2,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Star, ShoppingCart, Tag, CreditCard } from 'lucide-react';
+import { Star, ShoppingCart, Tag, CreditCard, Heart } from 'lucide-react';
 import type { Product } from '../../types';
 import { useCart } from '../../hooks/useCart';
 import { useWishlist } from '../../hooks/useWishlist';
@@ -101,21 +101,8 @@ const btnPrimary =
 const btnDark =
   'bg-gray-900 text-white hover:bg-black focus:outline-none focus:ring-2 focus:ring-gray-900/40';
 const btnMinW = 'w-[112px] sm:w-[132px]';
-
-/** Helper: detect auth errors consistently */
-const isAuthError = (err: any): boolean => {
-  const s = err?.response?.status;
-  const code = err?.response?.data?.code;
-  const msg = (err?.response?.data?.message || err?.message || '').toLowerCase();
-  return (
-    s === 401 ||
-    code === 'AUTH_REQUIRED' ||
-    msg.includes('authentication required') ||
-    msg.includes('access token missing') ||
-    msg.includes('invalid token') ||
-    msg.includes('token has expired')
-  );
-};
+const btnGhost =
+  'border border-gray-300 text-gray-700 hover:text-red-600 hover:border-red-300 focus:outline-none focus:ring-2 focus:ring-red-300/40';
 
 const ProductCard: React.FC<ProductCardProps> = ({
   product,
@@ -124,23 +111,27 @@ const ProductCard: React.FC<ProductCardProps> = ({
   showWishlist = false,
 }) => {
   const isList = viewMode === 'list';
+
   const navigate = useNavigate();
   const { addToCart, isLoading } = useCart();
-  const { addToWishlist, removeFromWishlist, isInWishlist, isLoading: wishlistLoading } = useWishlist();
+ 
 
   // Accept either _id or id from backend (sanitize to string)
   const rawId = (product as any)._id ?? (product as any).id;
   const productId = typeof rawId === 'string' ? rawId.trim() : rawId ? String(rawId) : '';
   const inStock = computeInStock(product);
+  
 
   // ----- IMAGE PIPELINE (optimized -> raw -> placeholder) -----
   const rawPrimary = useMemo(() => {
+    // Prefer explicit imageUrl if present; else first from images[]
     const explicit = product.imageUrl ? resolveImageUrl(product.imageUrl) : undefined;
     return explicit ?? getFirstImageUrl(product.images);
   }, [product.imageUrl, product.images]);
 
   const optimized = useMemo(() => {
     if (!rawPrimary) return undefined;
+    // Pick width/height by view mode; imageUtils guarantees string return
     const w = isList ? 300 : 600;
     const h = isList ? 300 : 600;
     return getOptimizedImageUrl(rawPrimary, w, h);
@@ -157,6 +148,7 @@ const ProductCard: React.FC<ProductCardProps> = ({
   }, [optimized, rawPrimary]);
 
   const onImgError = () => {
+    // If optimized failed, fallback to raw; if raw failed, clear
     if (imgSrc && optimized && imgSrc === optimized && rawPrimary && optimized !== rawPrimary) {
       setImgSrc(rawPrimary);
       setImageLoading(true);
@@ -184,7 +176,7 @@ const ProductCard: React.FC<ProductCardProps> = ({
     ? Math.round(((comparePrice! - product.price) / comparePrice!) * 100)
     : 0;
 
-  // —— Ratings/Reviews state ——
+  // —— Ratings/Reviews state —— (start with whatever came in, then always refresh)
   const [avgRating, setAvgRating] = useState<number>(getInitialAverageRating(product));
   const [revCount, setRevCount] = useState<number>(getInitialReviewCount(product));
   const [revLoading, setRevLoading] = useState<boolean>(false);
@@ -211,7 +203,7 @@ const ProductCard: React.FC<ProductCardProps> = ({
         setAvgRating(a);
         setRevCount(c);
       } catch {
-        // ignore
+        // ignore; keep current
       } finally {
         if (!ignore) setRevLoading(false);
       }
@@ -224,6 +216,7 @@ const ProductCard: React.FC<ProductCardProps> = ({
     };
   }, [productId, refreshTick]);
 
+  // Listen for global "reviews:changed" signals and localStorage pings
   useEffect(() => {
     if (!isValidObjectId(productId)) return;
 
@@ -247,12 +240,6 @@ const ProductCard: React.FC<ProductCardProps> = ({
     };
   }, [productId]);
 
-  // ---------- AUTH-AWARE CART ACTIONS ----------
-  const goLogin = () => {
-    const next = encodeURIComponent(window.location.pathname + window.location.search);
-    navigate(`/login?next=${next}`);
-  };
-
   const handleAddToCart = async (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -261,23 +248,10 @@ const ProductCard: React.FC<ProductCardProps> = ({
         toast.error('Product ID not found or invalid link');
         return;
       }
-
-      // Fast client-side check: no token => ask to log in
-      if (!localStorage.getItem('token')) {
-        toast.error('Please log in to add items to your cart.');
-        goLogin();
-        return;
-      }
-
       await addToCart(productId, 1);
       toast.success('Added to cart!');
     } catch (error: any) {
-      if (isAuthError(error)) {
-        toast.error('Please log in to add items to your cart.');
-        goLogin();
-        return;
-      }
-      toast.error(error?.response?.data?.message || error?.message || 'Failed to add to cart');
+      toast.error(error?.message || 'Failed to add to cart');
     }
   };
 
@@ -289,25 +263,14 @@ const ProductCard: React.FC<ProductCardProps> = ({
         toast.error('Product ID not found or invalid link');
         return;
       }
-
-      if (!localStorage.getItem('token')) {
-        toast.error('Please log in to continue.');
-        goLogin();
-        return;
-      }
-
       await addToCart(productId, 1);
       navigate('/cart');
     } catch (error: any) {
-      if (isAuthError(error)) {
-        toast.error('Please log in to continue.');
-        goLogin();
-        return;
-      }
-      toast.error(error?.response?.data?.message || error?.message || 'Could not proceed to checkout');
+      toast.error(error?.message || 'Could not proceed to checkout');
     }
   };
 
+  const { addToWishlist, removeFromWishlist, isInWishlist, isLoading: wishlistLoading } = useWishlist();
   const handleWishlistToggle = async (e: React.MouseEvent) => {
     e.preventDefault();
     e.stopPropagation();
@@ -341,6 +304,7 @@ const ProductCard: React.FC<ProductCardProps> = ({
     }
   };
 
+  const currency = (product as any).currency || 'INR';
   const roundedAvg = useMemo(
     () => Math.max(0, Math.min(5, Math.round((avgRating ?? 0) * 10) / 10)),
     [avgRating]
@@ -404,6 +368,8 @@ const ProductCard: React.FC<ProductCardProps> = ({
               {discountPct}% OFF
             </div>
           )}
+
+         
 
           {/* Stock overlay */}
           {inStock === false && (
