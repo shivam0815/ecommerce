@@ -2,10 +2,10 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Star, ShoppingCart, Tag, CreditCard, Heart } from 'lucide-react';
+import { Star, ShoppingCart, Tag, CreditCard } from 'lucide-react';
 import type { Product } from '../../types';
 import { useCart } from '../../hooks/useCart';
-import { useWishlist } from '../../hooks/useWishlist';
+
 import { resolveImageUrl, getFirstImageUrl, getOptimizedImageUrl } from '../../utils/imageUtils';
 import toast from 'react-hot-toast';
 
@@ -270,24 +270,7 @@ const ProductCard: React.FC<ProductCardProps> = ({
     }
   };
 
-  const { addToWishlist, removeFromWishlist, isInWishlist, isLoading: wishlistLoading } = useWishlist();
-  const handleWishlistToggle = async (e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    try {
-      if (!isValidObjectId(productId)) {
-        toast.error('Product ID not found or invalid link');
-        return;
-      }
-      if (isInWishlist(productId)) {
-        await removeFromWishlist(productId);
-      } else {
-        await addToWishlist(productId);
-      }
-    } catch (error: any) {
-      toast.error(error?.message || 'Wishlist operation failed');
-    }
-  };
+  
 
   // Prefer slug route if available, else /product/:id; guard if invalid
   const detailPath =
