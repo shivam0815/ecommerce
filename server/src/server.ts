@@ -307,7 +307,7 @@ app.use('/api/auth', authRoutes);
 app.use('/api', phoneAuthRoutes)
 
 app.use('/api/products', productRoutes);
-app.use('/api/cart', authenticate, cartRoutes);
+app.use('/api/cart',  cartRoutes);
 app.use('/api/orders', orderRoutes);
 app.use('/api/oem', oemRoutes);
 app.use('/api/payment', paymentRoutes);
