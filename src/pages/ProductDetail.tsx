@@ -24,8 +24,24 @@ import Reviews from '../components/Layout/Reviews';
 import { reviewsService } from '../services/reviewsService';
 import Breadcrumbs from './Breadcrumbs';
 
+/* ------------------------- FAST AUTH HELPERS ------------------------- */
+const hasToken = () => Boolean(localStorage.getItem('token'));
+const isAuthError = (err: any) => {
+  const s = err?.response?.status;
+  const code = err?.response?.data?.code;
+  const msg = (err?.response?.data?.message || err?.message || '').toLowerCase();
+  return (
+    s === 401 ||
+    code === 'AUTH_REQUIRED' ||
+    msg.includes('authentication required') ||
+    msg.includes('access token missing') ||
+    msg.includes('invalid token') ||
+    msg.includes('token has expired')
+  );
+};
+
 /* ------------------------- Config ------------------------- */
-// 👉 Set your WhatsApp number here (E.164, no "+" sign):
+// 👉 Set your WhatsApp number here (E.164, with '+'):
 const WHATSAPP_NUMBER = '+919650516703';
 
 /* ------------------------- MOQ + MAX helpers ------------------------- */
@@ -153,9 +169,21 @@ const MiniCard: React.FC<{ p: Product }> = ({ p }) => {
   const add = async (e: React.MouseEvent) => {
     e.preventDefault();
     try {
+      if (!hasToken()) {
+        toast.error('Please log in to add items to your cart.');
+        const next = encodeURIComponent(window.location.pathname + window.location.search + window.location.hash);
+        navigate(`/login?next=${next}`);
+        return;
+      }
       await addToCart(pid, moq);
       toast.success('Added to cart!');
     } catch (err: any) {
+      if (isAuthError(err)) {
+        toast.error('Please log in to add items to your cart.');
+        const next = encodeURIComponent(window.location.pathname + window.location.search + window.location.hash);
+        navigate(`/login?next=${next}`);
+        return;
+      }
       toast.error(err?.message || 'Failed to add to cart');
     }
   };
@@ -163,9 +191,21 @@ const MiniCard: React.FC<{ p: Product }> = ({ p }) => {
   const buy = async (e: React.MouseEvent) => {
     e.preventDefault();
     try {
+      if (!hasToken()) {
+        toast.error('Please log in to continue.');
+        const next = encodeURIComponent(window.location.pathname + window.location.search + window.location.hash);
+        navigate(`/login?next=${next}`);
+        return;
+      }
       await addToCart(pid, moq);
       navigate('/cart');
     } catch (err: any) {
+      if (isAuthError(err)) {
+        toast.error('Please log in to continue.');
+        const next = encodeURIComponent(window.location.pathname + window.location.search + window.location.hash);
+        navigate(`/login?next=${next}`);
+        return;
+      }
       toast.error(err?.message || 'Could not proceed to checkout');
     }
   };
@@ -392,6 +432,13 @@ const ProductDetail: React.FC = () => {
   const handleAddToCart = async () => {
     if (!product) return;
     try {
+      if (!hasToken()) {
+        toast.error('Please log in to add items to your cart.');
+        const next = encodeURIComponent(window.location.pathname + window.location.search + window.location.hash);
+        navigate(`/login?next=${next}`);
+        return;
+      }
+
       const productId: string = (product as any)._id || (product as any).id;
       if (!productId) return toast.error('Product ID not found');
 
@@ -407,6 +454,12 @@ const ProductDetail: React.FC = () => {
       await addToCart(productId, finalQty);
       toast.success(`Added ${finalQty} ${finalQty === 1 ? 'item' : 'items'} to cart!`);
     } catch (err: any) {
+      if (isAuthError(err)) {
+        toast.error('Please log in to add items to your cart.');
+        const next = encodeURIComponent(window.location.pathname + window.location.search + window.location.hash);
+        navigate(`/login?next=${next}`);
+        return;
+      }
       toast.error(err.message || 'Failed to add to cart');
     }
   };
@@ -414,6 +467,13 @@ const ProductDetail: React.FC = () => {
   const handleBuyNow = async () => {
     if (!product) return;
     try {
+      if (!hasToken()) {
+        toast.error('Please log in to continue.');
+        const next = encodeURIComponent(window.location.pathname + window.location.search + window.location.hash);
+        navigate(`/login?next=${next}`);
+        return;
+      }
+
       const productId: string = (product as any)._id || (product as any).id;
       if (!productId) return toast.error('Product ID not found');
 
@@ -428,6 +488,12 @@ const ProductDetail: React.FC = () => {
       await addToCart(productId, finalQty);
       navigate('/checkout');
     } catch (err: any) {
+      if (isAuthError(err)) {
+        toast.error('Please log in to continue.');
+        const next = encodeURIComponent(window.location.pathname + window.location.search + window.location.hash);
+        navigate(`/login?next=${next}`);
+        return;
+      }
       toast.error(err?.message || 'Could not proceed to checkout');
     }
   };
@@ -436,7 +502,6 @@ const ProductDetail: React.FC = () => {
   const showWhatsAppOnly = quantity > 100;
   const whatsappLink = useMemo(() => {
     if (!product) return '#';
-    const pid: string = (product as any)._id || (product as any).id;
     const url = typeof window !== 'undefined' ? window.location.href : '';
     const unit = getTierUnitPrice(product, quantity || getMOQ(product as any));
     const total = unit ? unit * (quantity || 0) : undefined;
