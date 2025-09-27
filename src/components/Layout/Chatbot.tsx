@@ -530,7 +530,8 @@ const ArthaChatWidget: React.FC<{ suggestions?: string[] }> = () => {
   /* ============================
      Render
   ============================ */
-  const isMobile = typeof window !== "undefined" && window.matchMedia && window.matchMedia("(max-width: 640px)").matches;
+  const isMobile = typeof window !== "undefined" && window.matchMedia ? window.matchMedia("(max-width: 640px)").matches : false;
+  const prefersReducedMotion = typeof window !== "undefined" && window.matchMedia ? window.matchMedia("(prefers-reduced-motion: reduce)").matches : false;
 
   return (
     <>
@@ -555,9 +556,9 @@ const ArthaChatWidget: React.FC<{ suggestions?: string[] }> = () => {
         {open && (
           <motion.div
             ref={panelRef}
-            initial={{ opacity: 0, y: 24, scale: isMobile ? 1 : 0.98 }}
-            animate={{ opacity: 1, y: 0, scale: 1 }}
-            exit={{ opacity: 0, y: 12, scale: isMobile ? 1 : 0.98 }}
+            initial={false}
+            animate={prefersReducedMotion ? {} : { opacity: 1, y: 0, scale: 1 }}
+            exit={prefersReducedMotion ? {} : { opacity: 0, y: 12, scale: isMobile ? 1 : 0.98 }}
             transition={{ type: "spring", stiffness: 280, damping: 26 }}
             className={clsx(
               "fixed z-50 border border-gray-200 bg-white shadow-2xl flex flex-col overflow-hidden",
@@ -614,7 +615,7 @@ const ArthaChatWidget: React.FC<{ suggestions?: string[] }> = () => {
                   ref={listRef}
                   className={clsx(
                     "p-3 space-y-2 overflow-y-auto bg-gray-50",
-                    isMobile ? "max-h-[calc(85vh-152px-constant(safe-area-inset-bottom))] max-h-[calc(85vh-152px-env(safe-area-inset-bottom))]" : "max-h-[64vh]"
+                    isMobile ? "max-h-[calc(85svh-152px-constant(safe-area-inset-bottom))] max-h-[calc(85svh-152px-env(safe-area-inset-bottom))]" : "max-h-[64svh]"
                   )}
                   role="log"
                   aria-live="polite"
