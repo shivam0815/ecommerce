@@ -105,15 +105,16 @@ const getTierUnitPrice = (p: any, qty: number): number => {
 
 // very light "am I logged in?" check
 const isUserLoggedIn = () => {
-  const ls = localStorage, ss = sessionStorage;
-  const hasToken =
-    ls.getItem('authToken') || ls.getItem('token') ||
-    ss.getItem('authToken') || ss.getItem('token');
-  const hasUser = ls.getItem('user') || ss.getItem('user');
-  const hasCookie = typeof document !== 'undefined' &&
-    /(?:^|;\s*)(jwt|token|authToken)=/.test(document.cookie || '');
-  return Boolean(hasToken || hasUser || hasCookie);
+  try {
+    const ls = localStorage;
+    const hasToken = ls.getItem("nakoda-token");
+    const hasUser = ls.getItem("nakoda-user");
+    return Boolean(hasToken && hasUser);
+  } catch {
+    return false;
+  }
 };
+
 
 
 /** Hook: live review summary for a product card */
