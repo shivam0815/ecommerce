@@ -102,6 +102,20 @@ const getTierUnitPrice = (p: any, qty: number): number => {
   return unit;
 };
 
+
+// very light "am I logged in?" check
+const isUserLoggedIn = () => {
+  const ls = localStorage, ss = sessionStorage;
+  const hasToken =
+    ls.getItem('authToken') || ls.getItem('token') ||
+    ss.getItem('authToken') || ss.getItem('token');
+  const hasUser = ls.getItem('user') || ss.getItem('user');
+  const hasCookie = typeof document !== 'undefined' &&
+    /(?:^|;\s*)(jwt|token|authToken)=/.test(document.cookie || '');
+  return Boolean(hasToken || hasUser || hasCookie);
+};
+
+
 /** Hook: live review summary for a product card */
 const useReviewSummary = (productId?: string) => {
   const [avg, setAvg] = useState(0);
@@ -389,27 +403,34 @@ const ProductDetail: React.FC = () => {
     }
   }, []);
 
-  const handleAddToCart = async () => {
-    if (!product) return;
-    try {
-      const productId: string = (product as any)._id || (product as any).id;
-      if (!productId) return toast.error('Product ID not found');
+ const handleAddToCart = async () => {
+  if (!product) return;
 
-      const moq = getMOQ(product as any);
-      const maxQty = Math.min(
-        MAX_PER_LINE,
-        Number((product as any).stockQuantity ?? MAX_PER_LINE) || MAX_PER_LINE
-      );
+  if (!isUserLoggedIn()) {
+    toast.error('Please login to add items to cart');
+    return;
+  }
 
-      const base = Math.max(moq, Math.min(maxQty, quantity));
-      const finalQty = Math.ceil(base / STEP) * STEP;
+  try {
+    const productId: string = (product as any)._id || (product as any).id;
+    if (!productId) return toast.error('Product ID not found');
 
-      await addToCart(productId, finalQty);
-      toast.success(`Added ${finalQty} ${finalQty === 1 ? 'item' : 'items'} to cart!`);
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to add to cart');
-    }
-  };
+    const moq = getMOQ(product as any);
+    const maxQty = Math.min(
+      MAX_PER_LINE,
+      Number((product as any).stockQuantity ?? MAX_PER_LINE) || MAX_PER_LINE
+    );
+
+    const base = Math.max(moq, Math.min(maxQty, quantity));
+    const finalQty = Math.ceil(base / STEP) * STEP;
+
+    await addToCart(productId, finalQty);
+    toast.success(`Added ${finalQty} ${finalQty === 1 ? 'item' : 'items'} to cart!`);
+  } catch (err: any) {
+    toast.error(err.message || 'Failed to add to cart');
+  }
+};
+
 
   const handleBuyNow = async () => {
     if (!product) return;
