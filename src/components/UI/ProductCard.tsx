@@ -240,35 +240,66 @@ const ProductCard: React.FC<ProductCardProps> = ({
     };
   }, [productId]);
 
-  const handleAddToCart = async (e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    try {
-      if (!isValidObjectId(productId)) {
-        toast.error('Product ID not found or invalid link');
-        return;
-      }
-      await addToCart(productId, 1);
-      toast.success('Added to cart!');
-    } catch (error: any) {
-      toast.error(error?.message || 'Failed to add to cart');
-    }
-  };
+ // helper: very light "am I logged in?" check
+const isUserLoggedIn = () => {
+  const ls = localStorage;
+  const ss = sessionStorage;
+  const hasToken =
+    ls.getItem('authToken') ||
+    ls.getItem('token') ||
+    ss.getItem('authToken') ||
+    ss.getItem('token');
+  const hasUser = ls.getItem('user') || ss.getItem('user');
 
-  const handleBuyNow = async (e: React.MouseEvent) => {
-    e.preventDefault();
-    e.stopPropagation();
-    try {
-      if (!isValidObjectId(productId)) {
-        toast.error('Product ID not found or invalid link');
-        return;
-      }
-      await addToCart(productId, 1);
-      navigate('/cart');
-    } catch (error: any) {
-      toast.error(error?.message || 'Could not proceed to checkout');
+  // also check cookies for common names
+  const hasCookie =
+    typeof document !== 'undefined' &&
+    /(?:^|;\s*)(jwt|token|authToken)=/.test(document.cookie || '');
+
+  return Boolean(hasToken || hasUser || hasCookie);
+};
+
+const handleAddToCart = async (e: React.MouseEvent) => {
+  e.preventDefault();
+  e.stopPropagation();
+
+  if (!isUserLoggedIn()) {
+    toast.error('Please login to add items to cart');
+    return;
+  }
+
+  try {
+    if (!isValidObjectId(productId)) {
+      toast.error('Product ID not found or invalid link');
+      return;
     }
-  };
+    await addToCart(productId, 1);
+    toast.success('Added to cart!');
+  } catch (error: any) {
+    toast.error(error?.message || 'Failed to add to cart');
+  }
+};
+
+const handleBuyNow = async (e: React.MouseEvent) => {
+  e.preventDefault();
+  e.stopPropagation();
+
+  if (!isUserLoggedIn()) {
+    toast.error('Please login to buy this item');
+    return; // keep it simple: only toast (no redirect)
+  }
+
+  try {
+    if (!isValidObjectId(productId)) {
+      toast.error('Product ID not found or invalid link');
+      return;
+    }
+    await addToCart(productId, 1);
+    navigate('/cart');
+  } catch (error: any) {
+    toast.error(error?.message || 'Could not proceed to checkout');
+  }
+};
 
   
 
