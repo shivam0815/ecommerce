@@ -247,7 +247,7 @@ const isUserLoggedIn = () => {
     const hasToken = ls.getItem("nakoda-token");
     const hasUser = ls.getItem("nakoda-user");
     return Boolean(hasToken && hasUser);
-  } catch {
+  } catch { 
     return false;
   }
 };
