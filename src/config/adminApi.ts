@@ -608,7 +608,7 @@ export const toggleUserStatus = async (
 };
 
 export const deleteUser = async (userId: string) => {
-  const { data } = await adminApi.delete(`/admin/users/${userId}`);
+  const { data } = await adminApi.delete(`/admin/users/${userId}`);  
   return data;
 };
 
