@@ -95,6 +95,20 @@ const parseSpecs = (v: any): Record<string, any> => {
   return {};
 };
 
+// NEW: Validate and format pricing tiers
+const validateAndFormatPricingTiers = (tiers: any[]): any[] => {
+  if (!Array.isArray(tiers)) return [];
+  
+  return tiers
+    .filter(tier => tier && tier.minQty && tier.unitPrice) // Filter out empty entries
+    .map(tier => ({
+      minQty: Math.floor(Number(tier.minQty)),
+      unitPrice: Number(parseFloat(tier.unitPrice).toFixed(2))
+    }))
+    .filter(tier => tier.minQty > 0 && tier.unitPrice > 0) // Ensure positive values
+    .sort((a, b) => a.minQty - b.minQty); // Sort by minQty ascending
+};
+
 // NEW: Validate SKU helper
 const validateSKU = (sku: string | undefined): string | null => {
   if (!sku) return null;
@@ -931,6 +945,7 @@ export const bulkUploadProducts = async (req: AuthRequest, res: Response): Promi
   }
 };
 
+// ✅ FIXED UPDATE PRODUCT - Enhanced pricing tiers handling
 export const updateProduct = async (req: AuthRequest, res: Response): Promise<void> => {
   try {
     const id = (req.params as any).productId || (req.params as any).id;
@@ -939,7 +954,46 @@ export const updateProduct = async (req: AuthRequest, res: Response): Promise<vo
       return;
     }
 
-    const patch = mirrorCompare(req.body); // ensures compareAtPrice ↔ originalPrice; stock ↔ stockQuantity
+    const patch = mirrorCompare(req.body);
+
+    console.log('🔧 Update request for product:', id);
+    console.log('📦 Update data received:', JSON.stringify(patch, null, 2));
+
+    // Handle pricing tiers with validation
+    if ('pricingTiers' in patch) {
+      try {
+        const rawTiers = patch.pricingTiers;
+        console.log('💰 Raw pricing tiers:', rawTiers);
+        
+        const formattedTiers = validateAndFormatPricingTiers(rawTiers);
+        console.log('✅ Formatted pricing tiers:', formattedTiers);
+        
+        patch.pricingTiers = formattedTiers;
+      } catch (error) {
+        console.error('❌ Pricing tiers validation error:', error);
+        res.status(400).json({ success: false, message: 'Invalid pricing tiers format' });
+        return;
+      }
+    }
+
+    // Handle legacy slab fields conversion
+    const s10 = patch.slab10_40 !== undefined ? Number(patch.slab10_40) : null;
+    const s50 = patch.slab50_100 !== undefined ? Number(patch.slab50_100) : null;
+    
+    if (s10 !== null || s50 !== null) {
+      console.log('🔄 Converting slab fields to pricing tiers:', { s10, s50 });
+      
+      const legacyTiers = [];
+      if (s10 !== null && s10 > 0) legacyTiers.push({ minQty: 10, unitPrice: s10 });
+      if (s50 !== null && s50 > 0) legacyTiers.push({ minQty: 50, unitPrice: s50 });
+      
+      patch.pricingTiers = legacyTiers;
+      console.log('✅ Converted to pricing tiers:', patch.pricingTiers);
+      
+      // Remove the slab fields from the patch
+      delete patch.slab10_40;
+      delete patch.slab50_100;
+    }
 
     // NEW: Validate SKU uniqueness if being updated
     if (patch.sku !== undefined) {
@@ -967,7 +1021,7 @@ export const updateProduct = async (req: AuthRequest, res: Response): Promise<vo
       }
     }
 
-    // NEW: Validate meta fields
+    // Validate meta fields
     try {
       validateMetaFields(patch.metaTitle, patch.metaDescription);
     } catch (error: any) {
@@ -983,6 +1037,7 @@ export const updateProduct = async (req: AuthRequest, res: Response): Promise<vo
       patch.metaDescription = patch.metaDescription ? patch.metaDescription.trim() : undefined;
     }
 
+    // Pricing validation
     const priceNext = toNumber(patch.price);
     const cmpNext =
       patch.compareAtPrice != null
@@ -1009,9 +1064,7 @@ export const updateProduct = async (req: AuthRequest, res: Response): Promise<vo
     if (patch.specifications) patch.specifications = parseSpecs(patch.specifications);
     if (patch.stock != null && patch.stockQuantity == null) patch.stockQuantity = Number(patch.stock);
 
-    if ('pricingTiers' in patch || 'tiers' in patch) {
-      patch.pricingTiers = parsePricingTiers((patch as any).pricingTiers ?? (patch as any).tiers);
-    }
+    // Handle other pricing tier formats
     if ('minOrderQtyOverride' in patch) {
       patch.minOrderQtyOverride = toNumber(patch.minOrderQtyOverride);
     }
@@ -1021,6 +1074,8 @@ export const updateProduct = async (req: AuthRequest, res: Response): Promise<vo
     if ('incrementStep' in patch) {
       patch.incrementStep = Number(patch.incrementStep ?? 1);
     }
+
+    console.log('💾 Final patch data:', JSON.stringify(patch, null, 2));
 
     const updated = await Product.findByIdAndUpdate(
       id,
@@ -1032,6 +1087,9 @@ export const updateProduct = async (req: AuthRequest, res: Response): Promise<vo
       res.status(404).json({ success: false, message: 'Product not found' });
       return;
     }
+
+    console.log('✅ Product updated successfully:', updated.name);
+    console.log('💰 Updated pricing tiers:', updated.pricingTiers);
 
     res.json({ success: true, product: normalizeOut(updated) });
   } catch (error: any) {
@@ -1388,6 +1446,7 @@ export const exportProductsCsv = async (req: AuthRequest, res: Response): Promis
         Description: n.description ?? '',
         MetaTitle: n.metaTitle || '', // NEW: Export meta title
         MetaDescription: n.metaDescription || '', // NEW: Export meta description
+        PricingTiers: (n.pricingTiers || []).map((t: any) => `${t.minQty}:${t.unitPrice}`).join('|'), // NEW: Export pricing tiers
         Images: (n.images || []).join('|'),
         CreatedAt: n.createdAt,
       };
@@ -1398,7 +1457,7 @@ export const exportProductsCsv = async (req: AuthRequest, res: Response): Promis
     const csv = parser.parse(rows);
 
     res.setHeader('Content-Type', 'text/csv');
-    res.setHeader('Content-Disposition', `attachment; filename="products-with-seo-${Date.now()}.csv"`);
+    res.setHeader('Content-Disposition', `attachment; filename="products-with-seo-and-pricing-${Date.now()}.csv"`);
     res.send(csv);
   } catch (e: any) {
     console.error('❌ Export CSV error:', e);
