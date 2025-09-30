@@ -978,21 +978,27 @@ export const updateProduct = async (req: AuthRequest, res: Response): Promise<vo
 
     // Handle legacy slab fields conversion
     const s10 = patch.slab10_40 !== undefined ? Number(patch.slab10_40) : null;
-    const s50 = patch.slab50_100 !== undefined ? Number(patch.slab50_100) : null;
+    const s50n = (patch.slab50_90  !== undefined) ? Number(patch.slab50_90)      : null;   // new
+const s100 = (patch.slab100_exact !== undefined) ? Number(patch.slab100_exact) : null;
     
-    if (s10 !== null || s50 !== null) {
-      console.log('🔄 Converting slab fields to pricing tiers:', { s10, s50 });
-      
-      const legacyTiers = [];
-      if (s10 !== null && s10 > 0) legacyTiers.push({ minQty: 10, unitPrice: s10 });
-      if (s50 !== null && s50 > 0) legacyTiers.push({ minQty: 50, unitPrice: s50 });
+   const fiftyTier = (s50n !== null) ? s50n : s50n;
+
+const legacyTiers: Array<{ minQty: number; unitPrice: number }> = [];
+if (s10   !== null && s10   > 0) legacyTiers.push({ minQty: 10,  unitPrice: s10   });
+if (fiftyTier !== null && fiftyTier > 0) legacyTiers.push({ minQty: 50,  unitPrice: fiftyTier });
+if (s100  !== null && s100  > 0) legacyTiers.push({ minQty: 100, unitPrice: s100  });
+
+if (legacyTiers.length) {
+  patch.pricingTiers = legacyTiers;
+
       
       patch.pricingTiers = legacyTiers;
       console.log('✅ Converted to pricing tiers:', patch.pricingTiers);
       
       // Remove the slab fields from the patch
       delete patch.slab10_40;
-      delete patch.slab50_100;
+      delete patch.slab50_90;
+  delete patch.slab100_exact;
     }
 
     // NEW: Validate SKU uniqueness if being updated

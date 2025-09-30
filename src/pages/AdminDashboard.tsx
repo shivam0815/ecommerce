@@ -194,8 +194,9 @@ const ProductManagement = memo<{
     stock: '',
     category: '',
     description: '',
-    slab10_40: '',
-    slab50_100: '',
+   slab10_40: '',
+slab50_90: '',
+slab100_exact: '',
     // NEW: Meta tags and SKU fields
     sku: '',
     metaTitle: '',
@@ -382,19 +383,19 @@ const ProductManagement = memo<{
 
             if (typeof p.images === "string" && p.images.trim()) p.images = splitImages(p.images);
 
-            // Slab pricing
-            const t10raw = pick(row, ['tier_10_40','10-40 price','10_40','slab10_40','price_10_40']);
-            const t50raw = pick(row, ['tier_50_100','50-100 price','50_100','slab50_100','price_50_100']);
-            const t10num = toNumber(t10raw);
-            const t50num = toNumber(t50raw);
-            if (t10raw !== '' && t10raw !== undefined) {
-              if (Number.isFinite(t10num) && t10num >= 0) p.slab10_40 = t10num; 
-              else p.errors.push('Invalid tier_10_40');
-            }
-            if (t50raw !== '' && t50raw !== undefined) {
-              if (Number.isFinite(t50num) && t50num >= 0) p.slab50_100 = t50num; 
-              else p.errors.push('Invalid tier_50_100');
-            }
+            
+const t10raw  = pick(row, ['tier_10_40','10-40 price','10_40','slab10_40','price_10_40']);
+const t50raw  = pick(row, ['tier_50_90','50-90 price','50_90','slab50_90','price_50_90']);
+const t100raw = pick(row, ['tier_100','100 price','100_exact','slab100','slab100_exact','price_100']);
+
+const t10num  = toNumber(t10raw);
+const t50num  = toNumber(t50raw);
+const t100num = toNumber(t100raw);
+
+if (t10raw  !== '' && t10raw  !== undefined) p.slab10_40     = Number.isFinite(t10num)  && t10num  >= 0 ? t10num  : (p.errors.push('Invalid tier_10_40'),  undefined);
+if (t50raw  !== '' && t50raw  !== undefined) p.slab50_90     = Number.isFinite(t50num)  && t50num  >= 0 ? t50num  : (p.errors.push('Invalid tier_50_90'),  undefined);
+if (t100raw !== '' && t100raw !== undefined) p.slab100_exact = Number.isFinite(t100num) && t100num >= 0 ? t100num : (p.errors.push('Invalid tier_100'),    undefined);
+
 
             p.isValid = p.errors.length === 0;
             return p;
@@ -471,28 +472,28 @@ const ProductManagement = memo<{
       }
 
       // Pricing tiers
-      const t10 = formData.slab10_40 ? Number(formData.slab10_40) : NaN;
-      const t50 = formData.slab50_100 ? Number(formData.slab50_100) : NaN;
-      if (formData.slab10_40 && !(t10 >= 0)) { 
-        showNotification('10–40 price must be a valid non-negative number', 'error'); 
-        setIsSubmitting(false); 
-        return; 
-      }
-      if (formData.slab50_100 && !(t50 >= 0)) { 
-        showNotification('50–100 price must be a valid non-negative number', 'error'); 
-        setIsSubmitting(false); 
-        return; 
-      }
-      const tiers: Array<{minQty:number;unitPrice:number}> = [];
-      if (!Number.isNaN(t10)) tiers.push({ minQty: 10, unitPrice: t10 });
-      if (!Number.isNaN(t50)) tiers.push({ minQty: 50, unitPrice: t50 });
-      if (tiers.length) uploadData.append('pricingTiers', JSON.stringify(tiers));
+    const t10 = formData.slab10_40 ? Number(formData.slab10_40) : NaN;
+const t50_90 = formData.slab50_90 ? Number(formData.slab50_90) : NaN;
+const t100 = formData.slab100_exact ? Number(formData.slab100_exact) : NaN;
+
+if (formData.slab10_40 && !(t10 >= 0)) return showNotification('10–40 price must be valid', 'error');
+if (formData.slab50_90 && !(t50_90 >= 0)) return showNotification('50–90 price must be valid', 'error');
+if (formData.slab100_exact && !(t100 >= 0)) return showNotification('100 (exact) price must be valid', 'error');
+
+const tiers: Array<{minQty:number;unitPrice:number}> = [];
+if (!Number.isNaN(t10)) tiers.push({ minQty: 10, unitPrice: t10 });
+if (!Number.isNaN(t50_90)) tiers.push({ minQty: 50, unitPrice: t50_90 });
+if (!Number.isNaN(t100)) tiers.push({ minQty: 100, unitPrice: t100 });
+
+if (tiers.length) uploadData.append('pricingTiers', JSON.stringify(tiers));
 
       const response = await uploadProduct(uploadData);
       if (response?.success) {
         setFormData({ 
           name: '', price: '', stock: '', category: '', compareAtPrice: '', description: '', 
-          slab10_40: '', slab50_100: '', sku: '', metaTitle: '', metaDescription: '' 
+         slab10_40: '',
+slab50_90: '',
+slab100_exact: '', sku: '', metaTitle: '', metaDescription: '' 
         });
         setUploadedImages([]); 
         setUploadProgress(0);
@@ -546,13 +547,17 @@ const ProductManagement = memo<{
           metaDescription: product.metaDescription || undefined,
         };
 
-        const t10 = Number.isFinite(product.slab10_40) ? product.slab10_40 : undefined;
-        const t50 = Number.isFinite(product.slab50_100) ? product.slab50_100 : undefined;
-        const pricingTiers = [
-          ...(t10 !== undefined ? [{ minQty: 10, unitPrice: t10 }] : []),
-          ...(t50 !== undefined ? [{ minQty: 50, unitPrice: t50 }] : []),
-        ];
-        if (pricingTiers.length) pd.pricingTiers = pricingTiers;
+      const t10  = Number.isFinite(product.slab10_40)     ? product.slab10_40     : undefined;
+const t50  = Number.isFinite(product.slab50_90)     ? product.slab50_90     : undefined;
+const t100 = Number.isFinite(product.slab100_exact) ? product.slab100_exact : undefined;
+
+const pricingTiers = [
+  ...(t10  !== undefined ? [{ minQty: 10,  unitPrice: t10  }] : []),
+  ...(t50  !== undefined ? [{ minQty: 50,  unitPrice: t50  }] : []),
+  ...(t100 !== undefined ? [{ minQty: 100, unitPrice: t100 }] : []),
+];
+if (pricingTiers.length) pd.pricingTiers = pricingTiers;
+
         return pd;
       });
 
@@ -574,9 +579,10 @@ const ProductManagement = memo<{
 
   const downloadSampleCSV = () => {
     const sampleData = [
-      'name,price,compare at price,stock,category,description,specifications,images,tier_10_40,tier_50_100,sku,meta title,meta description',
-      'Sample TWS Earbuds,1299,1500,50,TWS,"Wireless earbuds with premium sound","{""battery"":""30mAh"",""bt"":""5.3""}","https://example.com/image1.jpg|https://example.com/image2.jpg",114,108,TWS-001,"Best TWS Earbuds - Premium Sound Quality","Premium wireless earbuds with long battery life and crystal clear sound quality. Perfect for music lovers and professionals."'
-    ].join('\n');
+  'name,price,compare at price,stock,category,description,specifications,images,tier_10_40,tier_50_90,tier_100,sku,meta title,meta description',
+  'Sample TWS Earbuds,1299,1500,50,TWS,"Wireless earbuds with premium sound","{""battery"":""30mAh"",""bt"":""5.3""}","https://example.com/image1.jpg|https://example.com/image2.jpg",114,108,105,TWS-001,"Best TWS Earbuds - Premium Sound Quality","Premium wireless earbuds with long battery life and crystal clear sound."'
+].join('\n');
+
     const blob = new Blob([sampleData], { type: 'text/csv' });
     const url = window.URL.createObjectURL(blob);
     const a = document.createElement('a'); 
@@ -713,37 +719,28 @@ const ProductManagement = memo<{
 
             {/* Pricing Tiers */}
             <div className="form-row">
-              <div className="form-group">
-                <label htmlFor="slab10_40">10–40 Qty Price (ex-GST)</label>
-                <input 
-                  type="number" 
-                  id="slab10_40" 
-                  name="slab10_40" 
-                  value={formData.slab10_40} 
-                  onChange={handleInputChange} 
-                  disabled={isSubmitting} 
-                  placeholder="e.g., 114" 
-                  min="0" 
-                  step="0.01" 
-                />
-                <small className="hint">Creates pricingTiers entry with minQty=10</small>
-              </div>
-              <div className="form-group">
-                <label htmlFor="slab50_100">50–100 Qty Price (ex-GST)</label>
-                <input 
-                  type="number" 
-                  id="slab50_100" 
-                  name="slab50_100" 
-                  value={formData.slab50_100} 
-                  onChange={handleInputChange} 
-                  disabled={isSubmitting} 
-                  placeholder="e.g., 108" 
-                  min="0" 
-                  step="0.01" 
-                />
-                <small className="hint">Creates pricingTiers entry with minQty=50</small>
-              </div>
-            </div>
+  <div className="form-group">
+    <label htmlFor="slab10_40">10–40 Qty Price (ex-GST)</label>
+    <input type="number" id="slab10_40" name="slab10_40" value={formData.slab10_40}
+      onChange={handleInputChange} disabled={isSubmitting} placeholder="e.g., 114" min="0" step="0.01" />
+    <small className="hint">Creates pricingTiers entry with minQty=10</small>
+  </div>
+
+  <div className="form-group">
+    <label htmlFor="slab50_90">50–90 Qty Price (ex-GST)</label>
+    <input type="number" id="slab50_90" name="slab50_90" value={formData.slab50_90}
+      onChange={handleInputChange} disabled={isSubmitting} placeholder="e.g., 108" min="0" step="0.01" />
+    <small className="hint">Creates pricingTiers entry with minQty=50</small>
+  </div>
+
+  <div className="form-group">
+    <label htmlFor="slab100_exact">100 (exact) Qty Price (ex-GST)</label>
+    <input type="number" id="slab100_exact" name="slab100_exact" value={formData.slab100_exact}
+      onChange={handleInputChange} disabled={isSubmitting} placeholder="e.g., 105" min="0" step="0.01" />
+    <small className="hint">Creates pricingTiers entry with minQty=100</small>
+  </div>
+</div>
+
 
             <div className="form-row">
               <div className="form-group">
@@ -1054,14 +1051,20 @@ const InventoryManagement = memo<{
       metaTitle: product.metaTitle || '',
       metaDescription: product.metaDescription || '',
       // Pricing tiers for inline editing
-      slab10_40: (() => {
-        const t = (product.pricingTiers || []).find((x: any) => x.minQty >= 10 && x.minQty <= 40);
-        return t ? t.unitPrice : '';
-      })(),
-      slab50_100: (() => {
-        const t = (product.pricingTiers || []).find((x: any) => x.minQty >= 50 && x.minQty <= 100);
-        return t ? t.unitPrice : '';
-      })(),
+    slab10_40: (() => {
+  const t = (product.pricingTiers || []).find((x: any) => x.minQty >= 10 && x.minQty <= 40);
+  return t ? t.unitPrice : '';
+})(),
+slab50_90: (() => {
+  const t = (product.pricingTiers || []).find((x: any) => x.minQty >= 50 && x.minQty <= 90);
+  return t ? t.unitPrice : '';
+})(),
+slab100_exact: (() => {
+  const t = (product.pricingTiers || []).find((x: any) => x.minQty === 100);
+  return t ? t.unitPrice : '';
+})(),
+
+
     });
   };
 
@@ -1157,14 +1160,23 @@ const InventoryManagement = memo<{
     };
 
     // Handle pricing tiers from inline edit
-    const s10 = editFormData.slab10_40 !== '' && editFormData.slab10_40 != null ? Number(editFormData.slab10_40) : NaN;
-    const s50 = editFormData.slab50_100 !== '' && editFormData.slab50_100 != null ? Number(editFormData.slab50_100) : NaN;
-    if ((!Number.isNaN(s10) && s10 < 0) || (!Number.isNaN(s50) && s50 < 0)) { showNotification('Tier prices must be non-negative', 'error'); return; }
+    const s10   = editFormData.slab10_40 !== '' && editFormData.slab10_40 != null ? Number(editFormData.slab10_40) : NaN;
+const s50   = editFormData.slab50_90 !== '' && editFormData.slab50_90 != null ? Number(editFormData.slab50_90) : NaN;
+const s100  = editFormData.slab100_exact !== '' && editFormData.slab100_exact != null ? Number(editFormData.slab100_exact) : NaN;
 
-    const pricingTiers: Array<{ minQty: number; unitPrice: number }> = [];
-    if (!Number.isNaN(s10)) pricingTiers.push({ minQty: 10, unitPrice: s10 });
-    if (!Number.isNaN(s50)) pricingTiers.push({ minQty: 50, unitPrice: s50 });
-    if (pricingTiers.length) payload.pricingTiers = pricingTiers;
+if ((!Number.isNaN(s10)  && s10  < 0) ||
+    (!Number.isNaN(s50)  && s50  < 0) ||
+    (!Number.isNaN(s100) && s100 < 0)) {
+  showNotification('Tier prices must be non-negative', 'error'); return;
+}
+
+const pricingTiers: Array<{ minQty: number; unitPrice: number }> = [];
+if (!Number.isNaN(s10))  pricingTiers.push({ minQty: 10,  unitPrice: s10  });
+if (!Number.isNaN(s50))  pricingTiers.push({ minQty: 50,  unitPrice: s50  });
+if (!Number.isNaN(s100)) pricingTiers.push({ minQty: 100, unitPrice: s100 });
+
+if (pricingTiers.length) payload.pricingTiers = pricingTiers;
+
 
     setIsUpdating(true);
     try {
@@ -1421,35 +1433,28 @@ const InventoryManagement = memo<{
                   <td>
                     {editingProduct === product._id ? (
                       <div className="pricing-tiers-edit">
-                        <div className="tier-row">
-                          <label>10-40:</label>
-                          <input 
-                            type="number" 
-                            value={editFormData.slab10_40} 
-                            onChange={(e) => setEditFormData({ ...editFormData, slab10_40: e.target.value })} 
-                            className="edit-input-small" 
-                            placeholder="₹" 
-                          />
-                        </div>
-                        <div className="tier-row">
-                          <label>50-100:</label>
-                          <input 
-                            type="number" 
-                            value={editFormData.slab50_100} 
-                            onChange={(e) => setEditFormData({ ...editFormData, slab50_100: e.target.value })} 
-                            className="edit-input-small" 
-                            placeholder="₹" 
-                          />
-                        </div>
-                        <button 
-                          type="button" 
-                          onClick={() => handleEditPricingTiers(product)} 
-                          className="edit-tiers-btn"
-                          title="Advanced Pricing Editor"
-                        >
-                          ⚙️
-                        </button>
-                      </div>
+  <div className="tier-row">
+    <label>10–40:</label>
+    <input type="number" value={editFormData.slab10_40}
+      onChange={(e) => setEditFormData({ ...editFormData, slab10_40: e.target.value })}
+      className="edit-input-small" placeholder="₹" />
+  </div>
+  <div className="tier-row">
+    <label>50–90:</label>
+    <input type="number" value={editFormData.slab50_90}
+      onChange={(e) => setEditFormData({ ...editFormData, slab50_90: e.target.value })}
+      className="edit-input-small" placeholder="₹" />
+  </div>
+  <div className="tier-row">
+    <label>100:</label>
+    <input type="number" value={editFormData.slab100_exact}
+      onChange={(e) => setEditFormData({ ...editFormData, slab100_exact: e.target.value })}
+      className="edit-input-small" placeholder="₹" />
+  </div>
+  <button type="button" onClick={() => handleEditPricingTiers(product)}
+    className="edit-tiers-btn" title="Advanced Pricing Editor">⚙️</button>
+</div>
+
                     ) : (
                       <div className="pricing-tiers-display">
                         <span className="tiers-text">{formatPricingTiers(product.pricingTiers)}</span>
