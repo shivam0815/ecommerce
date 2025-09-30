@@ -1,4 +1,4 @@
-// server.ts — PRODUCTION-READY for nokodamobile.in
+// server.ts — PRODUCTION-READY for nakodamobile.in
 import dotenv from 'dotenv';
 dotenv.config();
 
@@ -41,7 +41,7 @@ import phoneAuthRoutes from './routes/auth.phone';
 import webhookRouter from './routes/webhooks';
 // S3 presign & delete routes
 import uploadsS3 from './routes/uploadsS3';
-import shipping from './routes/shipping';
+import shippingRoutes from './routes/shipping'; // ✅ single import
 
 const app = express();
 const server = http.createServer(app);
@@ -82,7 +82,6 @@ const runtimeFrontend = process.env.FRONTEND_URL?.trim();
 const prodOrigins = [
   'https://nakodamobile.in',
   'https://www.nakodamobile.in',
- 
   ...(runtimeFrontend ? [runtimeFrontend] : [])
 ];
 const allowedOrigins = isProd ? prodOrigins : devOrigins;
@@ -152,30 +151,55 @@ app.use((req, res, next) => {
   next();
 });
 
+/* ============================================================
+   🚦 Route-specific Rate Limiters (no global /api limiter)
+   - Skips OPTIONS (preflight)
+   - JSON handler + logging
+   ============================================================ */
+const buildLimiter = (name: string, windowMs: number, max: number) =>
+  rateLimit({
+    windowMs,
+    max,
+    standardHeaders: true,
+    legacyHeaders: false,
+    skip: (req) => req.method === 'OPTIONS',
+    keyGenerator: (req) => {
+      // prefer Express req.ip, fall back to common headers or socket address and ensure a string is returned
+      const ipFromReq = (req as any).ip;
+      const xff = (req.headers as any)?.['x-forwarded-for'];
+      const socketAddr = (req.socket && (req.socket as any).remoteAddress) || undefined;
+      return String(ipFromReq || (Array.isArray(xff) ? xff[0] : xff) || socketAddr || 'unknown');
+    },
+    handler: (req, res) => {
+      console.warn(`🚨 Rate limit exceeded [${name}]`, {
+        ip: req.ip,
+        path: req.path,
+        method: req.method,
+        timestamp: new Date().toISOString()
+      });
+      res.status(429).json({
+        error: 'Too many requests',
+        bucket: name,
+        retryAfter: `${Math.round(windowMs / 60000)} minutes`,
+        requestId: (req as any).requestId,
+        timestamp: new Date().toISOString()
+      });
+    }
+  });
 
-// Rate limiting
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: isProd ? 1000 : 10000,
-  standardHeaders: true,
-  legacyHeaders: false,
-  skip: (req) => ['/api/health', '/api/debug'].some((p) => req.path.startsWith(p)),
-  handler: (req, res) => {
-    console.warn('🚨 Rate limit exceeded', {
-      ip: req.ip,
-      path: req.path,
-      method: req.method,
-      timestamp: new Date().toISOString()
-    });
-    res.status(429).json({
-      error: 'Too many requests from this IP, please try again later.',
-      retryAfter: '15 minutes',
-      timestamp: new Date().toISOString(),
-      requestId: (req as any).requestId
-    });
-  }
-});
-app.use('/api', limiter);
+// Security-sensitive
+const authLimiter     = buildLimiter('auth',        15 * 60 * 1000, isProd ? 30  : 200);  // OTP/login
+const paymentLimiter  = buildLimiter('payment',     15 * 60 * 1000, isProd ? 120 : 500);
+const ordersLimiter   = buildLimiter('orders',      15 * 60 * 1000, isProd ? 200 : 1000);
+const adminLimiter    = buildLimiter('admin',       15 * 60 * 1000, isProd ? 200 : 1000);
+
+// Medium sensitivity
+const cartLimiter     = buildLimiter('cart',        15 * 60 * 1000, isProd ? 900 : 5000);
+const wishlistLimiter = buildLimiter('wishlist',    15 * 60 * 1000, isProd ? 900 : 5000);
+
+// High-volume browsing (very generous; front page can fan out)
+const browseLimiter   = buildLimiter('browse',       60 * 1000,     isProd ? 800  : 5000); // per minute
+
 // put this ABOVE app.use(cors(...))
 app.use((_, res, next) => {
   res.header('Vary', 'Origin');
@@ -302,47 +326,58 @@ app.use(
   })
 );
 
-// API Routes (public first)
-app.use('/api/auth', authRoutes);
-app.use('/api', phoneAuthRoutes)
+/* ============================================================
+   🚏 API Routes + Per-Route Limiters
+   ============================================================ */
 
-app.use('/api/products', productRoutes);
-app.use('/api/cart',  cartRoutes);
-app.use('/api/orders', orderRoutes);
-app.use('/api/oem', oemRoutes);
-app.use('/api/payment', paymentRoutes);
-app.use('/api/wishlist', wishlistRoutes);
+// Public / lightweight browse → generous
+app.use('/api/products', browseLimiter, productRoutes);
+app.use('/api/search', browseLimiter, searchRoutes);
+app.use('/api/blog', browseLimiter, blogRoutes);
+app.use('/api/help', browseLimiter, helpRoutes);
+app.use('/api', reviewsPublic); // /reviews.* are lightweight
+app.use('/api/chat', browseLimiter, chatRoutes);
+
+// Auth / security-sensitive → strict
+app.use('/api/auth', authLimiter, authRoutes);
+app.use('/api', authLimiter, phoneAuthRoutes);
+
+// Cart & Wishlist → medium
+app.use('/api/cart', cartLimiter, cartRoutes);
+app.use('/api/wishlist', wishlistLimiter, wishlistRoutes);
+
+// Orders & Payments → strict/medium
+app.use('/api/orders', ordersLimiter, orderRoutes);
+app.use('/api/payment', paymentLimiter, paymentRoutes);
+
+// User profile & misc (kept default; can add limiter if needed)
 app.use('/api/user', userRoutes);
-app.use('/api', searchRoutes);
-app.use('/api/chat', chatRoutes);
 app.use('/api/newsletter', newsletterRoutes);
 app.use('/api/contact', contactRoutes);
-app.use('/api/blog', blogRoutes);
-app.use('/api', shiprocketRoutes);
-// Reviews router — mount once under /api
-app.use('/api', reviewsPublic);
-// Support/Help/Notifications/Returns
-app.use('/api/help', helpRoutes);
-app.use('/api/support', supportRouter);
+
+// OEM / Shipping / Shiprocket
+app.use('/api/oem', oemRoutes);
+app.use('/api/shipping', shippingRoutes); // ✅ single mount
+app.use('/api/shiprocket', authenticate, adminOnly, shiprocketRoutes);
+
+// Notifications / Returns / Webhooks
 app.use('/api', notificationRoutes);
 app.use('/api', returnRoutes);
-app.use('/api/webhooks', webhookRouter); 
-// Admin protected
-app.use('/api/admin',  adminRoutes);
-import shippingRoutes from './routes/shipping';
-app.use('/api/shipping', shippingRoutes);
-// src/index.ts (or your app bootstrap)
+app.use('/api/webhooks', webhookRouter);
 
-app.use('/api/shipping', shipping);
-// Shiprocket protected (single mount; no unprotected duplicate)
-app.use('/api/shiprocket', authenticate, adminOnly, shiprocketRoutes);
-app.use("/api/uploads/s3", uploadsS3);
+// Admin protected (moderate limiter)
+app.use('/api/admin', adminLimiter, adminRoutes);
+
+// S3 presign & delete
+app.use('/api/uploads/s3', uploadsS3);
+
+// Debug & pricing (usually light)
 import debugRoutes from './routes/debug';
 app.use('/api', debugRoutes);
 import pricingRouter from './routes/pricing';
 app.use('/api', pricingRouter);
 
-// Health
+// Health (no limiter)
 app.get('/api/health', async (_req, res): Promise<void> => {
   let dbStatus = 'Unknown';
   try {
@@ -364,7 +399,7 @@ app.get('/api/health', async (_req, res): Promise<void> => {
     }
   }
 
-  const rateLimits = { max: isProd ? 1000 : 10000, window: '15 minutes' as const };
+  // Just reflect representative limits
   res.json({
     status: 'OK',
     timestamp: new Date().toISOString(),
@@ -372,7 +407,15 @@ app.get('/api/health', async (_req, res): Promise<void> => {
     database: dbStatus,
     cloudinary: cloudinaryStatus,
     socketIO: 'Enabled',
-    rateLimits,
+    rateLimits: {
+      browse: { max: isProd ? 800 : 5000, window: '60s' },
+      cart: { max: isProd ? 900 : 5000, window: '15m' },
+      wishlist: { max: isProd ? 900 : 5000, window: '15m' },
+      auth: { max: isProd ? 30 : 200, window: '15m' },
+      orders: { max: isProd ? 200 : 1000, window: '15m' },
+      payment: { max: isProd ? 120 : 500, window: '15m' },
+      admin: { max: isProd ? 200 : 1000, window: '15m' }
+    },
     routes: {
       auth: '/api/auth',
       products: '/api/products',
@@ -613,11 +656,11 @@ server.listen(PORT, '0.0.0.0', () => {
   console.log(`❤️  Health Check: ${base}/api/health`);
   console.log(`🛒 Cart API: ${base}/api/cart`);
   console.log(`📦 Products API: ${base}/api/products`);
-  console.log(`🔐 Auth API: ${base}/api/auth`); // fixed .int -> .in
+  console.log(`🔐 Auth API: ${base}/api/auth`);
   console.log(`💳 Payment API: ${base}/api/payment`);
   console.log(`👨‍💼 Admin API: ${base}/api/admin`);
   console.log(`🔌 Socket.IO: ${base}/socket.io`);
-  console.log(`📊 Rate Limit: ${isProd ? 1000 : 10000}/15m`);
+  console.log(`📊 Rate Limits: per-route (see /api/health)`);
   console.log(`☁️  Cloudinary: ${process.env.CLOUDINARY_CLOUD_NAME ? 'Configured' : 'Not Configured'}`);
   if (!isProd) {
     console.log('🧪 Test Endpoints:');
@@ -627,6 +670,6 @@ server.listen(PORT, '0.0.0.0', () => {
     console.log('   - GET  /api/test/razorpay');
   }
   console.log('🚀 ================================');
-});     
+});
 
 export default app;
