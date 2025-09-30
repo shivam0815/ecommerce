@@ -966,6 +966,7 @@ const ProductManagement = memo<{
 });
 
 /* ------------------------------ Inventory Tab ----------------------------- */
+/* ------------------------------ Inventory Tab ----------------------------- */
 const InventoryManagement = memo<{
   showNotification: (message: string, type: 'success' | 'error') => void;
   checkNetworkStatus: () => boolean;
@@ -987,6 +988,10 @@ const InventoryManagement = memo<{
   const [editingProduct, setEditingProduct] = useState<any>(null);
   const [editFormData, setEditFormData] = useState<any>({});
   const [isUpdating, setIsUpdating] = useState(false);
+  
+  // NEW: State for pricing tiers modal
+  const [showPricingModal, setShowPricingModal] = useState(false);
+  const [editingPricingTiers, setEditingPricingTiers] = useState<any[]>([]);
 
   const [selectedProducts, setSelectedProducts] = useState<string[]>([]);
   const [selectAll, setSelectAll] = useState(false);
@@ -999,6 +1004,17 @@ const InventoryManagement = memo<{
     'Mobile Repairing Tools', 'Car Chargers',
     'Bluetooth Speakers', 'Power Banks', 'Others'
   ];
+
+  // Helper function to safely get image URL with fallback
+  const getImageUrl = (product: any) => {
+    if (product.imageUrl && product.imageUrl.trim()) {
+      return generateResponsiveImageUrl(product.imageUrl, { width: 80, height: 80, crop: 'fill' });
+    }
+    if (product.images && Array.isArray(product.images) && product.images.length > 0) {
+      return generateResponsiveImageUrl(product.images[0], { width: 80, height: 80, crop: 'fill' });
+    }
+    return null;
+  };
 
   const fetchProducts = useCallback(async () => {
     if (!checkNetworkStatus()) return;
@@ -1038,7 +1054,7 @@ const InventoryManagement = memo<{
       sku: product.sku || '',
       metaTitle: product.metaTitle || '',
       metaDescription: product.metaDescription || '',
-      // prefill slabs:
+      // Pricing tiers for inline editing
       slab10_40: (() => {
         const t = (product.pricingTiers || []).find((x: any) => x.minQty >= 10 && x.minQty <= 40);
         return t ? t.unitPrice : '';
@@ -1048,6 +1064,56 @@ const InventoryManagement = memo<{
         return t ? t.unitPrice : '';
       })(),
     });
+  };
+
+  // NEW: Handle pricing tiers modal
+  const handleEditPricingTiers = (product: any) => {
+    setEditingPricingTiers(product.pricingTiers || []);
+    setEditingProduct(product._id);
+    setShowPricingModal(true);
+  };
+
+  const handleSavePricingTiers = async () => {
+    if (!editingProduct) return;
+    
+    setIsUpdating(true);
+    try {
+      // Cast to any to avoid strict Partial<Product> checks for this payload shape
+      const payload: any = {
+        pricingTiers: editingPricingTiers
+      };
+
+      const res = await updateProduct(editingProduct, payload);
+      if (!res?.success) throw new Error(res?.message || 'Update failed');
+
+      setProducts(prev => prev.map(p => p._id === editingProduct
+        ? { ...p, pricingTiers: editingPricingTiers }
+        : p
+      ));
+      
+      setShowPricingModal(false);
+      setEditingProduct(null);
+      setEditingPricingTiers([]);
+      showNotification('Pricing tiers updated successfully', 'success');
+    } catch (err: any) {
+      showNotification(`Update failed: ${err.message || 'Unknown error'}`, 'error');
+    } finally {
+      setIsUpdating(false);
+    }
+  };
+
+  const addPricingTier = () => {
+    setEditingPricingTiers([...editingPricingTiers, { minQty: '', unitPrice: '' }]);
+  };
+
+  const removePricingTier = (index: number) => {
+    setEditingPricingTiers(editingPricingTiers.filter((_, i) => i !== index));
+  };
+
+  const updatePricingTier = (index: number, field: string, value: any) => {
+    const updated = [...editingPricingTiers];
+    updated[index] = { ...updated[index], [field]: value };
+    setEditingPricingTiers(updated);
   };
 
   const handleSaveEdit = async () => {
@@ -1091,7 +1157,7 @@ const InventoryManagement = memo<{
       metaDescription: editFormData.metaDescription?.trim() || undefined,
     };
 
-    // slabs → pricingTiers
+    // Handle pricing tiers from inline edit
     const s10 = editFormData.slab10_40 !== '' && editFormData.slab10_40 != null ? Number(editFormData.slab10_40) : NaN;
     const s50 = editFormData.slab50_100 !== '' && editFormData.slab50_100 != null ? Number(editFormData.slab50_100) : NaN;
     if ((!Number.isNaN(s10) && s10 < 0) || (!Number.isNaN(s50) && s50 < 0)) { showNotification('Tier prices must be non-negative', 'error'); return; }
@@ -1170,20 +1236,21 @@ const InventoryManagement = memo<{
   };
 
   const handleExportCSV = () => {
-    const headers = ['Name','Price','CompareAtPrice','Stock','Category','Status','Description','SKU','MetaTitle','MetaDescription'];
+    const headers = ['Name','SKU','Price','CompareAtPrice','Stock','Category','Status','Description','MetaTitle','MetaDescription','PricingTiers'];
     const csvData = [
       headers.join(','),
       ...products.map(p => [
         `"${p.name}"`, 
+        `"${p.sku || ''}"`,
         p.price, 
         (p.compareAtPrice ?? ''), 
         p.stock, 
         `"${p.category}"`, 
         (p.status || 'active'), 
         `"${p.description || ''}"`,
-        `"${p.sku || ''}"`,
         `"${p.metaTitle || ''}"`,
-        `"${p.metaDescription || ''}"`
+        `"${p.metaDescription || ''}"`,
+        `"${(p.pricingTiers || []).map((t: any) => `${t.minQty}:${t.unitPrice}`).join('|')}"` // NEW: Include pricing tiers
       ].join(','))
     ].join('\n');
     const blob = new Blob([csvData], { type: 'text/csv' });
@@ -1199,6 +1266,12 @@ const InventoryManagement = memo<{
     if (stock === 0) return { label: 'Out of Stock', class: 'out-of-stock' };
     if (stock <= 10) return { label: 'Low Stock', class: 'low-stock' };
     return { label: 'In Stock', class: 'in-stock' };
+  };
+
+  // NEW: Format pricing tiers for display
+  const formatPricingTiers = (tiers: any[]) => {
+    if (!tiers || tiers.length === 0) return 'No bulk pricing';
+    return tiers.map(t => `${t.minQty}+: ₹${t.unitPrice}`).join(' | ');
   };
 
   return (
@@ -1266,6 +1339,7 @@ const InventoryManagement = memo<{
                 <th>Compare</th>
                 <th onClick={() => handleSort('stock')} className="sortable">Stock {sortBy === 'stock' && (sortOrder === 'asc' ? '↑' : '↓')}</th>
                 <th>Category</th>
+                <th>Pricing Tiers</th> {/* NEW: Pricing tiers column */}
                 <th>Meta Title</th>
                 <th>Status</th>
                 <th>Actions</th>
@@ -1277,9 +1351,30 @@ const InventoryManagement = memo<{
                   <td><input type="checkbox" checked={selectedProducts.includes(product._id)} onChange={() => handleProductSelection(product._id)} /></td>
                   <td>
                     <div className="product-image">
-                      {product.imageUrl
-                        ? <img src={generateResponsiveImageUrl(product.imageUrl, { width: 80, height: 80, crop: 'fill' })} alt={product.name} />
-                        : <div className="no-image">📦</div>}
+                      {(() => {
+                        const imageUrl = getImageUrl(product);
+                        if (imageUrl) {
+                          return (
+                            <img 
+                              src={imageUrl} 
+                              alt={product.name}
+                              onError={(e) => {
+                                // Fallback if image fails to load
+                                (e.target as HTMLImageElement).style.display = 'none';
+                                const parent = (e.target as HTMLElement).parentElement;
+                                if (parent && !parent.querySelector('.no-image')) {
+                                  const placeholder = document.createElement('div');
+                                  placeholder.className = 'no-image';
+                                  placeholder.innerHTML = '📦';
+                                  parent.appendChild(placeholder);
+                                }
+                              }}
+                            />
+                          );
+                        } else {
+                          return <div className="no-image">📦</div>;
+                        }
+                      })()}
                     </div>
                   </td>
                   <td>
@@ -1322,6 +1417,52 @@ const InventoryManagement = memo<{
                         {categories.map(c => (<option key={c} value={c}>{c}</option>))}
                       </select>
                     ) : <span className="category">{product.category}</span>}
+                  </td>
+                  {/* NEW: Pricing Tiers Column */}
+                  <td>
+                    {editingProduct === product._id ? (
+                      <div className="pricing-tiers-edit">
+                        <div className="tier-row">
+                          <label>10-40:</label>
+                          <input 
+                            type="number" 
+                            value={editFormData.slab10_40} 
+                            onChange={(e) => setEditFormData({ ...editFormData, slab10_40: e.target.value })} 
+                            className="edit-input-small" 
+                            placeholder="₹" 
+                          />
+                        </div>
+                        <div className="tier-row">
+                          <label>50-100:</label>
+                          <input 
+                            type="number" 
+                            value={editFormData.slab50_100} 
+                            onChange={(e) => setEditFormData({ ...editFormData, slab50_100: e.target.value })} 
+                            className="edit-input-small" 
+                            placeholder="₹" 
+                          />
+                        </div>
+                        <button 
+                          type="button" 
+                          onClick={() => handleEditPricingTiers(product)} 
+                          className="edit-tiers-btn"
+                          title="Advanced Pricing Editor"
+                        >
+                          ⚙️
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="pricing-tiers-display">
+                        <span className="tiers-text">{formatPricingTiers(product.pricingTiers)}</span>
+                        <button 
+                          onClick={() => handleEditPricingTiers(product)} 
+                          className="view-tiers-btn"
+                          title="Edit Pricing Tiers"
+                        >
+                          💰
+                        </button>
+                      </div>
+                    )}
                   </td>
                   <td>
                     {editingProduct === product._id ? (
@@ -1366,6 +1507,47 @@ const InventoryManagement = memo<{
         </div>
       )}
 
+      {/* NEW: Pricing Tiers Modal */}
+      {showPricingModal && (
+        <div className="modal-overlay">
+          <div className="pricing-modal">
+            <div className="modal-header">
+              <h3>📊 Edit Pricing Tiers</h3>
+              <button onClick={() => setShowPricingModal(false)} className="close-modal">❌</button>
+            </div>
+            <div className="modal-body">
+              {editingPricingTiers.map((tier, index) => (
+                <div key={index} className="tier-edit-row">
+                  <input 
+                    type="number" 
+                    placeholder="Min Qty" 
+                    value={tier.minQty} 
+                    onChange={(e) => updatePricingTier(index, 'minQty', Number(e.target.value))}
+                    className="tier-input"
+                  />
+                  <input 
+                    type="number" 
+                    placeholder="Unit Price" 
+                    value={tier.unitPrice} 
+                    onChange={(e) => updatePricingTier(index, 'unitPrice', Number(e.target.value))}
+                    className="tier-input"
+                    step="0.01"
+                  />
+                  <button onClick={() => removePricingTier(index)} className="remove-tier">🗑️</button>
+                </div>
+              ))}
+              <button onClick={addPricingTier} className="add-tier-btn">➕ Add Tier</button>
+            </div>
+            <div className="modal-footer">
+              <button onClick={handleSavePricingTiers} disabled={isUpdating} className="save-tiers-btn">
+                {isUpdating ? '⏳ Saving...' : '💾 Save Tiers'}
+              </button>
+              <button onClick={() => setShowPricingModal(false)} className="cancel-tiers-btn">❌ Cancel</button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {totalPages > 1 && (
         <div className="pagination">
           <div className="pagination-info">Showing {((currentPage - 1) * itemsPerPage) + 1} to {Math.min(currentPage * itemsPerPage, totalProducts)} of {totalProducts} products</div>
@@ -1392,6 +1574,7 @@ const InventoryManagement = memo<{
     </div>
   );
 });
+
 
 /* -------------------------------- Overview -------------------------------- */
 const Overview = React.memo<{
