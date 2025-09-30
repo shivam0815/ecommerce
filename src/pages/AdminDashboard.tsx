@@ -967,7 +967,6 @@ const ProductManagement = memo<{
 
 /* ------------------------------ Inventory Tab ----------------------------- */
 /* ------------------------------ Inventory Tab ----------------------------- */
-/* ------------------------------ Inventory Tab - FIXED PRICING TIERS ----------------------------- */
 const InventoryManagement = memo<{
   showNotification: (message: string, type: 'success' | 'error') => void;
   checkNetworkStatus: () => boolean;
@@ -1067,11 +1066,8 @@ const InventoryManagement = memo<{
     });
   };
 
-  // NEW: Handle pricing tiers modal with debug logging
+  // NEW: Handle pricing tiers modal
   const handleEditPricingTiers = (product: any) => {
-    console.log('💰 Opening pricing tiers modal for product:', product.name);
-    console.log('📊 Current pricing tiers:', product.pricingTiers);
-    
     setEditingPricingTiers(product.pricingTiers || []);
     setEditingProduct(product._id);
     setShowPricingModal(true);
@@ -1080,40 +1076,18 @@ const InventoryManagement = memo<{
   const handleSavePricingTiers = async () => {
     if (!editingProduct) return;
     
-    console.log('💰 Saving pricing tiers for product:', editingProduct);
-    console.log('📊 Pricing tiers data:', editingPricingTiers);
-    
-    // Validate and clean the pricing tiers data
-    const cleanedTiers = editingPricingTiers
-      .filter(tier => tier.minQty && tier.unitPrice) // Remove empty entries
-      .map(tier => ({
-        minQty: Math.floor(Number(tier.minQty)),
-        unitPrice: Number(parseFloat(tier.unitPrice).toFixed(2))
-      }))
-      .filter(tier => tier.minQty > 0 && tier.unitPrice > 0) // Ensure positive values
-      .sort((a, b) => a.minQty - b.minQty); // Sort by minQty
-    
-    console.log('✅ Cleaned pricing tiers:', cleanedTiers);
-    
     setIsUpdating(true);
     try {
-      const payload = {
-        pricingTiers: cleanedTiers
+      // Cast to any to avoid strict Partial<Product> checks for this payload shape
+      const payload: any = {
+        pricingTiers: editingPricingTiers
       };
 
-      console.log('📤 Sending update payload:', payload);
+      const res = await updateProduct(editingProduct, payload);
+      if (!res?.success) throw new Error(res?.message || 'Update failed');
 
-      // Cast payload to any to allow sending only pricingTiers when Product type doesn't include it in Partial<Product>
-      const res = await updateProduct(editingProduct, payload as any);
-      console.log('📥 Update response:', res);
-
-      if (!res?.success) {
-        throw new Error(res?.message || 'Update failed');
-      }
-
-      // Update the local state with the new pricing tiers
       setProducts(prev => prev.map(p => p._id === editingProduct
-        ? { ...p, pricingTiers: cleanedTiers }
+        ? { ...p, pricingTiers: editingPricingTiers }
         : p
       ));
       
@@ -1121,14 +1095,7 @@ const InventoryManagement = memo<{
       setEditingProduct(null);
       setEditingPricingTiers([]);
       showNotification('Pricing tiers updated successfully', 'success');
-      
-      // Refresh the products to ensure we have the latest data
-      setTimeout(() => {
-        fetchProducts();
-      }, 500);
-      
     } catch (err: any) {
-      console.error('❌ Pricing tiers update error:', err);
       showNotification(`Update failed: ${err.message || 'Unknown error'}`, 'error');
     } finally {
       setIsUpdating(false);
@@ -1190,30 +1157,19 @@ const InventoryManagement = memo<{
       metaDescription: editFormData.metaDescription?.trim() || undefined,
     };
 
-    // Handle pricing tiers from inline edit with proper formatting
-    const s10 = editFormData.slab10_40 !== '' && editFormData.slab10_40 != null ? Number(editFormData.slab10_40) : null;
-    const s50 = editFormData.slab50_100 !== '' && editFormData.slab50_100 != null ? Number(editFormData.slab50_100) : null;
-    
-    if (s10 !== null && s10 < 0) { showNotification('10-40 tier price must be non-negative', 'error'); return; }
-    if (s50 !== null && s50 < 0) { showNotification('50-100 tier price must be non-negative', 'error'); return; }
+    // Handle pricing tiers from inline edit
+    const s10 = editFormData.slab10_40 !== '' && editFormData.slab10_40 != null ? Number(editFormData.slab10_40) : NaN;
+    const s50 = editFormData.slab50_100 !== '' && editFormData.slab50_100 != null ? Number(editFormData.slab50_100) : NaN;
+    if ((!Number.isNaN(s10) && s10 < 0) || (!Number.isNaN(s50) && s50 < 0)) { showNotification('Tier prices must be non-negative', 'error'); return; }
 
-    // Convert slab fields to proper pricing tiers format
     const pricingTiers: Array<{ minQty: number; unitPrice: number }> = [];
-    if (s10 !== null && s10 > 0) pricingTiers.push({ minQty: 10, unitPrice: s10 });
-    if (s50 !== null && s50 > 0) pricingTiers.push({ minQty: 50, unitPrice: s50 });
-    
-    if (pricingTiers.length > 0) {
-      payload.pricingTiers = pricingTiers;
-      console.log('💰 Adding pricing tiers to payload:', pricingTiers);
-    }
-
-    console.log('📤 Sending inline edit payload:', payload);
+    if (!Number.isNaN(s10)) pricingTiers.push({ minQty: 10, unitPrice: s10 });
+    if (!Number.isNaN(s50)) pricingTiers.push({ minQty: 50, unitPrice: s50 });
+    if (pricingTiers.length) payload.pricingTiers = pricingTiers;
 
     setIsUpdating(true);
     try {
       const res = await updateProduct(editingProduct, payload);
-      console.log('📥 Inline edit response:', res);
-      
       if (!res?.success) throw new Error(res?.message || 'Update failed');
 
       setProducts(prev => prev.map(p => p._id === editingProduct
@@ -1223,14 +1179,7 @@ const InventoryManagement = memo<{
       setEditingProduct(null);
       setEditFormData({});
       showNotification('Product updated successfully', 'success');
-      
-      // Refresh to ensure consistency
-      setTimeout(() => {
-        fetchProducts();
-      }, 500);
-      
     } catch (err: any) {
-      console.error('❌ Inline edit error:', err);
       showNotification(`Update failed: ${err.message || 'Unknown error'}`, 'error');
     } finally {
       setIsUpdating(false);
@@ -1622,175 +1571,6 @@ const InventoryManagement = memo<{
           </div>
         </div>
       )}
-
-      <style >{`
-        /* Pricing Tiers Styles */
-        .pricing-tiers-edit {
-          display: flex;
-          flex-direction: column;
-          gap: 4px;
-          min-width: 150px;
-        }
-
-        .tier-row {
-          display: flex;
-          align-items: center;
-          gap: 4px;
-        }
-
-        .tier-row label {
-          font-size: 11px;
-          min-width: 35px;
-          font-weight: 500;
-        }
-
-        .edit-input-small {
-          width: 60px;
-          padding: 2px 4px;
-          font-size: 12px;
-          border: 1px solid #ddd;
-          border-radius: 4px;
-        }
-
-        .edit-tiers-btn, .view-tiers-btn {
-          background: #007bff;
-          color: white;
-          border: none;
-          padding: 2px 6px;
-          border-radius: 4px;
-          cursor: pointer;
-          font-size: 12px;
-        }
-
-        .pricing-tiers-display {
-          display: flex;
-          flex-direction: column;
-          gap: 4px;
-          align-items: center;
-        }
-
-        .tiers-text {
-          font-size: 12px;
-          color: #666;
-        }
-
-        /* Modal Styles */
-        .modal-overlay {
-          position: fixed;
-          top: 0;
-          left: 0;
-          right: 0;
-          bottom: 0;
-          background: rgba(0, 0, 0, 0.5);
-          display: flex;
-          justify-content: center;
-          align-items: center;
-          z-index: 1000;
-        }
-
-        .pricing-modal {
-          background: white;
-          border-radius: 8px;
-          padding: 20px;
-          min-width: 400px;
-          max-width: 600px;
-          max-height: 80vh;
-          overflow-y: auto;
-        }
-
-        .modal-header {
-          display: flex;
-          justify-content: space-between;
-          align-items: center;
-          margin-bottom: 20px;
-          border-bottom: 1px solid #eee;
-          padding-bottom: 10px;
-        }
-
-        .tier-edit-row {
-          display: flex;
-          gap: 10px;
-          margin-bottom: 10px;
-          align-items: center;
-        }
-
-        .tier-input {
-          padding: 8px;
-          border: 1px solid #ddd;
-          border-radius: 4px;
-          flex: 1;
-        }
-
-        .remove-tier {
-          background: #dc3545;
-          color: white;
-          border: none;
-          padding: 8px;
-          border-radius: 4px;
-          cursor: pointer;
-        }
-
-        .add-tier-btn {
-          background: #28a745;
-          color: white;
-          border: none;
-          padding: 10px 15px;
-          border-radius: 4px;
-          cursor: pointer;
-          margin-top: 10px;
-        }
-
-        .modal-footer {
-          display: flex;
-          gap: 10px;
-          justify-content: flex-end;
-          margin-top: 20px;
-          border-top: 1px solid #eee;
-          padding-top: 15px;
-        }
-
-        .save-tiers-btn, .cancel-tiers-btn {
-          padding: 10px 15px;
-          border: none;
-          border-radius: 4px;
-          cursor: pointer;
-        }
-
-        .save-tiers-btn {
-          background: #007bff;
-          color: white;
-        }
-
-        .cancel-tiers-btn {
-          background: #6c757d;
-          color: white;
-        }
-
-        /* Image fix */
-        .product-image {
-          width: 80px;
-          height: 80px;
-          display: flex;
-          align-items: center;
-          justify-content: center;
-          border: 1px solid #eee;
-          border-radius: 8px;
-          overflow: hidden;
-          background: #f8f9fa;
-        }
-
-        .product-image img {
-          width: 100%;
-          height: 100%;
-          object-fit: cover;
-          display: block;
-        }
-
-        .no-image {
-          font-size: 24px;
-          color: #6c757d;
-        }
-      `}</style>
     </div>
   );
 });
