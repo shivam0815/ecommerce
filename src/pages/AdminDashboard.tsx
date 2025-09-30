@@ -965,8 +965,7 @@ const ProductManagement = memo<{
   );
 });
 
-/* ------------------------------ Inventory Tab ----------------------------- */
-/* ------------------------------ Inventory Tab ----------------------------- */
+
 const InventoryManagement = memo<{
   showNotification: (message: string, type: 'success' | 'error') => void;
   checkNetworkStatus: () => boolean;

@@ -22,11 +22,17 @@ interface AuthenticatedUser {
 const cartCache = new NodeCache({ stdTTL: 10, checkperiod: 20 });
 
 /* ────────────────────────────────────────────────────────────── */
-/* LIMITS & MOQs                                                 */
+/* LIMITS & RULES                                                */
 /* ────────────────────────────────────────────────────────────── */
 const MAX_ORDER_QTY = 1000;
-const WHATSAPP_QTY_THRESHOLD = 110;
-console.warn("⚠️ MAX_ORDER_QTY is set to", MAX_ORDER_QTY);
+/**
+ * Business rule:
+ *   - Show price & allow checkout up to 100
+ *   - For quantities > 100, route to WhatsApp
+ */
+const WHATSAPP_AFTER_QTY = 100;
+
+console.warn("⚠️ MAX_ORDER_QTY is set to", MAX_ORDER_QTY, "— WhatsApp after", WHATSAPP_AFTER_QTY);
 
 const CATEGORY_MOQ: Record<string, number> = {
   "Car Chargers": 10,
@@ -80,9 +86,12 @@ const clampQty = (desired: number, product: any): number => {
   return snapped;
 };
 
+const shouldRouteToWhatsapp = (qty: number) => qty > WHATSAPP_AFTER_QTY;
+
 /**
- * Recompute line prices (dynamic), line clamps, total & flags.
- * Mutates the provided cart doc. Returns { requiresWhatsapp }.
+ * Recompute line prices (dynamic), apply caps, total & flags.
+ * - Caps any stray legacy line items to 100 (keeps cart valid)
+ * - Flags requiresWhatsapp if any line tried to exceed 100
  */
 const recomputeCartAndFlags = async (cartDoc: any) => {
   let total = 0;
@@ -94,22 +103,24 @@ const recomputeCartAndFlags = async (cartDoc: any) => {
     const p = it.productId;
     if (!p || !p.isActive || !p.inStock) return it;
 
-    const clamped = clampQty(it.quantity, p);
-    if (clamped < 1) return it; // keep as-is; cleanup happens later if needed
+    let clamped = clampQty(it.quantity, p);
+    if (clamped < 1) return it;
+
+    if (shouldRouteToWhatsapp(clamped)) {
+      requiresWhatsapp = true;
+      // Cap to 100 so totals are coherent; UI will prompt WA anyway.
+      clamped = WHATSAPP_AFTER_QTY;
+    }
+
     it.quantity = clamped;
 
-    const unitPrice =
-      Number(resolveUnitPrice(p, clamped)) || Number(p.price) || 0;
+    const unitPrice = Number(resolveUnitPrice(p, clamped)) || Number(p.price) || 0;
     it.price = unitPrice;
 
-    const lineTotal = unitPrice * clamped;
-    total += lineTotal;
-
-    if (clamped > WHATSAPP_QTY_THRESHOLD) requiresWhatsapp = true;
+    total += unitPrice * clamped;
     return it;
   });
 
-  // Round down to avoid paise drift in B2B totals (optional)
   cartDoc.totalAmount = Math.max(0, Math.floor(total));
   return { requiresWhatsapp };
 };
@@ -147,18 +158,19 @@ export const getCart = async (req: Request, res: Response): Promise<void> => {
     const key = cacheKeyFor(user.id);
     const cached = cartCache.get(key);
     if (cached) {
-      res.json({ success: true, cart: cached, cached: true });
+      res.json({ success: true, cart: cached, cached: true, whatsappAfterQty: WHATSAPP_AFTER_QTY });
       return;
     }
 
     const cart = await getOrInitCart(user.id);
     const { requiresWhatsapp } = await recomputeCartAndFlags(cart);
+
     // Drop any lines that ended up <1
     cart.items = cart.items.filter((it: any) => Number(it.quantity) > 0);
     await cart.save();
 
     cartCache.set(key, cart);
-    res.json({ success: true, cart, requiresWhatsapp, cached: false });
+    res.json({ success: true, cart, requiresWhatsapp, whatsappAfterQty: WHATSAPP_AFTER_QTY, cached: false });
   } catch (error: any) {
     console.error("Get cart error:", error);
     res.status(500).json({
@@ -197,9 +209,7 @@ export const addToCart = async (req: Request, res: Response): Promise<void> => {
     if (mongoose.Types.ObjectId.isValid(productId)) {
       product = await Product.findById(productId);
     } else {
-      const allProducts = await Product.find({ isActive: true }).sort({
-        createdAt: 1,
-      });
+      const allProducts = await Product.find({ isActive: true }).sort({ createdAt: 1 });
       const productIndex = parseInt(productId, 10) - 1;
       if (productIndex >= 0 && productIndex < allProducts.length) {
         product = allProducts[productIndex];
@@ -225,7 +235,6 @@ export const addToCart = async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    let cart = await Cart.findOne({ userId: user.id });
     const initialClamp = clampQty(Number(quantity) || 1, product);
     if (initialClamp < 1) {
       res.status(400).json({
@@ -238,6 +247,18 @@ export const addToCart = async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
+    // 🚫 Enforce WhatsApp-only beyond 100
+    if (shouldRouteToWhatsapp(initialClamp)) {
+      res.status(409).json({
+        success: false,
+        code: "WHATSAPP_REQUIRED",
+        message: `For quantities above ${WHATSAPP_AFTER_QTY}, please enquire on WhatsApp.`,
+        whatsappAfterQty: WHATSAPP_AFTER_QTY,
+      });
+      return;
+    }
+
+    let cart = await Cart.findOne({ userId: user.id });
     if (!cart) {
       cart = new Cart({
         userId: user.id,
@@ -253,6 +274,7 @@ export const addToCart = async (req: Request, res: Response): Promise<void> => {
           Number(cart.items[existingItemIndex].quantity || 0) +
           Number(quantity || 0);
         const clamped = clampQty(desired, product);
+
         if (clamped < 1) {
           res.status(400).json({
             success: false,
@@ -263,6 +285,17 @@ export const addToCart = async (req: Request, res: Response): Promise<void> => {
           });
           return;
         }
+
+        if (shouldRouteToWhatsapp(clamped)) {
+          res.status(409).json({
+            success: false,
+            code: "WHATSAPP_REQUIRED",
+            message: `For quantities above ${WHATSAPP_AFTER_QTY}, please enquire on WhatsApp.`,
+            whatsappAfterQty: WHATSAPP_AFTER_QTY,
+          });
+          return;
+        }
+
         cart.items[existingItemIndex].quantity = clamped;
       } else {
         cart.items.push({
@@ -274,7 +307,6 @@ export const addToCart = async (req: Request, res: Response): Promise<void> => {
     }
 
     const { requiresWhatsapp } = await recomputeCartAndFlags(cart);
-    // Cleanup lines clamped to 0 (defensive)
     cart.items = cart.items.filter((it: any) => Number(it.quantity) > 0);
 
     await cart.save();
@@ -286,6 +318,7 @@ export const addToCart = async (req: Request, res: Response): Promise<void> => {
       message: "Item added to cart successfully",
       cart,
       requiresWhatsapp,
+      whatsappAfterQty: WHATSAPP_AFTER_QTY,
     });
   } catch (error: any) {
     console.error("❌ Add to cart error:", error);
@@ -381,6 +414,17 @@ export const updateCartItem = async (
       return;
     }
 
+    // 🚫 Enforce WhatsApp-only beyond 100
+    if (shouldRouteToWhatsapp(clamped)) {
+      res.status(409).json({
+        success: false,
+        code: "WHATSAPP_REQUIRED",
+        message: `For quantities above ${WHATSAPP_AFTER_QTY}, please enquire on WhatsApp.`,
+        whatsappAfterQty: WHATSAPP_AFTER_QTY,
+      });
+      return;
+    }
+
     cart.items[itemIndex].quantity = clamped;
 
     const { requiresWhatsapp } = await recomputeCartAndFlags(cart);
@@ -390,7 +434,7 @@ export const updateCartItem = async (
     await cart.populate("items.productId");
 
     cartCache.del(cacheKeyFor(user.id));
-    res.json({ success: true, message: "Cart updated", cart, requiresWhatsapp });
+    res.json({ success: true, message: "Cart updated", cart, requiresWhatsapp, whatsappAfterQty: WHATSAPP_AFTER_QTY });
   } catch (error: any) {
     console.error("Update cart error:", error);
     res.status(500).json({
@@ -453,6 +497,7 @@ export const removeFromCart = async (
       message: "Item removed from cart",
       cart,
       requiresWhatsapp,
+      whatsappAfterQty: WHATSAPP_AFTER_QTY,
     });
   } catch (error: any) {
     console.error("Remove from cart error:", error);
@@ -484,12 +529,12 @@ export const mergeGuestCart = async (
       ? (req.body as any).items
       : [];
 
-    // Normalize & dedupe guest items
+    // Normalize & dedupe guest items (cap each blob to 100 here itself)
     const map = new Map<string, { productId: string; qty: number }>();
     for (const it of incoming) {
       const pid = String(it?.productId || "").trim();
       if (!mongoose.Types.ObjectId.isValid(pid)) continue;
-      const qty = Math.max(1, Math.min(Number(it?.qty ?? it?.quantity ?? 1) || 1, 100));
+      let qty = Math.max(1, Math.min(Number(it?.qty ?? it?.quantity ?? 1) || 1, 100));
       const key = `${pid}::`; // variant placeholder
       const prev = map.get(key);
       if (prev) prev.qty = Math.min(100, prev.qty + qty);
@@ -509,6 +554,7 @@ export const mergeGuestCart = async (
         success: true,
         cart,
         requiresWhatsapp,
+        whatsappAfterQty: WHATSAPP_AFTER_QTY,
         message: "No guest items to merge",
       });
       return;
@@ -521,13 +567,13 @@ export const mergeGuestCart = async (
       );
       if (idx >= 0) {
         cart.items[idx].quantity = Math.min(
-          MAX_ORDER_QTY,
+          WHATSAPP_AFTER_QTY, // cap to 100 during merge
           Number(cart.items[idx].quantity || 0) + g.qty
         );
       } else {
         cart.items.push({
           productId: new mongoose.Types.ObjectId(g.productId),
-          quantity: g.qty,
+          quantity: Math.min(WHATSAPP_AFTER_QTY, g.qty),
           price: 0, // recomputed
         } as any);
       }
@@ -544,6 +590,7 @@ export const mergeGuestCart = async (
       success: true,
       cart,
       requiresWhatsapp,
+      whatsappAfterQty: WHATSAPP_AFTER_QTY,
       message: "Guest cart merged",
     });
   } catch (error: any) {

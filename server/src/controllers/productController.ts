@@ -1,7 +1,10 @@
-// src/controllers/productController.ts - COMPLETE VERSION WITH SKU & META SUPPORT
+// src/controllers/productController.ts - COMPLETE VERSION WITH SKU, META & PRICING WINDOWS (10–40, 50–90, 100) + WA >100
 import { Request, Response } from 'express';
 import Product from '../models/Product';
 import type { AuthRequest } from '../types';
+
+/* ────────────────────────────────────────────────────────────── */
+/* Helpers: parsing / normalization */
 
 const normArray = (v: any) => {
   if (Array.isArray(v)) return v;
@@ -35,30 +38,98 @@ const normSpecs = (value: any) => {
   return {};
 };
 
-// NEW: SKU validation helper
+// Pricing windows: exactly one tier allowed per window
+const PRICING_WINDOWS = [
+  { key: '10-40', match: (q: number) => q >= 10 && q <= 40 },
+  { key: '50-90', match: (q: number) => q >= 50 && q <= 90 },
+  { key: '100',   match: (q: number) => q === 100 },
+] as const;
+
+type Tier = { minQty: number; unitPrice: number };
+
+const parsePricingTiers = (val: any): Tier[] => {
+  let tiers: any = val;
+  if (typeof val === 'string') {
+    try {
+      tiers = JSON.parse(val);
+    } catch {
+      tiers = [];
+    }
+  }
+  if (!Array.isArray(tiers)) return [];
+  // keep only objects with valid numbers
+  return tiers
+    .map((t) => ({
+      minQty: Number(t?.minQty),
+      unitPrice: Number(t?.unitPrice),
+    }))
+    .filter((t) => Number.isFinite(t.minQty) && Number.isFinite(t.unitPrice) && t.minQty > 0 && t.unitPrice >= 0);
+};
+
+// Keep at most one entry per allowed window; choose the one with **lowest unitPrice** if duplicates appear
+const normalizePricingTiersToWindows = (tiers: Tier[]): Tier[] => {
+  const byWindow: Record<string, Tier | undefined> = {};
+  for (const t of tiers) {
+    const w = PRICING_WINDOWS.find((w) => w.match(t.minQty));
+    if (!w) continue; // ignore out-of-policy tiers
+    const existing = byWindow[w.key];
+    if (!existing || t.unitPrice < existing.unitPrice) {
+      byWindow[w.key] = { minQty: t.minQty, unitPrice: t.unitPrice };
+    }
+  }
+  // If admin provided none for a window, we simply omit it (model-level validation may still enforce rules)
+  const cleaned: Tier[] = [];
+  for (const w of PRICING_WINDOWS) {
+    if (byWindow[w.key]) cleaned.push(byWindow[w.key]!);
+  }
+  // sort by minQty asc (100 will come last)
+  cleaned.sort((a, b) => a.minQty - b.minQty);
+  return cleaned;
+};
+
+// Server-side validation mirroring model rules (defensive)
+const validatePricingWindows = (tiers: Tier[]) => {
+  if (tiers.length > 3) {
+    throw new Error('Only three pricing tiers allowed: one in 10–40, one in 50–90, and one at exactly 100.');
+  }
+  const found: Record<string, boolean> = { '10-40': false, '50-90': false, '100': false };
+  for (const t of tiers) {
+    const w = PRICING_WINDOWS.find((w) => w.match(t.minQty));
+    if (!w) throw new Error('Tier minQty must be in 10–40, 50–90, or exactly 100.');
+    if (found[w.key]) throw new Error(`Duplicate tier for window ${w.key} — keep only one entry per window.`);
+    found[w.key] = true;
+  }
+};
+
+// Compute unit price for a given qty using given tiers (sorted by minQty ascending)
+const computeUnitPrice = (basePrice: number, tiers: Tier[], qty: number): number => {
+  if (!qty || qty < 1) return basePrice;
+  let unit = basePrice;
+  for (const t of tiers) {
+    if (qty >= t.minQty) unit = t.unitPrice;
+    else break;
+  }
+  return unit;
+};
+
+/* ────────────────────────────────────────────────────────────── */
+/* SKU & Meta helpers */
+
 const validateSKU = async (sku: string | undefined, excludeId?: string): Promise<string | null> => {
   if (!sku) return null;
-  
   const trimmedSKU = sku.trim();
   if (trimmedSKU.length < 3) {
     throw new Error('SKU must be at least 3 characters long');
   }
-
-  // Check for uniqueness
   const query: any = { sku: trimmedSKU };
-  if (excludeId) {
-    query._id = { $ne: excludeId };
-  }
-
+  if (excludeId) query._id = { $ne: excludeId };
   const existingProduct = await Product.findOne(query);
   if (existingProduct) {
     throw new Error(`SKU "${trimmedSKU}" already exists. Please use a unique SKU.`);
   }
-
   return trimmedSKU;
 };
 
-// NEW: Meta fields validation helper
 const validateMetaFields = (metaTitle?: string, metaDescription?: string) => {
   if (metaTitle && metaTitle.length > 60) {
     throw new Error('Meta title must be 60 characters or less for optimal SEO');
@@ -68,24 +139,53 @@ const validateMetaFields = (metaTitle?: string, metaDescription?: string) => {
   }
 };
 
-// NEW: Normalize product output for frontend compatibility
-const normalizeProductOutput = (product: any) => {
+/* ────────────────────────────────────────────────────────────── */
+/* Output normalization (adds WA threshold + optional qty preview) */
+
+const WHATSAPP_AFTER_QTY = 100;
+
+const normalizeProductOutput = (product: any, opts?: { qty?: number }) => {
   if (!product) return product;
-  
+
+  // If it's a mongoose doc, convert to plain object (include virtuals)
   const normalized = product.toObject ? product.toObject({ virtuals: true }) : product;
-  
+
+  // Derive tiers from doc (already normalized by model), but be defensive
+  const tiers: Tier[] = Array.isArray(normalized.pricingTiers)
+    ? normalized.pricingTiers.map((t: any) => ({ minQty: Number(t.minQty), unitPrice: Number(t.unitPrice) }))
+    : [];
+
+  const qty = Number(opts?.qty ?? NaN);
+  const hasQty = Number.isFinite(qty);
+
+  // Preview computation only if qty supplied
+  const shouldRouteToWhatsApp = hasQty ? qty > WHATSAPP_AFTER_QTY : undefined;
+  const unitPriceForQty = hasQty ? computeUnitPrice(normalized.price, tiers.sort((a, b) => a.minQty - b.minQty), qty) : undefined;
+
   return {
     ...normalized,
-    // Ensure stock field exists for frontend compatibility
+    // Frontend compatibility
     stock: normalized.stock || normalized.stockQuantity || 0,
-    // Ensure meta fields are accessible (check both flattened and nested)
     metaTitle: normalized.metaTitle || normalized.seo?.metaTitle || '',
     metaDescription: normalized.metaDescription || normalized.seo?.metaDescription || '',
     sku: normalized.sku || '',
+    // WhatsApp routing hint (virtual in model, but ensure presence here)
+    whatsappAfterQty: normalized.whatsappAfterQty ?? WHATSAPP_AFTER_QTY,
+    // Optional pricing preview
+    _pricingPreview: hasQty
+      ? {
+          qty,
+          shouldRouteToWhatsApp: Boolean(shouldRouteToWhatsApp),
+          unitPriceForQty,
+        }
+      : undefined,
   };
 };
 
-// ✅ Create Product (Admin) - UPDATED with SKU & Meta support
+/* ────────────────────────────────────────────────────────────── */
+/* Controllers */
+
+// ✅ Create Product (Admin) - UPDATED with SKU, Meta & Pricing windows support
 export const createProduct = async (req: AuthRequest, res: Response) => {
   try {
     const {
@@ -103,18 +203,18 @@ export const createProduct = async (req: AuthRequest, res: Response) => {
       specifications = {},
       tags = [],
       images = [],
-      // NEW: SKU and Meta fields
+      // SKU & Meta fields
       sku,
       metaTitle,
       metaDescription,
-      // Pricing tiers
+      // Pricing tiers (expect array or JSON string)
       pricingTiers = [],
       minOrderQtyOverride,
       packSize = 1,
       incrementStep = 1,
     } = req.body;
 
-    // Validation
+    // Required fields
     if (!name?.trim() || !price || !category) {
       return res.status(400).json({
         success: false,
@@ -127,34 +227,22 @@ export const createProduct = async (req: AuthRequest, res: Response) => {
       });
     }
 
-    // NEW: Validate SKU if provided
+    // SKU & Meta validation
     let validatedSKU: string | null = null;
     try {
       validatedSKU = await validateSKU(sku);
-    } catch (error: any) {
-      return res.status(400).json({
-        success: false,
-        message: error.message
-      });
-    }
-
-    // NEW: Validate meta fields
-    try {
       validateMetaFields(metaTitle, metaDescription);
     } catch (error: any) {
-      return res.status(400).json({
-        success: false,
-        message: error.message
-      });
+      return res.status(400).json({ success: false, message: error.message });
     }
 
     // Handle stock field mapping
     const finalStockQuantity = stockQuantity || stock || 0;
 
-    // Handle pricing
+    // Handle base/compare/original price
     const parsedPrice = Number(price);
-    let finalCompareAtPrice = null;
-    let finalOriginalPrice = null;
+    let finalCompareAtPrice: number | null = null;
+    let finalOriginalPrice: number | null = null;
 
     if (compareAtPrice) {
       const comparePrice = Number(compareAtPrice);
@@ -168,6 +256,15 @@ export const createProduct = async (req: AuthRequest, res: Response) => {
         finalOriginalPrice = origPrice;
         finalCompareAtPrice = origPrice;
       }
+    }
+
+    // Pricing tiers: parse → normalize → validate
+    const parsedTiers = parsePricingTiers(pricingTiers);
+    const cleanTiers = normalizePricingTiersToWindows(parsedTiers);
+    try {
+      if (cleanTiers.length > 0) validatePricingWindows(cleanTiers);
+    } catch (err: any) {
+      return res.status(400).json({ success: false, message: err.message });
     }
 
     const productData = {
@@ -184,29 +281,25 @@ export const createProduct = async (req: AuthRequest, res: Response) => {
       specifications: normSpecs(specifications),
       tags: normArray(tags),
       images: normArray(images),
-      imageUrl: normArray(images)[0] || undefined, // Set first image as primary
+      imageUrl: normArray(images)[0] || undefined,
 
-      // NEW: SKU and Meta fields
+      // SKU & Meta
       sku: validatedSKU || undefined,
       metaTitle: metaTitle?.trim() || undefined,
       metaDescription: metaDescription?.trim() || undefined,
 
-      // Pricing tiers
-      pricingTiers: Array.isArray(pricingTiers) ? pricingTiers : [],
+      // Pricing tiers (policy-safe)
+      pricingTiers: cleanTiers,
       minOrderQtyOverride: minOrderQtyOverride ? Number(minOrderQtyOverride) : null,
       packSize: Number(packSize) || 1,
       incrementStep: Number(incrementStep) || 1,
 
-      // Legacy counters (keep if you use them elsewhere)
+      // Counters / visibility
       rating: 0,
       reviews: 0,
-
-      // Visibility
       isActive: true,
       inStock: Number(finalStockQuantity) > 0,
       status: 'active',
-
-      // Aggregates used by cards
       averageRating: 0,
       ratingsCount: 0,
     };
@@ -222,7 +315,7 @@ export const createProduct = async (req: AuthRequest, res: Response) => {
 
   } catch (error: any) {
     console.error('❌ Create product error:', error);
-    
+
     if (error.name === 'ValidationError') {
       const validationErrors = Object.values(error.errors).map((err: any) => err.message);
       return res.status(400).json({
@@ -239,7 +332,7 @@ export const createProduct = async (req: AuthRequest, res: Response) => {
   }
 };
 
-// ✅ Get Products (Public - User Facing) - UPDATED with SKU search
+// ✅ Get Products (Public) - now supports optional qty preview (query ?qty=XX)
 export const getProducts = async (req: Request, res: Response) => {
   try {
     const {
@@ -252,7 +345,10 @@ export const getProducts = async (req: Request, res: Response) => {
       minPrice,
       maxPrice,
       stockFilter,
+      qty, // optional: preview pricing for this qty
     } = req.query as any;
+
+    const qtyNum = qty ? Number(qty) : undefined;
 
     const query: any = { isActive: true, status: 'active' };
 
@@ -260,7 +356,6 @@ export const getProducts = async (req: Request, res: Response) => {
       query.category = { $regex: new RegExp(category, 'i') };
     }
 
-    // NEW: Enhanced search including SKU and meta fields
     if (search && search !== '') {
       const searchRegex = new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
       query.$or = [
@@ -268,8 +363,8 @@ export const getProducts = async (req: Request, res: Response) => {
         { description: searchRegex },
         { tags: { $in: [searchRegex] } },
         { brand: searchRegex },
-        { sku: searchRegex }, // NEW: Search by SKU
-        { metaTitle: searchRegex }, // NEW: Search by meta title
+        { sku: searchRegex },
+        { metaTitle: searchRegex },
       ];
     }
 
@@ -279,7 +374,6 @@ export const getProducts = async (req: Request, res: Response) => {
       if (maxPrice) query.price.$lte = Number(maxPrice);
     }
 
-    // NEW: Stock filtering
     if (stockFilter) {
       switch (stockFilter) {
         case 'in-stock':
@@ -299,7 +393,7 @@ export const getProducts = async (req: Request, res: Response) => {
     if (allowedSortFields.includes(sortBy)) {
       sortOptions[sortBy] = sortOrder === 'asc' ? 1 : -1;
     } else {
-      sortOptions.createdAt = -1; // Default sort
+      sortOptions.createdAt = -1;
     }
 
     const products = await Product.find(query)
@@ -312,8 +406,7 @@ export const getProducts = async (req: Request, res: Response) => {
     const totalProducts = await Product.countDocuments(query);
     const totalPages = Math.ceil(totalProducts / Number(limit));
 
-    // Normalize all products for frontend
-    const normalizedProducts = products.map(normalizeProductOutput);
+    const normalizedProducts = products.map((p) => normalizeProductOutput(p, { qty: qtyNum }));
 
     res.json({
       success: true,
@@ -337,7 +430,7 @@ export const getProducts = async (req: Request, res: Response) => {
   }
 };
 
-// ✅ Get All Products (Admin) - UPDATED with SKU and Meta search
+// ✅ Get All Products (Admin) - with SKU/Meta search; optional qty preview (?qty=)
 export const getAllProducts = async (req: AuthRequest, res: Response) => {
   try {
     const {
@@ -348,20 +441,22 @@ export const getAllProducts = async (req: AuthRequest, res: Response) => {
       status,
       stockFilter,
       sortBy = 'createdAt',
-      sortOrder = 'desc'
+      sortOrder = 'desc',
+      qty,
     } = req.query as any;
+
+    const qtyNum = qty ? Number(qty) : undefined;
 
     const query: any = {};
 
-    // NEW: Enhanced admin search including SKU and meta fields
     if (search) {
       const searchRegex = new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
       query.$or = [
         { name: searchRegex },
         { description: searchRegex },
         { brand: searchRegex },
-        { sku: searchRegex }, // NEW: Search by SKU
-        { metaTitle: searchRegex }, // NEW: Search by meta title
+        { sku: searchRegex },
+        { metaTitle: searchRegex },
         { category: searchRegex },
       ];
     }
@@ -374,7 +469,6 @@ export const getAllProducts = async (req: AuthRequest, res: Response) => {
       query.status = status;
     }
 
-    // NEW: Stock filtering for admin
     if (stockFilter) {
       switch (stockFilter) {
         case 'in-stock':
@@ -394,7 +488,7 @@ export const getAllProducts = async (req: AuthRequest, res: Response) => {
     if (allowedSortFields.includes(sortBy)) {
       sortOptions[sortBy] = sortOrder === 'asc' ? 1 : -1;
     } else {
-      sortOptions.createdAt = -1; // Default sort
+      sortOptions.createdAt = -1;
     }
 
     const products = await Product.find(query)
@@ -406,8 +500,7 @@ export const getAllProducts = async (req: AuthRequest, res: Response) => {
 
     const totalProducts = await Product.countDocuments(query);
 
-    // Normalize all products for admin frontend
-    const normalizedProducts = products.map(normalizeProductOutput);
+    const normalizedProducts = products.map((p) => normalizeProductOutput(p, { qty: qtyNum }));
 
     res.json({
       success: true,
@@ -432,7 +525,7 @@ export const getAllProducts = async (req: AuthRequest, res: Response) => {
   }
 };
 
-// ✅ Debug endpoint - UPDATED with SKU and Meta info
+// ✅ Debug endpoint - with SKU/Meta
 export const debugProducts = async (req: Request, res: Response) => {
   try {
     const allProducts = await Product.find({})
@@ -445,7 +538,6 @@ export const debugProducts = async (req: Request, res: Response) => {
       $or: [{ isActive: false }, { status: { $ne: 'active' } }]
     }).countDocuments();
 
-    // NEW: Count products with SKUs and meta titles
     const productsWithSKU = await Product.countDocuments({ sku: { $exists: true, $nin: [null, ''] } });
     const productsWithMetaTitle = await Product.countDocuments({ metaTitle: { $exists: true, $nin: [null, ''] } });
 
@@ -482,13 +574,15 @@ export const debugProducts = async (req: Request, res: Response) => {
   }
 };
 
-// ✅ Get single product (explicit select for consistency)
+// ✅ Get single product - supports optional qty preview (?qty=)
 export const getProductById = async (req: Request, res: Response) => {
   try {
     const { id } = req.params;
+    const { qty } = req.query as any;
+    const qtyNum = qty ? Number(qty) : undefined;
 
     const product = await Product.findById(id)
-      .select('-__v') // includes averageRating, ratingsCount, sku, metaTitle, metaDescription
+      .select('-__v')
       .lean();
 
     if (!product) {
@@ -500,7 +594,7 @@ export const getProductById = async (req: Request, res: Response) => {
 
     res.json({
       success: true,
-      product: normalizeProductOutput(product)
+      product: normalizeProductOutput(product, { qty: qtyNum })
     });
 
   } catch (error: any) {
@@ -512,41 +606,32 @@ export const getProductById = async (req: Request, res: Response) => {
   }
 };
 
-// ✅ Update product - UPDATED with SKU & Meta support
+// ✅ Update product - UPDATED with SKU, Meta & Pricing windows support
 export const updateProduct = async (req: AuthRequest, res: Response) => {
   try {
     const { id } = req.params;
     const updateData = { ...req.body };
 
-    // Handle stock field mapping
+    // stock mapping
     if (updateData.stock !== undefined && updateData.stockQuantity === undefined) {
       updateData.stockQuantity = updateData.stock;
     }
-
     if (updateData.stockQuantity !== undefined) {
       updateData.inStock = Number(updateData.stockQuantity) > 0;
     }
 
-    // NEW: Validate SKU if being updated
+    // SKU / Meta validation
     if (updateData.sku !== undefined) {
       try {
         updateData.sku = await validateSKU(updateData.sku, id) || undefined;
       } catch (error: any) {
-        return res.status(400).json({
-          success: false,
-          message: error.message
-        });
+        return res.status(400).json({ success: false, message: error.message });
       }
     }
-
-    // NEW: Validate meta fields
     try {
       validateMetaFields(updateData.metaTitle, updateData.metaDescription);
     } catch (error: any) {
-      return res.status(400).json({
-        success: false,
-        message: error.message
-      });
+      return res.status(400).json({ success: false, message: error.message });
     }
 
     // Clean meta fields
@@ -557,7 +642,7 @@ export const updateProduct = async (req: AuthRequest, res: Response) => {
       updateData.metaDescription = updateData.metaDescription ? updateData.metaDescription.trim() : undefined;
     }
 
-    // Handle pricing validation
+    // Price consistency
     if (updateData.price && updateData.compareAtPrice) {
       const price = Number(updateData.price);
       const comparePrice = Number(updateData.compareAtPrice);
@@ -569,7 +654,19 @@ export const updateProduct = async (req: AuthRequest, res: Response) => {
       }
     }
 
-    // Update isActive based on status
+    // Pricing tiers normalization & validation if provided
+    if (updateData.pricingTiers !== undefined) {
+      const parsedTiers = parsePricingTiers(updateData.pricingTiers);
+      const cleanTiers = normalizePricingTiersToWindows(parsedTiers);
+      try {
+        if (cleanTiers.length > 0) validatePricingWindows(cleanTiers);
+      } catch (err: any) {
+        return res.status(400).json({ success: false, message: err.message });
+      }
+      updateData.pricingTiers = cleanTiers;
+    }
+
+    // status to isActive
     if (updateData.status) {
       updateData.isActive = updateData.status === 'active';
     }
@@ -581,10 +678,7 @@ export const updateProduct = async (req: AuthRequest, res: Response) => {
     );
 
     if (!product) {
-      return res.status(404).json({
-        success: false,
-        message: 'Product not found'
-      });
+      return res.status(404).json({ success: false, message: 'Product not found' });
     }
 
     res.json({
@@ -595,7 +689,7 @@ export const updateProduct = async (req: AuthRequest, res: Response) => {
 
   } catch (error: any) {
     console.error('❌ Update product error:', error);
-    
+
     if (error.name === 'ValidationError') {
       const validationErrors = Object.values(error.errors).map((err: any) => err.message);
       return res.status(400).json({
@@ -640,7 +734,7 @@ export const deleteProduct = async (req: AuthRequest, res: Response) => {
   }
 };
 
-// NEW: Bulk operations for admin dashboard compatibility
+// ✅ Bulk update (Admin) - Meta validation preserved
 export const bulkUpdateProducts = async (req: AuthRequest, res: Response) => {
   try {
     const { productIds, updateData } = req.body;
@@ -659,19 +753,26 @@ export const bulkUpdateProducts = async (req: AuthRequest, res: Response) => {
       });
     }
 
-    // Validate meta fields if being updated
     try {
       validateMetaFields(updateData.metaTitle, updateData.metaDescription);
     } catch (error: any) {
-      return res.status(400).json({
-        success: false,
-        message: error.message
-      });
+      return res.status(400).json({ success: false, message: error.message });
     }
 
-    // Update isActive based on status if provided
     if (updateData.status) {
       updateData.isActive = updateData.status === 'active';
+    }
+
+    // If bulk-updating pricing tiers, normalize them too
+    if (updateData.pricingTiers !== undefined) {
+      const parsedTiers = parsePricingTiers(updateData.pricingTiers);
+      const cleanTiers = normalizePricingTiersToWindows(parsedTiers);
+      try {
+        if (cleanTiers.length > 0) validatePricingWindows(cleanTiers);
+      } catch (err: any) {
+        return res.status(400).json({ success: false, message: err.message });
+      }
+      updateData.pricingTiers = cleanTiers;
     }
 
     const result = await Product.updateMany(
@@ -697,20 +798,20 @@ export const bulkUpdateProducts = async (req: AuthRequest, res: Response) => {
   }
 };
 
-// NEW: Get products with low stock
+// ✅ Low stock
 export const getLowStockProducts = async (req: AuthRequest, res: Response) => {
   try {
     const threshold = Number(req.query.threshold) || 10;
-    
-    const products = await Product.find({ 
-      stockQuantity: { $gt: 0, $lte: threshold }, 
-      isActive: true 
-    })
-    .sort({ stockQuantity: 1 })
-    .select('-__v')
-    .lean();
 
-    const normalizedProducts = products.map(normalizeProductOutput);
+    const products = await Product.find({
+      stockQuantity: { $gt: 0, $lte: threshold },
+      isActive: true
+    })
+      .sort({ stockQuantity: 1 })
+      .select('-__v')
+      .lean();
+
+    const normalizedProducts = products.map((p) => normalizeProductOutput(p));
 
     res.json({
       success: true,
@@ -721,9 +822,9 @@ export const getLowStockProducts = async (req: AuthRequest, res: Response) => {
     });
   } catch (error: any) {
     console.error('❌ Low stock products error:', error);
-    res.status(500).json({ 
-      success: false, 
-      message: 'Failed to fetch low stock products' 
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch low stock products'
     });
   }
 };

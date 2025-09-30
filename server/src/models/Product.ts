@@ -1,10 +1,10 @@
 // src/models/Product.ts
-import mongoose, { Schema, Document } from 'mongoose';
+import mongoose, { Schema, Document } from 'mongoose'
 
 /* ────────────────────────────────────────────────────────────── */
 /* Types */
 export type PricingTier = {
-  minQty: number;     // e.g., 10, 50, 100, 150
+  minQty: number;     // e.g., 10, 50, 100
   unitPrice: number;  // INR per piece (use paise if you prefer integers)
 };
 
@@ -79,10 +79,14 @@ export interface IProduct extends Document {
   // SEO (admin-editable) - FLATTENED for easier frontend access
   metaTitle?: string;         // Direct field for admin forms
   metaDescription?: string;   // Direct field for admin forms
-  seo?: SEOFields;           // Keep nested structure for advanced SEO
+  seo?: SEOFields;            // Keep nested structure for advanced SEO
 
   // Methods
   getUnitPriceForQty?(qty: number): number;
+
+  // WhatsApp routing helpers
+  shouldRouteToWhatsApp?(qty: number): boolean;
+  whatsappAfterQty?: number; // virtual
 
   // SEO helpers
   seoTitle?: string;         // virtual (with fallback)
@@ -320,17 +324,20 @@ productSchema.virtual('minOrderQty').get(function (this: IProduct) {
   return CATEGORY_MOQ[this.category] ?? 1;
 });
 
+// WhatsApp routing threshold: strictly greater than 100 goes to WhatsApp
+productSchema.virtual('whatsappAfterQty').get(function (this: IProduct) {
+  return 100; // >100 => WhatsApp
+});
+
 // SEO fallbacks that guarantee "compulsory for best results"
 productSchema.virtual('seoTitle').get(function (this: IProduct) {
   const site = 'Nakoda Mobile';
-  // Check flattened field first, then nested
   const t = this.metaTitle?.trim() || this.seo?.metaTitle?.trim();
   if (t) return t;
   return clamp(`${this.name} — Bulk Supplier | ${site}`, 60);
 });
 
 productSchema.virtual('seoDescription').get(function (this: IProduct) {
-  // Check flattened field first, then nested
   const d = this.metaDescription?.trim() || this.seo?.metaDescription?.trim();
   if (d) return d;
   const hint = this.category || 'mobile parts';
@@ -380,16 +387,25 @@ productSchema.pre('validate', function (next) {
     }
   }
 
-  // 3) allow only 2 windows: 10–40 and 50–100
+  // 3) allow exactly 3 windows: 10–40, 50–90, and exactly 100
   const windows = [
-    { label: '10-40',  min: 10, max: 40, found: false },
-    { label: '50-100', min: 50, max: 100, found: false },
+    { key: '10-40', match: (q: number) => q >= 10 && q <= 40, found: false },
+    { key: '50-90', match: (q: number) => q >= 50 && q <= 90, found: false },
+    { key: '100',   match: (q: number) => q === 100,          found: false },
   ];
 
+  if (tiers.length > 3) {
+    return next(new Error('Only three pricing tiers allowed: one in 10–40, one in 50–90, and one at exactly 100.'));
+  }
+
   for (const t of tiers) {
-    const w = windows.find(w => t.minQty >= w.min && t.minQty <= w.max);
-    if (!w) return next(new Error('Only two tier windows allowed: minQty must lie in 10–40 or 50–100'));
-    if (w.found) return next(new Error(`Duplicate tier for window ${w.label} — keep only one entry per window`));
+    const w = windows.find(w => w.match(t.minQty));
+    if (!w) {
+      return next(new Error('Tier minQty must be in 10–40, 50–90, or exactly 100.'));
+    }
+    if (w.found) {
+      return next(new Error(`Duplicate tier for window ${w.key} — keep only one entry per window.`));
+    }
     w.found = true;
   }
 
@@ -414,7 +430,14 @@ productSchema.pre('validate', function (next) {
 /* ────────────────────────────────────────────────────────────── */
 /** Methods */
 
+// For qty > 100, don't show price; route to WhatsApp
+productSchema.methods.shouldRouteToWhatsApp = function (this: IProduct, qty: number): boolean {
+  return Number(qty) > 100;
+};
+
 // Compute unit price for a given qty using tiers; fallback to base `price`
+// (Qty = 100 will use the "exactly 100" tier if configured. For qty > 100,
+// UI should route to WhatsApp and hide price.)
 productSchema.methods.getUnitPriceForQty = function (this: IProduct, qty: number): number {
   if (!qty || qty < 1) return this.price;
   let unit = this.price;

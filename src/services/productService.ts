@@ -27,6 +27,8 @@ export interface ProductFilters {
   sortBy?: string;
   sortOrder?: 'asc' | 'desc';
   excludeId?: string;
+  /** NEW: ask server for pricing preview & WA routing for this qty */
+  qty?: number;
 }
 
 /* ---------- helpers ---------- */
@@ -53,12 +55,9 @@ function normalizeSpecifications(input: any): Record<string, any> {
 }
 
 /**
- * The IMPORTANT part:
+ * IMPORTANT:
  * Standardize rating fields so UI always finds them.
- * - averageRating: number (0..5)
- * - rating:        number (alias of averageRating)
- * - ratingsCount:  number
- * - reviewCount / reviewsCount: same as ratingsCount (aliases)
+ * Also surface whatsappAfterQty (default 100) and pass through _pricingPreview.
  */
 function normalizeProduct(p: any): Product {
   const avg =
@@ -76,6 +75,8 @@ function normalizeProduct(p: any): Product {
     (Array.isArray(p?.reviews) ? p.reviews.length : undefined) ??
     0;
 
+  const whatsappAfterQty = coerceNumber((p as any)?.whatsappAfterQty) ?? 100;
+
   return {
     ...p,
     // normalized aggregates
@@ -86,6 +87,10 @@ function normalizeProduct(p: any): Product {
     reviewsCount: count,
     // normalized specs
     specifications: normalizeSpecifications(p?.specifications),
+    // NEW: ensure WA threshold always present
+    whatsappAfterQty,
+    // NEW: keep server's pricing preview (if provided by ?qty=)
+    _pricingPreview: (p as any)?._pricingPreview,
   } as Product;
 }
 
@@ -172,7 +177,10 @@ export const productService = {
       const params: Record<string, any> = {
         page: filters.page ?? 1,
         ...filters,
+        // ensure limit boundaries
         limit: Math.min(MAX_LIMIT, Number(filters.limit ?? DEFAULT_LIMIT) || DEFAULT_LIMIT),
+        // pass qty only if valid
+        ...(filters.qty != null ? { qty: Number(filters.qty) } : {}),
         ...(forceRefresh ? { _t: Date.now() } : {}),
       };
 
@@ -192,7 +200,6 @@ export const productService = {
       memCache.set(urlKey, { data: normalized, ts: Date.now() });
       localStorage.setItem('products-cache', JSON.stringify({ data: normalized, timestamp: Date.now() }));
 
-     
       return normalized;
     } catch (error) {
       console.error('❌ Failed to fetch products:', error);
@@ -258,11 +265,14 @@ export const productService = {
     return items.slice(0, limit);
   },
 
-  async getProduct(id: string): Promise<{ success: boolean; product: Product; message?: string }> {
+  /** NEW: optional qty for pricing preview / WA routing */
+  async getProduct(id: string, qty?: number): Promise<{ success: boolean; product: Product; message?: string }> {
     try {
-      console.log('📤 Fetching single product:', id);
+      console.log('📤 Fetching single product:', id, qty != null ? `(qty=${qty})` : '');
       if (!id || id.length !== 24) throw new Error('Invalid product ID format. Product IDs must be 24-character MongoDB ObjectIds.');
-      const response = await api.get(`/products/${id}`);
+      const response = await api.get(`/products/${id}`, {
+        params: qty != null ? { qty: Number(qty) } : undefined,
+      });
       const product = normalizeProduct(response?.data?.product);
       console.log('✅ Single product fetched:', product?.name || 'Unknown');
       return { success: true, product, message: response?.data?.message };

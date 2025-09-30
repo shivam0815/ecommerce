@@ -34,17 +34,7 @@ const CATEGORIES: Category[] = [
     { label: 'ICs',             slug: 'Mobile ICs',           img: '/ics.webp' },
  
 { label: 'Power Banks',           slug: 'power-bank',         img: '/Powerbank.webp' },
-  { label: 'Mobile Tools',    slug: 'mobile-accessories', img: '/Reapring-Tools.webp' },
-  
-  
- 
-  
-
- 
- 
-  
-
-
+  { label: 'Mobile Tools',    slug: 'mobile-accessories', img: '/Reapring-Tools.webp' }
 
 ];
 
