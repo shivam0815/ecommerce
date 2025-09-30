@@ -15,18 +15,18 @@ import {
   FileText, Truck, Factory, Package, ShieldCheck,
 } from 'lucide-react';
 import { productService } from '../services/productService';
-import { reviewsService } from '../services/reviewsService';
 import type { Product } from '../types';
 import { useCart } from '../hooks/useCart';
 import { resolveImageUrl } from '../utils/imageUtils';
 import toast from 'react-hot-toast';
 import SEO from '../components/Layout/SEO';
 import Reviews from '../components/Layout/Reviews';
+import { reviewsService } from '../services/reviewsService';
 import Breadcrumbs from './Breadcrumbs';
 
 /* ------------------------- Config ------------------------- */
-// 👉 IMPORTANT: WhatsApp number for wa.me must NOT include "+".
-const WHATSAPP_NUMBER = '919650516703';
+// 👉 Set your WhatsApp number here (E.164, no "+" sign):
+const WHATSAPP_NUMBER = '+919650516703';
 
 /* ------------------------- MOQ + MAX helpers ------------------------- */
 const MAX_PER_LINE = 1000;
@@ -102,6 +102,7 @@ const getTierUnitPrice = (p: any, qty: number): number => {
   return unit;
 };
 
+
 // very light "am I logged in?" check
 const isUserLoggedIn = () => {
   try {
@@ -113,6 +114,8 @@ const isUserLoggedIn = () => {
     return false;
   }
 };
+
+
 
 /** Hook: live review summary for a product card */
 const useReviewSummary = (productId?: string) => {
@@ -319,17 +322,14 @@ const ProductDetail: React.FC = () => {
   const [trending, setTrending] = useState<Product[]>([]);
   const [railsLoading, setRailsLoading] = useState<boolean>(false);
 
-  /* Fetch product (qty-aware) */
+  /* Fetch product */
   useEffect(() => {
-    if (!id) return;
-    let off = false;
-    let t: any;
-
-    const fetchProduct = async (qty?: number) => {
+    const fetchProduct = async () => {
+      if (!id) return;
       try {
         setLoading(true);
         setError(null);
-        const response = await productService.getProduct(id, qty);
+        const response = await productService.getProduct(id);
 
         const normalizedProduct: Product = {
           ...(response.product as Product),
@@ -337,22 +337,15 @@ const ProductDetail: React.FC = () => {
           reviewsCount: (response.product as any)?.reviewsCount ?? (response.product as any)?.reviews ?? 0,
         };
 
-        if (!off) setProduct(normalizedProduct);
+        setProduct(normalizedProduct);
       } catch (err: any) {
-        if (!off) setError(err.message || 'Failed to load product');
+        setError(err.message || 'Failed to load product');
       } finally {
-        if (!off) setLoading(false);
+        setLoading(false);
       }
     };
-
-    // initial fetch (will get qty-preview for default STEP after qty effect sets)
-    fetchProduct(undefined);
-
-    // re-fetch when qty changes (debounced 200ms)
-    t = setTimeout(() => fetchProduct(quantity), 200);
-
-    return () => { off = true; if (t) clearTimeout(t); };
-  }, [id, quantity]);
+    fetchProduct();
+  }, [id]);
 
   /* Ensure qty respects MOQ, MAX and STEP whenever product changes */
   useEffect(() => {
@@ -380,8 +373,12 @@ const ProductDetail: React.FC = () => {
         const pid: string = (product as any)._id || (product as any).id;
 
         const [relCat, relBrand, top] = await Promise.all([
-          (productService as any).getRelatedProducts?.(pid) ?? (productService as any).list?.({ category: product.category, limit: 12 }) ?? [],
-          (product as any).brand ? (productService as any).list?.({ brand: (product as any).brand, excludeId: pid, limit: 12 }) ?? [] : [],
+          (productService as any).getRelatedProducts?.(pid) ??
+            (productService as any).list?.({ category: product.category, limit: 12 }) ??
+            [],
+          (product as any).brand
+            ? (productService as any).list?.({ brand: (product as any).brand, excludeId: pid, limit: 12 }) ?? []
+            : [],
           productService.getTrending(12),
         ]);
 
@@ -407,33 +404,34 @@ const ProductDetail: React.FC = () => {
     }
   }, []);
 
-  const handleAddToCart = async () => {
-    if (!product) return;
+ const handleAddToCart = async () => {
+  if (!product) return;
 
-    if (!isUserLoggedIn()) {
-      toast.error('Please login to add items to cart');
-      return;
-    }
+  if (!isUserLoggedIn()) {
+    toast.error('Please login to add items to cart');
+    return;
+  }
 
-    try {
-      const productId: string = (product as any)._id || (product as any).id;
-      if (!productId) return toast.error('Product ID not found');
+  try {
+    const productId: string = (product as any)._id || (product as any).id;
+    if (!productId) return toast.error('Product ID not found');
 
-      const moq = getMOQ(product as any);
-      const maxQty = Math.min(
-        MAX_PER_LINE,
-        Number((product as any).stockQuantity ?? MAX_PER_LINE) || MAX_PER_LINE
-      );
+    const moq = getMOQ(product as any);
+    const maxQty = Math.min(
+      MAX_PER_LINE,
+      Number((product as any).stockQuantity ?? MAX_PER_LINE) || MAX_PER_LINE
+    );
 
-      const base = Math.max(moq, Math.min(maxQty, quantity));
-      const finalQty = Math.ceil(base / STEP) * STEP;
+    const base = Math.max(moq, Math.min(maxQty, quantity));
+    const finalQty = Math.ceil(base / STEP) * STEP;
 
-      await addToCart(productId, finalQty);
-      toast.success(`Added ${finalQty} ${finalQty === 1 ? 'item' : 'items'} to cart!`);
-    } catch (err: any) {
-      toast.error(err.message || 'Failed to add to cart');
-    }
-  };
+    await addToCart(productId, finalQty);
+    toast.success(`Added ${finalQty} ${finalQty === 1 ? 'item' : 'items'} to cart!`);
+  } catch (err: any) {
+    toast.error(err.message || 'Failed to add to cart');
+  }
+};
+
 
   const handleBuyNow = async () => {
     if (!product) return;
@@ -456,21 +454,13 @@ const ProductDetail: React.FC = () => {
     }
   };
 
-  /* ---------------------- WhatsApp CTA logic (> threshold) ---------------------- */
-  const waAfter = (product as any)?.whatsappAfterQty ?? 100;
-  const showWhatsAppOnly = quantity > waAfter;
-
-  const serverUnitPrice = (product as any)?._pricingPreview?.unitPriceForQty;
-  const unitPrice = typeof serverUnitPrice === 'number'
-    ? serverUnitPrice
-    : getTierUnitPrice(product as any, quantity || getMOQ(product as any));
-
-  const totalPrice = !showWhatsAppOnly ? (unitPrice ? unitPrice * (quantity || 0) : 0) : 0;
-
+  /* ---------------------- WhatsApp CTA logic (>100) ---------------------- */
+  const showWhatsAppOnly = quantity > 100;
   const whatsappLink = useMemo(() => {
     if (!product) return '#';
+    const pid: string = (product as any)._id || (product as any).id;
     const url = typeof window !== 'undefined' ? window.location.href : '';
-    const unit = unitPrice;
+    const unit = getTierUnitPrice(product, quantity || getMOQ(product as any));
     const total = unit ? unit * (quantity || 0) : undefined;
     const msg =
       `Hi, I want to place a bulk order:\n\n` +
@@ -480,7 +470,7 @@ const ProductDetail: React.FC = () => {
       (total ? `• Total (approx): ₹${total.toLocaleString('en-IN')}\n` : '') +
       `• Link: ${url}\n\nPlease confirm availability & best quote.`;
     return `https://wa.me/${WHATSAPP_NUMBER}?text=${encodeURIComponent(msg)}`;
-  }, [product, quantity, unitPrice]);
+  }, [product, quantity]);
 
   /* ---------------------------- Render guards ---------------------------- */
   if (loading) {
@@ -563,6 +553,10 @@ const ProductDetail: React.FC = () => {
     MAX_PER_LINE,
     Number((product as any).stockQuantity ?? MAX_PER_LINE) || MAX_PER_LINE
   );
+
+  // dynamic unit/total using admin tiers
+  const unitPrice = getTierUnitPrice(product as any, quantity || moq);
+  const totalPrice = unitPrice ? unitPrice * (quantity || 0) : 0;
 
   /* -------------------------------- Render -------------------------------- */
   return (
@@ -702,7 +696,7 @@ const ProductDetail: React.FC = () => {
                 </div>
               </div>
 
-              {/* Actions — if qty > whatsappAfterQty show WhatsApp only */}
+              {/* Actions — if qty > 100 show WhatsApp only */}
               <div className="grid grid-cols-2 gap-2 sm:flex sm:items-stretch sm:gap-3">
                 {!showWhatsAppOnly ? (
                   <>
