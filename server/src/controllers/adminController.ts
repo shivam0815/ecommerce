@@ -74,6 +74,10 @@ const normalizeOut = (p: any) => {
     originalPrice: cmp,
     stockQuantity: stockQty,
     stock: po?.stock ?? stockQty,
+    // NEW: Ensure meta fields are accessible for frontend
+    metaTitle: po?.metaTitle || po?.seo?.metaTitle || '',
+    metaDescription: po?.metaDescription || po?.seo?.metaDescription || '',
+    sku: po?.sku || '',
   };
 };
 
@@ -89,6 +93,26 @@ const parseSpecs = (v: any): Record<string, any> => {
     }
   }
   return {};
+};
+
+// NEW: Validate SKU helper
+const validateSKU = (sku: string | undefined): string | null => {
+  if (!sku) return null;
+  const trimmedSKU = sku.trim();
+  if (trimmedSKU.length < 3) {
+    throw new Error('SKU must be at least 3 characters long');
+  }
+  return trimmedSKU;
+};
+
+// NEW: Validate meta fields helper
+const validateMetaFields = (metaTitle?: string, metaDescription?: string) => {
+  if (metaTitle && metaTitle.length > 60) {
+    throw new Error('Meta title must be 60 characters or less for optimal SEO');
+  }
+  if (metaDescription && metaDescription.length > 160) {
+    throw new Error('Meta description must be 160 characters or less for optimal SEO');
+  }
 };
 
 // ---------- Authorized Admin Emails ----------
@@ -530,7 +554,7 @@ export const getAdminStats = async (req: AuthRequest, res: Response): Promise<vo
 
 // ======================================
 //
-// 📦 PRODUCT CREATE (multi-image + JSON specs)
+// 📦 PRODUCT CREATE (multi-image + JSON specs) - UPDATED with SKU & Meta
 //
 // ======================================
 export const uploadProduct = async (req: AuthRequest, res: Response): Promise<void> => {
@@ -552,7 +576,10 @@ export const uploadProduct = async (req: AuthRequest, res: Response): Promise<vo
       specifications,
       compareAtPrice, // ✅ NEW
       originalPrice, // JSON string or object
-
+      // NEW: SKU and Meta fields
+      sku,
+      metaTitle,
+      metaDescription,
     } = req.body as any;
 
     // Validation
@@ -586,6 +613,33 @@ export const uploadProduct = async (req: AuthRequest, res: Response): Promise<vo
     }
     if (isNaN(parsedStock) || parsedStock < 0) {
       res.status(400).json({ success: false, message: 'Stock must be a non-negative number' });
+      return;
+    }
+
+    // NEW: Validate SKU uniqueness if provided
+    let validatedSKU: string | undefined;
+    try {
+      validatedSKU = validateSKU(sku) || undefined;
+      if (validatedSKU) {
+        const existingProduct = await Product.findOne({ sku: validatedSKU });
+        if (existingProduct) {
+          res.status(400).json({
+            success: false,
+            message: `SKU "${validatedSKU}" already exists. Please use a unique SKU.`
+          });
+          return;
+        }
+      }
+    } catch (error: any) {
+      res.status(400).json({ success: false, message: error.message });
+      return;
+    }
+
+    // NEW: Validate meta fields
+    try {
+      validateMetaFields(metaTitle, metaDescription);
+    } catch (error: any) {
+      res.status(400).json({ success: false, message: error.message });
       return;
     }
 
@@ -649,15 +703,20 @@ export const uploadProduct = async (req: AuthRequest, res: Response): Promise<vo
       stockQuantity: parsedStock,
       category: String(category).trim(),
       images: finalImageUrls, // ✅ ALL images
+      imageUrl: finalImageUrls[0] || undefined, // Primary image for compatibility
       features: asArray(features),
       tags: asArray(tags),
       specifications: parseSpecs(specifications), // ✅ JSON -> object
       inStock: parsedStock > 0,
       isActive: true,
-       pricingTiers: parsePricingTiers((req.body as any).pricingTiers ?? (req.body as any).tiers),
-  minOrderQtyOverride: toNumber((req.body as any).minOrderQtyOverride),
-  packSize: Number((req.body as any).packSize ?? 1),
-  incrementStep: Number((req.body as any).incrementStep ?? 1),
+      pricingTiers: parsePricingTiers((req.body as any).pricingTiers ?? (req.body as any).tiers),
+      minOrderQtyOverride: toNumber((req.body as any).minOrderQtyOverride),
+      packSize: Number((req.body as any).packSize ?? 1),
+      incrementStep: Number((req.body as any).incrementStep ?? 1),
+      // NEW: Add SKU and meta fields
+      sku: validatedSKU,
+      metaTitle: metaTitle ? metaTitle.trim() : undefined,
+      metaDescription: metaDescription ? metaDescription.trim() : undefined,
       createdAt: new Date(),
       updatedAt: new Date(),
     });
@@ -678,14 +737,196 @@ export const uploadProduct = async (req: AuthRequest, res: Response): Promise<vo
         features: savedProduct.features,
         tags: savedProduct.tags,
         specifications: savedProduct.specifications,
+        sku: savedProduct.sku,
+        metaTitle: savedProduct.metaTitle,
+        metaDescription: savedProduct.metaDescription,
       },
     });
   } catch (error: any) {
     console.error('❌ Product upload error:', error);
+    
+    // Handle validation errors specifically
+    if (error.name === 'ValidationError') {
+      const validationErrors = Object.values(error.errors).map((err: any) => err.message);
+      res.status(400).json({
+        success: false,
+        message: 'Validation failed',
+        errors: validationErrors
+      });
+      return;
+    }
+    
     res.status(500).json({
       success: false,
       message: 'Product upload failed',
       error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error',
+    });
+  }
+};
+
+// NEW: Bulk Upload Products with SKU and Meta support
+export const bulkUploadProducts = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const products = req.body;
+
+    if (!Array.isArray(products) || products.length === 0) {
+      res.status(400).json({
+        success: false,
+        message: 'Products array is required and cannot be empty'
+      });
+      return;
+    }
+
+    let successCount = 0;
+    let failureCount = 0;
+    const errors: string[] = [];
+    const successfulProducts: any[] = [];
+
+    // Validate all SKUs for uniqueness before processing
+    const skusToCheck = products
+      .map(p => p.sku)
+      .filter(sku => sku && sku.trim())
+      .map(sku => sku.trim());
+
+    if (skusToCheck.length > 0) {
+      const existingSKUs = await Product.find({ 
+        sku: { $in: skusToCheck } 
+      }).select('sku');
+      
+      const existingSKUSet = new Set(existingSKUs.map(p => p.sku));
+      
+      // Check for duplicates within the batch
+      const skuCounts: Record<string, number> = {};
+      for (const sku of skusToCheck) {
+        skuCounts[sku] = (skuCounts[sku] || 0) + 1;
+        if (skuCounts[sku] > 1) {
+          errors.push(`Duplicate SKU in batch: ${sku}`);
+        }
+      }
+
+      // Check for existing SKUs in database
+      for (const sku of skusToCheck) {
+        if (existingSKUSet.has(sku)) {
+          errors.push(`SKU already exists in database: ${sku}`);
+        }
+      }
+    }
+
+    if (errors.length > 0) {
+      res.status(400).json({
+        success: false,
+        message: 'SKU validation failed',
+        errors,
+        successCount: 0,
+        failureCount: products.length
+      });
+      return;
+    }
+
+    for (let i = 0; i < products.length; i++) {
+      try {
+        const productData = products[i];
+        
+        // Validate required fields
+        if (!productData.name || !productData.price || !productData.category) {
+          errors.push(`Product ${i + 1}: Missing required fields (name, price, category)`);
+          failureCount++;
+          continue;
+        }
+
+        // Validate SKU and meta fields
+        try {
+          validateSKU(productData.sku);
+          validateMetaFields(productData.metaTitle, productData.metaDescription);
+        } catch (validationError: any) {
+          errors.push(`Product ${i + 1}: ${validationError.message}`);
+          failureCount++;
+          continue;
+        }
+
+        // Prepare product data
+        const processedProduct: any = {
+          name: productData.name.trim(),
+          description: productData.description || '',
+          price: parseFloat(productData.price),
+          category: productData.category,
+          subcategory: productData.subcategory,
+          brand: productData.brand || 'Nakoda',
+          stockQuantity: parseInt(productData.stockQuantity || productData.stock || 0),
+          specifications: productData.specifications || {},
+          pricingTiers: productData.pricingTiers || [],
+          images: Array.isArray(productData.images) ? productData.images : [],
+          features: Array.isArray(productData.features) ? productData.features : [],
+          tags: Array.isArray(productData.tags) ? productData.tags : [],
+          status: productData.status || 'active',
+          isActive: (productData.status || 'active') === 'active',
+          businessName: productData.businessName,
+          // NEW: Add SKU and meta fields
+          sku: productData.sku ? productData.sku.trim() : undefined,
+          metaTitle: productData.metaTitle ? productData.metaTitle.trim() : undefined,
+          metaDescription: productData.metaDescription ? productData.metaDescription.trim() : undefined
+        };
+
+        // Handle pricing
+        if (productData.compareAtPrice) {
+          const comparePrice = parseFloat(productData.compareAtPrice);
+          if (comparePrice > processedProduct.price) {
+            processedProduct.compareAtPrice = comparePrice;
+            processedProduct.originalPrice = comparePrice;
+          }
+        }
+
+        if (productData.originalPrice) {
+          const origPrice = parseFloat(productData.originalPrice);
+          if (origPrice > processedProduct.price) {
+            processedProduct.originalPrice = origPrice;
+            if (!processedProduct.compareAtPrice) {
+              processedProduct.compareAtPrice = origPrice;
+            }
+          }
+        }
+
+        // Set primary image
+        if (processedProduct.images.length > 0) {
+          (processedProduct as any).imageUrl = processedProduct.images[0];
+        }
+
+        const product = new Product(processedProduct);
+        const savedProduct = await product.save();
+        
+        successfulProducts.push(savedProduct);
+        successCount++;
+
+      } catch (error: any) {
+        console.error(`Bulk upload error for product ${i + 1}:`, error);
+        
+        if (error.name === 'ValidationError') {
+          const validationErrors = Object.values(error.errors).map((err: any) => err.message);
+          errors.push(`Product ${i + 1}: ${validationErrors.join(', ')}`);
+        } else {
+          errors.push(`Product ${i + 1}: ${error.message}`);
+        }
+        
+        failureCount++;
+      }
+    }
+
+    res.status(successCount > 0 ? 201 : 400).json({
+      success: successCount > 0,
+      message: `Bulk upload completed. Success: ${successCount}, Failed: ${failureCount}`,
+      successCount,
+      failureCount,
+      totalProcessed: products.length,
+      errors: errors.length > 0 ? errors : undefined,
+      products: successfulProducts
+    });
+
+  } catch (error: any) {
+    console.error('Bulk upload error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Bulk upload failed',
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
 };
@@ -699,6 +940,48 @@ export const updateProduct = async (req: AuthRequest, res: Response): Promise<vo
     }
 
     const patch = mirrorCompare(req.body); // ensures compareAtPrice ↔ originalPrice; stock ↔ stockQuantity
+
+    // NEW: Validate SKU uniqueness if being updated
+    if (patch.sku !== undefined) {
+      try {
+        const validatedSKU = validateSKU(patch.sku);
+        if (validatedSKU) {
+          const existingProduct = await Product.findOne({ 
+            sku: validatedSKU,
+            _id: { $ne: id }
+          });
+          if (existingProduct) {
+            res.status(400).json({
+              success: false,
+              message: `SKU "${validatedSKU}" already exists. Please use a unique SKU.`
+            });
+            return;
+          }
+          patch.sku = validatedSKU;
+        } else {
+          patch.sku = undefined;
+        }
+      } catch (error: any) {
+        res.status(400).json({ success: false, message: error.message });
+        return;
+      }
+    }
+
+    // NEW: Validate meta fields
+    try {
+      validateMetaFields(patch.metaTitle, patch.metaDescription);
+    } catch (error: any) {
+      res.status(400).json({ success: false, message: error.message });
+      return;
+    }
+
+    // Clean meta fields
+    if (patch.metaTitle !== undefined) {
+      patch.metaTitle = patch.metaTitle ? patch.metaTitle.trim() : undefined;
+    }
+    if (patch.metaDescription !== undefined) {
+      patch.metaDescription = patch.metaDescription ? patch.metaDescription.trim() : undefined;
+    }
 
     const priceNext = toNumber(patch.price);
     const cmpNext =
@@ -726,19 +1009,18 @@ export const updateProduct = async (req: AuthRequest, res: Response): Promise<vo
     if (patch.specifications) patch.specifications = parseSpecs(patch.specifications);
     if (patch.stock != null && patch.stockQuantity == null) patch.stockQuantity = Number(patch.stock);
 
-if ('pricingTiers' in patch || 'tiers' in patch) {
-  patch.pricingTiers = parsePricingTiers((patch as any).pricingTiers ?? (patch as any).tiers);
-}
-if ('minOrderQtyOverride' in patch) {
-  patch.minOrderQtyOverride = toNumber(patch.minOrderQtyOverride);
-}
-if ('packSize' in patch) {
-  patch.packSize = Number(patch.packSize ?? 1);
-}
-if ('incrementStep' in patch) {
-  patch.incrementStep = Number(patch.incrementStep ?? 1);
-}
-
+    if ('pricingTiers' in patch || 'tiers' in patch) {
+      patch.pricingTiers = parsePricingTiers((patch as any).pricingTiers ?? (patch as any).tiers);
+    }
+    if ('minOrderQtyOverride' in patch) {
+      patch.minOrderQtyOverride = toNumber(patch.minOrderQtyOverride);
+    }
+    if ('packSize' in patch) {
+      patch.packSize = Number(patch.packSize ?? 1);
+    }
+    if ('incrementStep' in patch) {
+      patch.incrementStep = Number(patch.incrementStep ?? 1);
+    }
 
     const updated = await Product.findByIdAndUpdate(
       id,
@@ -754,6 +1036,17 @@ if ('incrementStep' in patch) {
     res.json({ success: true, product: normalizeOut(updated) });
   } catch (error: any) {
     console.error('❌ Update product error:', error);
+    
+    if (error.name === 'ValidationError') {
+      const validationErrors = Object.values(error.errors).map((err: any) => err.message);
+      res.status(400).json({
+        success: false,
+        message: 'Validation failed',
+        errors: validationErrors
+      });
+      return;
+    }
+    
     res.status(500).json({ success: false, message: 'Failed to update product' });
   }
 };
@@ -790,7 +1083,7 @@ export const updateProductStatus = async (req: AuthRequest, res: Response): Prom
 };
 
 // ======================================
-// 📚 ADMIN PRODUCT LISTING / UTILITIES
+// 📚 ADMIN PRODUCT LISTING / UTILITIES - UPDATED with SKU and Meta search
 // ======================================
 
 export const getAllProducts = async (req: AuthRequest, res: Response): Promise<void> => {
@@ -812,7 +1105,20 @@ export const getAllProducts = async (req: AuthRequest, res: Response): Promise<v
       }
     }
     if (category) filter.category = category;
-    if (search) filter.$text = { $search: search };
+
+    // NEW: Enhanced search to include SKU and meta fields
+    if (search && search.trim() !== '') {
+      const searchRegex = new RegExp(search.trim().replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
+      filter.$or = [
+        { name: searchRegex },
+        { description: searchRegex },
+        { category: searchRegex },
+        { tags: { $in: [searchRegex] } },
+        { sku: searchRegex }, // NEW: Search by SKU
+        { metaTitle: searchRegex }, // NEW: Search by meta title
+        { 'specifications.brand': searchRegex }
+      ];
+    }
 
     if (stockFilter === 'in-stock') filter.stockQuantity = { $gt: 0 };
     if (stockFilter === 'out-of-stock') filter.stockQuantity = { $eq: 0 };
@@ -828,6 +1134,8 @@ export const getAllProducts = async (req: AuthRequest, res: Response): Promise<v
       'rating',
       'reviews',
       'status',
+      'sku', // NEW: Sort by SKU
+      'metaTitle', // NEW: Sort by meta title
     ]);
     const sort: any = {};
     sort[allowedSort.has(sortBy) ? sortBy : 'name'] = sortOrder;
@@ -900,6 +1208,66 @@ export const deleteProduct = async (req: AuthRequest, res: Response): Promise<vo
       success: false,
       message: 'Failed to delete product',
       error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error',
+    });
+  }
+};
+
+// NEW: Bulk Update Products with meta field support
+export const bulkUpdateProducts = async (req: AuthRequest, res: Response): Promise<void> => {
+  try {
+    const { productIds, updateData } = req.body;
+
+    if (!Array.isArray(productIds) || productIds.length === 0) {
+      res.status(400).json({
+        success: false,
+        message: 'Product IDs array is required'
+      });
+      return;
+    }
+
+    if (!updateData || typeof updateData !== 'object') {
+      res.status(400).json({
+        success: false,
+        message: 'Update data is required'
+      });
+      return;
+    }
+
+    // Validate meta fields if being updated
+    try {
+      validateMetaFields(updateData.metaTitle, updateData.metaDescription);
+    } catch (error: any) {
+      res.status(400).json({
+        success: false,
+        message: error.message
+      });
+      return;
+    }
+
+    // Update isActive based on status if provided
+    if (updateData.status) {
+      updateData.isActive = updateData.status === 'active';
+    }
+
+    const result = await Product.updateMany(
+      { _id: { $in: productIds } },
+      { $set: updateData },
+      { runValidators: true }
+    );
+
+    res.json({
+      success: true,
+      message: `Successfully updated ${result.modifiedCount} products`,
+      modifiedCount: result.modifiedCount,
+      matchedCount: result.matchedCount
+    });
+
+  } catch (error: any) {
+    console.error('Bulk update error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to update products',
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
 };
@@ -1011,23 +1379,26 @@ export const exportProductsCsv = async (req: AuthRequest, res: Response): Promis
       const n = normalizeOut(d);
       return {
         Name: n.name,
+        SKU: n.sku || '', // NEW: Export SKU
         Price: n.price,
         CompareAtPrice: n.compareAtPrice ?? '',
         Stock: n.stockQuantity,
         Category: n.category,
         Status: n.status,
         Description: n.description ?? '',
+        MetaTitle: n.metaTitle || '', // NEW: Export meta title
+        MetaDescription: n.metaDescription || '', // NEW: Export meta description
         Images: (n.images || []).join('|'),
         CreatedAt: n.createdAt,
       };
     });
 
-    const fields = Object.keys(rows[0] || { Name: '', Price: '' });
+    const fields = Object.keys(rows[0] || { Name: '', SKU: '', Price: '' });
     const parser = new Json2CsvParser({ fields });
     const csv = parser.parse(rows);
 
     res.setHeader('Content-Type', 'text/csv');
-    res.setHeader('Content-Disposition', `attachment; filename="products-${Date.now()}.csv"`);
+    res.setHeader('Content-Disposition', `attachment; filename="products-with-seo-${Date.now()}.csv"`);
     res.send(csv);
   } catch (e: any) {
     console.error('❌ Export CSV error:', e);

@@ -181,6 +181,790 @@ const CloudinaryImageUpload = memo<{
   );
 });
 
+/* --------------------------- Product Management --------------------------- */
+const ProductManagement = memo<{
+  onStatsRefresh: () => void;
+  showNotification: (message: string, type: 'success' | 'error') => void;
+  checkNetworkStatus: () => boolean;
+}>(({ onStatsRefresh, showNotification, checkNetworkStatus }) => {
+  const [formData, setFormData] = useState({
+    name: '',
+    price: '',
+    compareAtPrice: '',
+    stock: '',
+    category: '',
+    description: '',
+    slab10_40: '',
+    slab50_100: '',
+    // NEW: Meta tags and SKU fields
+    sku: '',
+    metaTitle: '',
+    metaDescription: '',
+  });
+
+  const [uploadedImages, setUploadedImages] = useState<any[]>([]);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState(0);
+
+  // specs (JSON)
+  const [specificationsText, setSpecificationsText] = useState<string>('');
+  const [specificationsError, setSpecificationsError] = useState<string | null>(null);
+  const [specificationsObj, setSpecificationsObj] = useState<Record<string, any> | null>(null);
+
+  const handleSpecificationsChange = (value: string) => {
+    setSpecificationsText(value);
+    if (!value.trim()) { 
+      setSpecificationsError(null); 
+      setSpecificationsObj(null); 
+      return; 
+    }
+    try {
+      const parsed = JSON.parse(value);
+      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) { 
+        setSpecificationsObj(parsed); 
+        setSpecificationsError(null); 
+      } else { 
+        setSpecificationsObj(null); 
+        setSpecificationsError('JSON must be an object.'); 
+      }
+    } catch (e: any) { 
+      setSpecificationsObj(null); 
+      setSpecificationsError(e.message || 'Invalid JSON'); 
+    }
+  };
+
+  // bulk CSV
+  const [uploadMode, setUploadMode] = useState<'single' | 'bulk'>('single');
+  const [bulkProducts, setBulkProducts] = useState<any[]>([]);
+  const [csvFile, setCsvFile] = useState<File | null>(null);
+  const [isBulkSubmitting, setIsBulkSubmitting] = useState(false);
+  const csvInputRef = useRef<HTMLInputElement>(null);
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
+    const { name, value } = e.target;
+    setFormData(prev => ({ ...prev, [name]: value }));
+  };
+
+  const handleImageUploadSuccess = (images: any[]) => { 
+    setUploadedImages(images); 
+    showNotification(`✅ ${images.length} image(s) uploaded`, 'success'); 
+  };
+
+  const handleUploadProgress = (p: number) => setUploadProgress(p);
+
+  // CSV helpers
+  const norm = (h: string) => h.trim().toLowerCase().replace(/\s+/g, " ");
+  const toNumber = (val: any, opts?: { allowMillions?: boolean }) => {
+    if (val === null || val === undefined) return NaN;
+    let s = String(val).trim();
+    if (opts?.allowMillions && /^[\d.]+\s*m$/i.test(s)) { 
+      const m = parseFloat(s.replace(/m/i, "")); 
+      return Math.round(m * 1_000_000); 
+    }
+    s = s.replace(/[^\d.]/g, "");
+    if (!s) return NaN;
+    return Number(s);
+  };
+
+  const kvSemiToJson = (txt: string) => { 
+    const out: Record<string, any> = {}; 
+    txt.split(";").forEach((pair) => { 
+      const [k, v] = pair.split(":"); 
+      if (!k) return; 
+      out[k.trim()] = (v ?? "").toString().trim(); 
+    }); 
+    return out; 
+  };
+
+  const splitImages = (val: any) => String(val).split(/[|,]/).map((u) => u.trim()).filter(Boolean);
+  const pick = (row: any, keys: string[]) => { 
+    for (const k of keys) { 
+      const kk = norm(k); 
+      if (kk in row && row[kk] !== undefined) return row[kk]; 
+    } 
+    return ""; 
+  };
+
+  // CSV upload with new fields
+  const handleCSVUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (file.type !== "text/csv" && !file.name.endsWith(".csv")) { 
+      showNotification("Please select a CSV file", "error"); 
+      if (csvInputRef.current) csvInputRef.current.value = ""; 
+      return; 
+    }
+    setCsvFile(file);
+
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      try {
+        const csvText = (ev.target?.result as string) || "";
+        const parsed = Papa.parse(csvText, { 
+          header: true, 
+          skipEmptyLines: true, 
+          transformHeader: (h) => norm(h) 
+        });
+        
+        if (parsed.errors?.length) { 
+          const first = parsed.errors[0]; 
+          showNotification(`CSV parse error: ${first.message}`, "error"); 
+          return; 
+        }
+        
+        const rows = (parsed.data as any[]) || [];
+
+        const products = rows
+          .map((raw, index) => {
+            const row: Record<string, any> = {};
+            for (const key in raw) row[norm(key)] = raw[key];
+            
+            const p: any = {
+              id: index + 1,
+              name: String(pick(row, ["name"])).trim(),
+              price: pick(row, ["price", "selling price", "amount"]),
+              compareAtPrice: pick(row, ["compare at price","compare_at_price","compareatprice","compare price","compareprice","mrp","msrp","list price","original price","originalprice","compare","comapre"]),
+              stock: pick(row, ["stock", "qty", "quantity", "inventory","stockquantity"]),
+              category: String(pick(row, ["category", "cat"])).trim(),
+              description: pick(row, ["description", "desc"]),
+              specifications: pick(row, ["specifications", "specs"]),
+              images: pick(row, ["images", "image urls", "image"]),
+              // NEW: Meta and SKU fields
+              sku: String(pick(row, ["sku", "product code", "item code", "product id", "code"])).trim(),
+              metaTitle: String(pick(row, ["meta title", "meta_title", "metatitle", "seo title", "page title"])).trim(),
+              metaDescription: String(pick(row, ["meta description", "meta_description", "metadescription", "seo description", "page description"])).trim(),
+              errors: [], 
+              isValid: true,
+            };
+
+            const priceNum = toNumber(p.price, { allowMillions: true });
+            if (isNaN(priceNum) || priceNum <= 0) p.errors.push("Invalid price"); 
+            else p.price = priceNum;
+
+            if (p.compareAtPrice !== undefined && p.compareAtPrice !== '') {
+              const cmp = toNumber(p.compareAtPrice, { allowMillions: true });
+              if (isNaN(cmp) || cmp <= priceNum) p.errors.push("compareAtPrice must be > price"); 
+              else p.compareAtPrice = cmp;
+            }
+
+            const stockNum = toNumber(p.stock);
+            if (!isNaN(stockNum)) p.stock = Math.floor(stockNum); 
+            else p.errors.push("Invalid stock");
+            
+            if (!p.name) p.errors.push("Missing name");
+            if (!p.category) p.errors.push("Missing category");
+
+            // Validate SKU uniqueness (basic check)
+            if (p.sku && p.sku.length < 3) {
+              p.errors.push("SKU must be at least 3 characters");
+            }
+
+            // Validate meta fields lengths
+            if (p.metaTitle && p.metaTitle.length > 60) {
+              p.errors.push("Meta title should be under 60 characters for SEO");
+            }
+            if (p.metaDescription && p.metaDescription.length > 160) {
+              p.errors.push("Meta description should be under 160 characters for SEO");
+            }
+
+            if (typeof p.specifications === "string" && p.specifications.trim()) {
+              const text = p.specifications.trim();
+              if (text.startsWith("{") || text.startsWith("[")) {
+                try { 
+                  const js = JSON.parse(text); 
+                  if (js && typeof js === "object") p.specifications = js; 
+                  else p.errors.push("specifications must be object"); 
+                } catch { 
+                  p.errors.push("Invalid specifications JSON"); 
+                }
+              } else p.specifications = kvSemiToJson(text);
+            }
+
+            if (typeof p.images === "string" && p.images.trim()) p.images = splitImages(p.images);
+
+            // Slab pricing
+            const t10raw = pick(row, ['tier_10_40','10-40 price','10_40','slab10_40','price_10_40']);
+            const t50raw = pick(row, ['tier_50_100','50-100 price','50_100','slab50_100','price_50_100']);
+            const t10num = toNumber(t10raw);
+            const t50num = toNumber(t50raw);
+            if (t10raw !== '' && t10raw !== undefined) {
+              if (Number.isFinite(t10num) && t10num >= 0) p.slab10_40 = t10num; 
+              else p.errors.push('Invalid tier_10_40');
+            }
+            if (t50raw !== '' && t50raw !== undefined) {
+              if (Number.isFinite(t50num) && t50num >= 0) p.slab50_100 = t50num; 
+              else p.errors.push('Invalid tier_50_100');
+            }
+
+            p.isValid = p.errors.length === 0;
+            return p;
+          })
+          .filter((x) => x.name || x.price || x.category);
+
+        setBulkProducts(products);
+        const validCount = products.filter((x) => x.isValid).length;
+        showNotification(`Loaded ${products.length} products (Valid: ${validCount}, Invalid: ${products.length - validCount})`, validCount === products.length ? 'success' : 'error');
+      } catch (err) {
+        console.error("CSV Parse Error:", err);
+        showNotification("Error parsing CSV file", "error");
+      }
+    };
+    reader.readAsText(file);
+  };
+
+  const handleSingleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const priceNum = Number(formData.price);
+    const compareNum = formData.compareAtPrice ? Number(formData.compareAtPrice) : 0;
+    
+    if (formData.compareAtPrice && !(compareNum > priceNum)) { 
+      showNotification('Compare at price must be greater than Price', 'error'); 
+      return; 
+    }
+    if (!formData.name.trim() || !formData.price || !formData.category) { 
+      showNotification('Please fill all required fields', 'error'); 
+      return; 
+    }
+
+    // Validate SKU
+    if (formData.sku && formData.sku.length < 3) {
+      showNotification('SKU must be at least 3 characters', 'error');
+      return;
+    }
+
+    // Validate meta fields
+    if (formData.metaTitle && formData.metaTitle.length > 60) {
+      showNotification('Meta title should be under 60 characters for better SEO', 'error');
+      return;
+    }
+    if (formData.metaDescription && formData.metaDescription.length > 160) {
+      showNotification('Meta description should be under 160 characters for better SEO', 'error');
+      return;
+    }
+
+    if (!checkNetworkStatus()) return;
+
+    setIsSubmitting(true);
+    try {
+      const uploadData = new FormData();
+      uploadData.append('name', formData.name.trim());
+      uploadData.append('price', formData.price);
+      if (formData.compareAtPrice) { 
+        uploadData.append('compareAtPrice', formData.compareAtPrice); 
+        uploadData.append('originalPrice', formData.compareAtPrice); 
+      }
+      uploadData.append('stock', formData.stock || '0');
+      uploadData.append('category', formData.category);
+      uploadData.append('description', formData.description.trim());
+      
+      // NEW: Add meta fields and SKU
+      if (formData.sku) uploadData.append('sku', formData.sku.trim());
+      if (formData.metaTitle) uploadData.append('metaTitle', formData.metaTitle.trim());
+      if (formData.metaDescription) uploadData.append('metaDescription', formData.metaDescription.trim());
+      
+      if (specificationsObj) uploadData.append('specifications', JSON.stringify(specificationsObj));
+
+      if (uploadedImages.length > 0) {
+        uploadData.append('imageUrl', uploadedImages[0].secure_url);
+        uploadData.append('images', JSON.stringify(uploadedImages.map(img => img.secure_url)));
+        uploadData.append('cloudinaryPublicIds', JSON.stringify(uploadedImages.map(img => img.public_id)));
+      }
+
+      // Pricing tiers
+      const t10 = formData.slab10_40 ? Number(formData.slab10_40) : NaN;
+      const t50 = formData.slab50_100 ? Number(formData.slab50_100) : NaN;
+      if (formData.slab10_40 && !(t10 >= 0)) { 
+        showNotification('10–40 price must be a valid non-negative number', 'error'); 
+        setIsSubmitting(false); 
+        return; 
+      }
+      if (formData.slab50_100 && !(t50 >= 0)) { 
+        showNotification('50–100 price must be a valid non-negative number', 'error'); 
+        setIsSubmitting(false); 
+        return; 
+      }
+      const tiers: Array<{minQty:number;unitPrice:number}> = [];
+      if (!Number.isNaN(t10)) tiers.push({ minQty: 10, unitPrice: t10 });
+      if (!Number.isNaN(t50)) tiers.push({ minQty: 50, unitPrice: t50 });
+      if (tiers.length) uploadData.append('pricingTiers', JSON.stringify(tiers));
+
+      const response = await uploadProduct(uploadData);
+      if (response?.success) {
+        setFormData({ 
+          name: '', price: '', stock: '', category: '', compareAtPrice: '', description: '', 
+          slab10_40: '', slab50_100: '', sku: '', metaTitle: '', metaDescription: '' 
+        });
+        setUploadedImages([]); 
+        setUploadProgress(0);
+        setSpecificationsText(''); 
+        setSpecificationsObj(null); 
+        setSpecificationsError(null);
+        showNotification('✅ Product uploaded successfully!', 'success');
+        onStatsRefresh();
+      } else throw new Error(response?.message || 'Upload failed');
+    } catch (error: any) {
+      showNotification(`❌ ${error?.response?.data?.message || error.message || 'Upload failed'}`, 'error');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleBulkSubmit = async () => {
+    if (!bulkProducts.length) { 
+      showNotification('No products to upload', 'error'); 
+      return; 
+    }
+    const validProducts = bulkProducts.filter(p => p.isValid);
+    if (!validProducts.length) { 
+      showNotification('No valid products to upload', 'error'); 
+      return; 
+    }
+    if (!checkNetworkStatus()) return;
+    setIsBulkSubmitting(true);
+
+    try {
+      const productsData = validProducts.map((product) => {
+        const pd: any = {
+          name: product.name,
+          description: product.description || "No description provided",
+          price: Number(product.price),
+          compareAtPrice: product.compareAtPrice ? Number(product.compareAtPrice) : undefined,
+          originalPrice: product.compareAtPrice ? Number(product.compareAtPrice) : undefined,
+          category: product.category,
+          subcategory: product.subcategory || undefined,
+          brand: product.brand || "Nakoda",
+          stockQuantity: Number(product.stock) || 0,
+          images: Array.isArray(product.images) ? product.images : (product.images ? [product.images] : []),
+          specifications: (product.specifications && typeof product.specifications === "object") ? product.specifications : {},
+          features: Array.isArray(product.features) ? product.features : String(product.features || "").split(/[;,]/).map((s: string) => s.trim()).filter(Boolean),
+          tags: Array.isArray(product.tags) ? product.tags : String(product.tags || "").split(/[;,]/).map((s: string) => s.trim()).filter(Boolean),
+          status: product.status || "active",
+          isActive: true,
+          // NEW: Add meta fields and SKU
+          sku: product.sku || undefined,
+          metaTitle: product.metaTitle || undefined,
+          metaDescription: product.metaDescription || undefined,
+        };
+
+        const t10 = Number.isFinite(product.slab10_40) ? product.slab10_40 : undefined;
+        const t50 = Number.isFinite(product.slab50_100) ? product.slab50_100 : undefined;
+        const pricingTiers = [
+          ...(t10 !== undefined ? [{ minQty: 10, unitPrice: t10 }] : []),
+          ...(t50 !== undefined ? [{ minQty: 50, unitPrice: t50 }] : []),
+        ];
+        if (pricingTiers.length) pd.pricingTiers = pricingTiers;
+        return pd;
+      });
+
+      const response = await bulkUploadProducts(productsData);
+      if (response?.success) {
+        showNotification(`✅ Uploaded ${response.successCount} products`, 'success');
+        if (response.failureCount) showNotification(`⚠️ ${response.failureCount} products failed`, 'error');
+        setBulkProducts([]); 
+        setCsvFile(null); 
+        if (csvInputRef.current) csvInputRef.current.value = '';
+        onStatsRefresh();
+      } else throw new Error(response?.message || 'Bulk upload failed');
+    } catch (e: any) {
+      showNotification(`❌ Bulk upload failed: ${e.message}`, 'error');
+    } finally {
+      setIsBulkSubmitting(false);
+    }
+  };
+
+  const downloadSampleCSV = () => {
+    const sampleData = [
+      'name,price,compare at price,stock,category,description,specifications,images,tier_10_40,tier_50_100,sku,meta title,meta description',
+      'Sample TWS Earbuds,1299,1500,50,TWS,"Wireless earbuds with premium sound","{""battery"":""30mAh"",""bt"":""5.3""}","https://example.com/image1.jpg|https://example.com/image2.jpg",114,108,TWS-001,"Best TWS Earbuds - Premium Sound Quality","Premium wireless earbuds with long battery life and crystal clear sound quality. Perfect for music lovers and professionals."'
+    ].join('\n');
+    const blob = new Blob([sampleData], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a'); 
+    a.href = url; 
+    a.download = 'sample-products-with-seo.csv'; 
+    a.click(); 
+    window.URL.revokeObjectURL(url);
+  };
+
+  return (
+    <div className="product-management-container">
+      <div className="upload-mode-header">
+        <h2>📦 Product Management</h2>
+        <div className="upload-mode-tabs">
+          <button 
+            className={uploadMode === 'single' ? 'active' : ''} 
+            onClick={() => setUploadMode('single')} 
+            disabled={isSubmitting || isBulkSubmitting}
+          >
+            📄 Single Upload
+          </button>
+          <button 
+            className={uploadMode === 'bulk' ? 'active' : ''} 
+            onClick={() => setUploadMode('bulk')} 
+            disabled={isSubmitting || isBulkSubmitting}
+          >
+            📊 Bulk Upload
+          </button>
+        </div>
+      </div>
+
+      {uploadMode === 'single' && (
+        <form className="single-upload-form" onSubmit={handleSingleSubmit}>
+          <div className="form-section">
+            <h3>📱 Single Product Upload</h3>
+
+            <div className="form-row">
+              <div className="form-group">
+                <label htmlFor="name">Product Name *</label>
+                <input 
+                  type="text" 
+                  id="name" 
+                  name="name" 
+                  value={formData.name} 
+                  onChange={handleInputChange} 
+                  disabled={isSubmitting} 
+                  placeholder="Enter product name" 
+                  required 
+                />
+              </div>
+              <div className="form-group">
+                <label htmlFor="sku">SKU (Product Code)</label>
+                <input 
+                  type="text" 
+                  id="sku" 
+                  name="sku" 
+                  value={formData.sku} 
+                  onChange={handleInputChange} 
+                  disabled={isSubmitting} 
+                  placeholder="e.g., TWS-001, CHG-USB-20W" 
+                  minLength={3}
+                />
+                <small className="hint">Unique product identifier for inventory tracking</small>
+              </div>
+            </div>
+
+            <div className="form-row">
+              <div className="form-group">
+                <label htmlFor="price">Price *</label>
+                <input 
+                  type="number" 
+                  id="price" 
+                  name="price" 
+                  value={formData.price} 
+                  onChange={handleInputChange} 
+                  disabled={isSubmitting} 
+                  placeholder="0.00" 
+                  min="0" 
+                  step="0.01" 
+                  required 
+                />
+              </div>
+              <div className="form-group">
+                <label htmlFor="compareAtPrice">Compare at price (MRP)</label>
+                <input 
+                  type="number" 
+                  id="compareAtPrice" 
+                  name="compareAtPrice" 
+                  value={formData.compareAtPrice} 
+                  onChange={handleInputChange} 
+                  disabled={isSubmitting} 
+                  placeholder="0.00" 
+                  min="0" 
+                  step="0.01" 
+                />
+                <small style={{color:'#666'}}>Shown as strike-through if greater than Price.</small>
+              </div>
+            </div>
+
+            {/* SEO Meta Fields */}
+            <div className="form-group">
+              <label htmlFor="metaTitle">Meta Title (SEO)</label>
+              <input 
+                type="text" 
+                id="metaTitle" 
+                name="metaTitle" 
+                value={formData.metaTitle} 
+                onChange={handleInputChange} 
+                disabled={isSubmitting} 
+                placeholder="Best TWS Earbuds - Premium Sound Quality" 
+                maxLength={60}
+              />
+              <small className="hint">
+                {formData.metaTitle.length}/60 characters. Used for search engine results and browser tab title.
+              </small>
+            </div>
+
+            <div className="form-group">
+              <label htmlFor="metaDescription">Meta Description (SEO)</label>
+              <textarea 
+                id="metaDescription" 
+                name="metaDescription" 
+                value={formData.metaDescription} 
+                onChange={handleInputChange} 
+                disabled={isSubmitting} 
+                placeholder="Premium wireless earbuds with long battery life and crystal clear sound quality. Perfect for music lovers and professionals." 
+                maxLength={160}
+                rows={3}
+              />
+              <small className="hint">
+                {formData.metaDescription.length}/160 characters. Used for search engine result descriptions.
+              </small>
+            </div>
+
+            {/* Pricing Tiers */}
+            <div className="form-row">
+              <div className="form-group">
+                <label htmlFor="slab10_40">10–40 Qty Price (ex-GST)</label>
+                <input 
+                  type="number" 
+                  id="slab10_40" 
+                  name="slab10_40" 
+                  value={formData.slab10_40} 
+                  onChange={handleInputChange} 
+                  disabled={isSubmitting} 
+                  placeholder="e.g., 114" 
+                  min="0" 
+                  step="0.01" 
+                />
+                <small className="hint">Creates pricingTiers entry with minQty=10</small>
+              </div>
+              <div className="form-group">
+                <label htmlFor="slab50_100">50–100 Qty Price (ex-GST)</label>
+                <input 
+                  type="number" 
+                  id="slab50_100" 
+                  name="slab50_100" 
+                  value={formData.slab50_100} 
+                  onChange={handleInputChange} 
+                  disabled={isSubmitting} 
+                  placeholder="e.g., 108" 
+                  min="0" 
+                  step="0.01" 
+                />
+                <small className="hint">Creates pricingTiers entry with minQty=50</small>
+              </div>
+            </div>
+
+            <div className="form-row">
+              <div className="form-group">
+                <label htmlFor="stock">Stock Quantity</label>
+                <input 
+                  type="number" 
+                  id="stock" 
+                  name="stock" 
+                  value={formData.stock} 
+                  onChange={handleInputChange} 
+                  disabled={isSubmitting} 
+                  placeholder="0" 
+                  min="0" 
+                />
+              </div>
+              <div className="form-group">
+                <label htmlFor="category">Category *</label>
+                <select 
+                  id="category" 
+                  name="category" 
+                  value={formData.category} 
+                  onChange={handleInputChange} 
+                  disabled={isSubmitting} 
+                  required
+                >
+                  <option value="">Select Category</option>
+                  <option value="TWS">TWS Earbuds</option>
+                  <option value="Bluetooth Neckbands">Bluetooth Neckband</option>
+                  <option value="Data Cables">Data Cables</option>
+                  <option value="Mobile Chargers">Mobile Chargers</option>
+                  <option value="Integrated Circuits & Chips">Integrated Circuits & Chips</option>
+                  <option value="Mobile Repairing Tools">Mobile Repairing Tools</option>
+                  <option value="Car Chargers">Car Charger</option>
+                  <option value="Bluetooth Speakers">Bluetooth Speaker</option>
+                  <option value="Power Banks">Power Bank</option>
+                  <option value="Others">Other</option>
+                </select>
+              </div>
+            </div>
+
+            <div className="form-group">
+              <label htmlFor="description">Description</label>
+              <textarea 
+                id="description" 
+                name="description" 
+                value={formData.description} 
+                onChange={handleInputChange} 
+                disabled={isSubmitting} 
+                placeholder="Enter product description" 
+                rows={3} 
+              />
+            </div>
+
+            <div className="form-group">
+              <label htmlFor="specifications">Product Specifications (JSON)</label>
+              <textarea
+                id="specifications"
+                name="specifications"
+                value={specificationsText}
+                onChange={(e) => handleSpecificationsChange(e.target.value)}
+                disabled={isSubmitting}
+                placeholder={`{
+  "input": "AC 100-240V",
+  "output": "DC 5V 2.4A",
+  "ports": "USB-A x 2",
+  "cable": "Type-C 1m",
+  "warranty": "6 months",
+  "color": "Black"
+}`}
+                rows={8}
+                style={{ fontFamily: 'monospace', fontSize: '14px' }}
+              />
+              {specificationsError ? (
+                <div className="spec-error">❌ {specificationsError}</div>
+              ) : specificationsObj ? (
+                <div className="spec-ok">✅ {Object.keys(specificationsObj).length} specs loaded</div>
+              ) : null}
+            </div>
+
+            {/* Cloudinary Upload */}
+            <div className="form-group">
+              <label>Product Images</label>
+              <CloudinaryImageUpload
+                onUploadSuccess={handleImageUploadSuccess}
+                onUploadProgress={handleUploadProgress}
+                multiple={true}
+                maxFiles={5}
+                disabled={isSubmitting}
+                showNotification={showNotification}
+              />
+              {uploadedImages.length > 0 && (
+                <div className="uploaded-images-display">
+                  <h4>✅ Uploaded Images ({uploadedImages.length}):</h4>
+                  <div className="uploaded-images-grid">
+                    {uploadedImages.map((image, index) => (
+                      <div key={index} className="uploaded-image-item">
+                        <img 
+                          src={generateResponsiveImageUrl(image.secure_url, { width: 100, height: 100, crop: 'fill' })} 
+                          alt={`Product ${index + 1}`} 
+                        />
+                        <div className="image-info">
+                          <small>📸 Cloudinary URL</small>
+                          <small>{image.public_id}</small>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            <button 
+              type="submit" 
+              className={`submit-btn ${isSubmitting ? 'submitting' : ''}`} 
+              disabled={isSubmitting}
+            >
+              {isSubmitting ? '⏳ Uploading...' : '🚀 Upload Product'}
+            </button>
+          </div>
+        </form>
+      )}
+
+      {uploadMode === 'bulk' && (
+        <div className="bulk-upload-form">
+          <div className="bulk-section">
+            <h3>📊 Bulk Product Upload</h3>
+            <div className="bulk-upload-actions">
+              <input 
+                type="file" 
+                accept=".csv" 
+                onChange={handleCSVUpload} 
+                disabled={isBulkSubmitting} 
+                ref={csvInputRef} 
+                style={{ display: 'none' }} 
+                id="csv-upload" 
+              />
+              <label htmlFor="csv-upload" className="upload-csv-btn">📊 Select CSV File</label>
+              <button type="button" onClick={downloadSampleCSV} className="download-sample-btn">
+                📄 Download Sample CSV (with SEO & SKU)
+              </button>
+            </div>
+            {csvFile && (
+              <div className="csv-info">
+                <p>📁 Selected: <strong>{csvFile.name}</strong></p>
+              </div>
+            )}
+
+            {bulkProducts.length > 0 && (
+              <div className="bulk-preview">
+                <div className="preview-header">
+                  <h4>Products Preview ({bulkProducts.length} products)</h4>
+                  <div className="preview-stats">
+                    <span className="valid-count">✅ Valid: {bulkProducts.filter(p => p.isValid).length}</span>
+                    <span className="invalid-count">❌ Invalid: {bulkProducts.filter(p => !p.isValid).length}</span>
+                  </div>
+                </div>
+
+                <div className="products-table-container">
+                  <table className="products-preview-table">
+                    <thead>
+                      <tr>
+                        <th>#</th>
+                        <th>SKU</th>
+                        <th>Name</th>
+                        <th>Price</th>
+                        <th>Compare</th>
+                        <th>Stock</th>
+                        <th>Category</th>
+                        <th>Meta Title</th>
+                        <th>Validity</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {bulkProducts.map((p, index) => (
+                        <tr key={index} className={p.isValid ? 'valid' : 'invalid'}>
+                          <td>{index + 1}</td>
+                          <td>{p.sku || '—'}</td>
+                          <td>{p.name}</td>
+                          <td>₹{p.price}</td>
+                          <td>{p.compareAtPrice ? `₹${p.compareAtPrice}` : '—'}</td>
+                          <td>{p.stock || '0'}</td>
+                          <td>{p.category}</td>
+                          <td>{p.metaTitle ? `${p.metaTitle.substring(0, 30)}...` : '—'}</td>
+                          <td>
+                            {p.isValid ? (
+                              <span className="status-valid">✅ Valid</span>
+                            ) : (
+                              <span className="status-invalid" title={p.errors.join(', ')}>❌ Invalid</span>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                <div className="bulk-submit-actions">
+                  <button 
+                    onClick={handleBulkSubmit} 
+                    disabled={isBulkSubmitting || bulkProducts.filter(p => p.isValid).length === 0} 
+                    className={`bulk-submit-btn ${isBulkSubmitting ? 'submitting' : ''}`}
+                  >
+                    {isBulkSubmitting ? '⏳ Uploading Products...' : '🚀 Upload All Valid Products'}
+                  </button>
+                  <button 
+                    onClick={() => setBulkProducts([])} 
+                    disabled={isBulkSubmitting} 
+                    className="cancel-bulk-btn"
+                  >
+                    ❌ Cancel
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+});
+
 /* ------------------------------ Inventory Tab ----------------------------- */
 const InventoryManagement = memo<{
   showNotification: (message: string, type: 'success' | 'error') => void;
@@ -189,7 +973,6 @@ const InventoryManagement = memo<{
   const [products, setProducts] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-
   const [currentPage, setCurrentPage] = useState(1);
   const [itemsPerPage, setItemsPerPage] = useState(10);
   const [totalProducts, setTotalProducts] = useState(0);
@@ -251,6 +1034,10 @@ const InventoryManagement = memo<{
       category: product.category,
       description: product.description || '',
       status: product.status || 'active',
+      // NEW: Add SKU and meta fields
+      sku: product.sku || '',
+      metaTitle: product.metaTitle || '',
+      metaDescription: product.metaDescription || '',
       // prefill slabs:
       slab10_40: (() => {
         const t = (product.pricingTiers || []).find((x: any) => x.minQty >= 10 && x.minQty <= 40);
@@ -275,6 +1062,20 @@ const InventoryManagement = memo<{
     if (!Number.isFinite(stockNum) || stockNum < 0) { showNotification('Stock must be a valid non-negative number', 'error'); return; }
     if (cmpNum !== null && (!Number.isFinite(cmpNum) || !(cmpNum > priceNum))) { showNotification('Compare-at price must be greater than Price', 'error'); return; }
 
+    // Validate SKU and meta fields
+    if (editFormData.sku && editFormData.sku.length < 3) {
+      showNotification('SKU must be at least 3 characters', 'error');
+      return;
+    }
+    if (editFormData.metaTitle && editFormData.metaTitle.length > 60) {
+      showNotification('Meta title should be under 60 characters for better SEO', 'error');
+      return;
+    }
+    if (editFormData.metaDescription && editFormData.metaDescription.length > 160) {
+      showNotification('Meta description should be under 160 characters for better SEO', 'error');
+      return;
+    }
+
     const payload: any = {
       name: editFormData.name?.trim(),
       price: priceNum,
@@ -284,6 +1085,10 @@ const InventoryManagement = memo<{
       status: editFormData.status,
       compareAtPrice: cmpNum,
       originalPrice: cmpNum ?? undefined,
+      // NEW: Add meta and SKU fields
+      sku: editFormData.sku?.trim() || undefined,
+      metaTitle: editFormData.metaTitle?.trim() || undefined,
+      metaDescription: editFormData.metaDescription?.trim() || undefined,
     };
 
     // slabs → pricingTiers
@@ -365,14 +1170,29 @@ const InventoryManagement = memo<{
   };
 
   const handleExportCSV = () => {
-    const headers = ['Name','Price','CompareAtPrice','Stock','Category','Status','Description'];
+    const headers = ['Name','Price','CompareAtPrice','Stock','Category','Status','Description','SKU','MetaTitle','MetaDescription'];
     const csvData = [
       headers.join(','),
-      ...products.map(p => [`"${p.name}"`, p.price, (p.compareAtPrice ?? ''), p.stock, `"${p.category}"`, (p.status || 'active'), `"${p.description || ''}"`].join(','))
+      ...products.map(p => [
+        `"${p.name}"`, 
+        p.price, 
+        (p.compareAtPrice ?? ''), 
+        p.stock, 
+        `"${p.category}"`, 
+        (p.status || 'active'), 
+        `"${p.description || ''}"`,
+        `"${p.sku || ''}"`,
+        `"${p.metaTitle || ''}"`,
+        `"${p.metaDescription || ''}"`
+      ].join(','))
     ].join('\n');
     const blob = new Blob([csvData], { type: 'text/csv' });
-    const url = URL.createObjectURL(blob); const a = document.createElement('a');
-    a.href = url; a.download = `inventory-${new Date().toISOString().split('T')[0]}.csv`; a.click(); URL.revokeObjectURL(url);
+    const url = URL.createObjectURL(blob); 
+    const a = document.createElement('a');
+    a.href = url; 
+    a.download = `inventory-${new Date().toISOString().split('T')[0]}.csv`; 
+    a.click(); 
+    URL.revokeObjectURL(url);
   };
 
   const getStockStatus = (stock: number) => {
@@ -441,18 +1261,16 @@ const InventoryManagement = memo<{
                 <th><input type="checkbox" checked={selectAll} onChange={handleSelectAll} /></th>
                 <th>Image</th>
                 <th onClick={() => handleSort('name')} className="sortable">Name {sortBy === 'name' && (sortOrder === 'asc' ? '↑' : '↓')}</th>
+                <th>SKU</th>
                 <th onClick={() => handleSort('price')} className="sortable">Price {sortBy === 'price' && (sortOrder === 'asc' ? '↑' : '↓')}</th>
                 <th>Compare</th>
                 <th onClick={() => handleSort('stock')} className="sortable">Stock {sortBy === 'stock' && (sortOrder === 'asc' ? '↑' : '↓')}</th>
                 <th>Category</th>
-                <th>Spec</th>
-                <th>10–40</th>
-                <th>50–100</th>
+                <th>Meta Title</th>
                 <th>Status</th>
                 <th>Actions</th>
               </tr>
             </thead>
-
             <tbody>
               {products.map((product) => (
                 <tr key={product._id} className={selectedProducts.includes(product._id) ? 'selected' : ''}>
@@ -469,6 +1287,13 @@ const InventoryManagement = memo<{
                       <input type="text" value={editFormData.name} onChange={(e) => setEditFormData({ ...editFormData, name: e.target.value })} className="edit-input" />
                     ) : (
                       <div className="product-name"><strong>{product.name}</strong>{product.description && (<small>{product.description.substring(0, 50)}...</small>)}</div>
+                    )}
+                  </td>
+                  <td>
+                    {editingProduct === product._id ? (
+                      <input type="text" value={editFormData.sku} onChange={(e) => setEditFormData({ ...editFormData, sku: e.target.value })} className="edit-input" placeholder="SKU" />
+                    ) : (
+                      <span className="sku">{product.sku || '—'}</span>
                     )}
                   </td>
                   <td>
@@ -499,44 +1324,12 @@ const InventoryManagement = memo<{
                     ) : <span className="category">{product.category}</span>}
                   </td>
                   <td>
-                    {product.specifications && typeof product.specifications === 'object' ? (
-                      <details>
-                        <summary style={{ cursor: 'pointer' }}>{Object.keys(product.specifications).length} fields</summary>
-                        <pre style={{ whiteSpace: 'pre-wrap', wordBreak: 'break-word', fontSize: 12 }}>{JSON.stringify(product.specifications, null, 2)}</pre>
-                      </details>
-                    ) : (<span style={{ color: '#888' }}>—</span>)}
-                  </td>
-
-                  {/* Slab display OR edit */}
-                  <td>
                     {editingProduct === product._id ? (
-                      <input
-                        type="number"
-                        value={editFormData.slab10_40 ?? ''}
-                        onChange={(e) => setEditFormData({ ...editFormData, slab10_40: e.target.value })}
-                        className="edit-input"
-                        min="0" step="0.01"
-                        placeholder="10–40 ex-GST"
-                      />
+                      <input type="text" value={editFormData.metaTitle} onChange={(e) => setEditFormData({ ...editFormData, metaTitle: e.target.value })} className="edit-input" placeholder="Meta Title" maxLength={60} />
                     ) : (
-                      <span>₹{(product.pricingTiers || []).find((x: any) => x.minQty >= 10 && x.minQty <= 40)?.unitPrice ?? '—'}</span>
+                      <span className="meta-title">{product.metaTitle ? `${product.metaTitle.substring(0, 30)}...` : '—'}</span>
                     )}
                   </td>
-                  <td>
-                    {editingProduct === product._id ? (
-                      <input
-                        type="number"
-                        value={editFormData.slab50_100 ?? ''}
-                        onChange={(e) => setEditFormData({ ...editFormData, slab50_100: e.target.value })}
-                        className="edit-input"
-                        min="0" step="0.01"
-                        placeholder="50–100 ex-GST"
-                      />
-                    ) : (
-                      <span>₹{(product.pricingTiers || []).find((x: any) => x.minQty >= 50 && x.minQty <= 100)?.unitPrice ?? '—'}</span>
-                    )}
-                  </td>
-
                   <td>
                     {editingProduct === product._id ? (
                       <select value={editFormData.status} onChange={(e) => setEditFormData({ ...editFormData, status: e.target.value })} className="edit-select">
@@ -600,463 +1393,6 @@ const InventoryManagement = memo<{
   );
 });
 
-/* --------------------------- Product Management --------------------------- */
-const ProductManagement = memo<{
-  onStatsRefresh: () => void;
-  showNotification: (message: string, type: 'success' | 'error') => void;
-  checkNetworkStatus: () => boolean;
-}>(({ onStatsRefresh, showNotification, checkNetworkStatus }) => {
-  const [formData, setFormData] = useState({
-    name: '',
-    price: '',
-    compareAtPrice: '',
-    stock: '',
-    category: '',
-    description: '',
-    slab10_40: '',     // NEW
-    slab50_100: '',    // NEW
-  });
-  const [uploadedImages, setUploadedImages] = useState<any[]>([]);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [uploadProgress, setUploadProgress] = useState(0);
-
-  // specs (JSON)
-  const [specificationsText, setSpecificationsText] = useState<string>('');
-  const [specificationsError, setSpecificationsError] = useState<string | null>(null);
-  const [specificationsObj, setSpecificationsObj] = useState<Record<string, any> | null>(null);
-
-  const handleSpecificationsChange = (value: string) => {
-    setSpecificationsText(value);
-    if (!value.trim()) { setSpecificationsError(null); setSpecificationsObj(null); return; }
-    try {
-      const parsed = JSON.parse(value);
-      if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) { setSpecificationsObj(parsed); setSpecificationsError(null); }
-      else { setSpecificationsObj(null); setSpecificationsError('JSON must be an object.'); }
-    } catch (e: any) { setSpecificationsObj(null); setSpecificationsError(e.message || 'Invalid JSON'); }
-  };
-
-  // bulk CSV
-  const [uploadMode, setUploadMode] = useState<'single' | 'bulk'>('single');
-  const [bulkProducts, setBulkProducts] = useState<any[]>([]);
-  const [csvFile, setCsvFile] = useState<File | null>(null);
-  const [isBulkSubmitting, setIsBulkSubmitting] = useState(false);
-  const csvInputRef = useRef<HTMLInputElement>(null);
-
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) => {
-    const { name, value } = e.target;
-    setFormData(prev => ({ ...prev, [name]: value }));
-  };
-  const handleImageUploadSuccess = (images: any[]) => { setUploadedImages(images); showNotification(`✅ ${images.length} image(s) uploaded`, 'success'); };
-  const handleUploadProgress = (p: number) => setUploadProgress(p);
-
-  // CSV helpers
-  const norm = (h: string) => h.trim().toLowerCase().replace(/\s+/g, " ");
-  const toNumber = (val: any, opts?: { allowMillions?: boolean }) => {
-    if (val === null || val === undefined) return NaN;
-    let s = String(val).trim();
-    if (opts?.allowMillions && /^[\d.]+\s*m$/i.test(s)) { const m = parseFloat(s.replace(/m/i, "")); return Math.round(m * 1_000_000); }
-    s = s.replace(/[^\d.]/g, "");
-    if (!s) return NaN;
-    return Number(s);
-  };
-  const kvSemiToJson = (txt: string) => { const out: Record<string, any> = {}; txt.split(";").forEach((pair) => { const [k, v] = pair.split(":"); if (!k) return; out[k.trim()] = (v ?? "").toString().trim(); }); return out; };
-  const splitImages = (val: any) => String(val).split(/[|,]/).map((u) => u.trim()).filter(Boolean);
-  const pick = (row: any, keys: string[]) => { for (const k of keys) { const kk = norm(k); if (kk in row && row[kk] !== undefined) return row[kk]; } return ""; };
-
-  // CSV upload
-  const handleCSVUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    if (file.type !== "text/csv" && !file.name.endsWith(".csv")) { showNotification("Please select a CSV file", "error"); if (csvInputRef.current) csvInputRef.current.value = ""; return; }
-    setCsvFile(file);
-
-    const reader = new FileReader();
-    reader.onload = (ev) => {
-      try {
-        const csvText = (ev.target?.result as string) || "";
-        const parsed = Papa.parse(csvText, { header: true, skipEmptyLines: true, transformHeader: (h) => norm(h) });
-        if (parsed.errors?.length) { const first = parsed.errors[0]; showNotification(`CSV parse error: ${first.message}`, "error"); return; }
-        const rows = (parsed.data as any[]) || [];
-
-        const products = rows
-          .map((raw, index) => {
-            const row: Record<string, any> = {}; for (const key in raw) row[norm(key)] = raw[key];
-            const p: any = {
-              id: index + 1,
-              name: String(pick(row, ["name"])).trim(),
-              price: pick(row, ["price", "selling price", "amount"]),
-              compareAtPrice: pick(row, ["compare at price","compare_at_price","compareatprice","compare price","compareprice","mrp","msrp","list price","original price","originalprice","compare","comapre"]),
-              stock: pick(row, ["stock", "qty", "quantity", "inventory","stockquantity"]),
-              category: String(pick(row, ["category", "cat"])).trim(),
-              description: pick(row, ["description", "desc"]),
-              specifications: pick(row, ["specifications", "specs"]),
-              images: pick(row, ["images", "image urls", "image"]),
-              errors: [], isValid: true,
-            };
-
-            const priceNum = toNumber(p.price, { allowMillions: true });
-            if (isNaN(priceNum) || priceNum <= 0) p.errors.push("Invalid price"); else p.price = priceNum;
-
-            if (p.compareAtPrice !== undefined && p.compareAtPrice !== '') {
-              const cmp = toNumber(p.compareAtPrice, { allowMillions: true });
-              if (isNaN(cmp) || cmp <= priceNum) p.errors.push("compareAtPrice must be > price"); else p.compareAtPrice = cmp;
-            }
-
-            const stockNum = toNumber(p.stock);
-            if (!isNaN(stockNum)) p.stock = Math.floor(stockNum); else p.errors.push("Invalid stock");
-            if (!p.name) p.errors.push("Missing name");
-            if (!p.category) p.errors.push("Missing category");
-
-            if (typeof p.specifications === "string" && p.specifications.trim()) {
-              const text = p.specifications.trim();
-              if (text.startsWith("{") || text.startsWith("[")) {
-                try { const js = JSON.parse(text); if (js && typeof js === "object") p.specifications = js; else p.errors.push("specifications must be object"); }
-                catch { p.errors.push("Invalid specifications JSON"); }
-              } else p.specifications = kvSemiToJson(text);
-            }
-
-            if (typeof p.images === "string" && p.images.trim()) p.images = splitImages(p.images);
-
-            // NEW: slab columns
-            const t10raw = pick(row, ['tier_10_40','10-40 price','10_40','slab10_40','price_10_40']);
-            const t50raw = pick(row, ['tier_50_100','50-100 price','50_100','slab50_100','price_50_100']);
-            const t10num = toNumber(t10raw);
-            const t50num = toNumber(t50raw);
-            if (t10raw !== '' && t10raw !== undefined) {
-              if (Number.isFinite(t10num) && t10num >= 0) p.slab10_40 = t10num; else p.errors.push('Invalid tier_10_40');
-            }
-            if (t50raw !== '' && t50raw !== undefined) {
-              if (Number.isFinite(t50num) && t50num >= 0) p.slab50_100 = t50num; else p.errors.push('Invalid tier_50_100');
-            }
-
-            p.isValid = p.errors.length === 0;
-            return p;
-          })
-          .filter((x) => x.name || x.price || x.category);
-
-        setBulkProducts(products);
-        const validCount = products.filter((x) => x.isValid).length;
-        showNotification(`Loaded ${products.length} products (Valid: ${validCount}, Invalid: ${products.length - validCount})`, validCount === products.length ? 'success' : 'error');
-      } catch (err) {
-        console.error("CSV Parse Error:", err);
-        showNotification("Error parsing CSV file", "error");
-      }
-    };
-    reader.readAsText(file);
-  };
-
-  const handleSingleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    const priceNum = Number(formData.price);
-    const compareNum = formData.compareAtPrice ? Number(formData.compareAtPrice) : 0;
-    if (formData.compareAtPrice && !(compareNum > priceNum)) { showNotification('Compare at price must be greater than Price', 'error'); return; }
-    if (!formData.name.trim() || !formData.price || !formData.category) { showNotification('Please fill all required fields', 'error'); return; }
-    if (!checkNetworkStatus()) return;
-
-    setIsSubmitting(true);
-    try {
-      const uploadData = new FormData();
-      uploadData.append('name', formData.name.trim());
-      uploadData.append('price', formData.price);
-      if (formData.compareAtPrice) { uploadData.append('compareAtPrice', formData.compareAtPrice); uploadData.append('originalPrice', formData.compareAtPrice); }
-      uploadData.append('stock', formData.stock || '0');
-      uploadData.append('category', formData.category);
-      uploadData.append('description', formData.description.trim());
-      if (specificationsObj) uploadData.append('specifications', JSON.stringify(specificationsObj));
-
-      if (uploadedImages.length > 0) {
-        uploadData.append('imageUrl', uploadedImages[0].secure_url);
-        uploadData.append('images', JSON.stringify(uploadedImages.map(img => img.secure_url)));
-        uploadData.append('cloudinaryPublicIds', JSON.stringify(uploadedImages.map(img => img.public_id)));
-      }
-
-      // NEW: pricingTiers from slabs
-      const t10 = formData.slab10_40 ? Number(formData.slab10_40) : NaN;
-      const t50 = formData.slab50_100 ? Number(formData.slab50_100) : NaN;
-      if (formData.slab10_40 && !(t10 >= 0)) { showNotification('10–40 price must be a valid non-negative number', 'error'); setIsSubmitting(false); return; }
-      if (formData.slab50_100 && !(t50 >= 0)) { showNotification('50–100 price must be a valid non-negative number', 'error'); setIsSubmitting(false); return; }
-      const tiers: Array<{minQty:number;unitPrice:number}> = [];
-      if (!Number.isNaN(t10)) tiers.push({ minQty: 10, unitPrice: t10 });
-      if (!Number.isNaN(t50)) tiers.push({ minQty: 50, unitPrice: t50 });
-      if (tiers.length) uploadData.append('pricingTiers', JSON.stringify(tiers));
-
-      const response = await uploadProduct(uploadData);
-      if (response?.success) {
-        setFormData({ name: '', price: '', stock: '', category: '', compareAtPrice: '', description: '', slab10_40: '', slab50_100: '' });
-        setUploadedImages([]); setUploadProgress(0);
-        setSpecificationsText(''); setSpecificationsObj(null); setSpecificationsError(null);
-        showNotification('✅ Product uploaded successfully!', 'success');
-        onStatsRefresh();
-      } else throw new Error(response?.message || 'Upload failed');
-    } catch (error: any) {
-      showNotification(`❌ ${error?.response?.data?.message || error.message || 'Upload failed'}`, 'error');
-    } finally {
-      setIsSubmitting(false);
-    }
-  };
-
-  const handleBulkSubmit = async () => {
-    if (!bulkProducts.length) { showNotification('No products to upload', 'error'); return; }
-    const validProducts = bulkProducts.filter(p => p.isValid);
-    if (!validProducts.length) { showNotification('No valid products to upload', 'error'); return; }
-    if (!checkNetworkStatus()) return;
-    setIsBulkSubmitting(true);
-
-    try {
-      const productsData = validProducts.map((product) => {
-        const pd: any = {
-          name: product.name,
-          description: product.description || "No description provided",
-          price: Number(product.price),
-          compareAtPrice: product.compareAtPrice ? Number(product.compareAtPrice) : undefined,
-          originalPrice: product.compareAtPrice ? Number(product.compareAtPrice) : undefined,
-          category: product.category,
-          subcategory: product.subcategory || undefined,
-          brand: product.brand || "Nakoda",
-          stockQuantity: Number(product.stock) || 0,
-          images: Array.isArray(product.images) ? product.images : (product.images ? [product.images] : []),
-          specifications: (product.specifications && typeof product.specifications === "object") ? product.specifications : {},
-          features: Array.isArray(product.features) ? product.features : String(product.features || "").split(/[;,]/).map((s: string) => s.trim()).filter(Boolean),
-          tags: Array.isArray(product.tags) ? product.tags : String(product.tags || "").split(/[;,]/).map((s: string) => s.trim()).filter(Boolean),
-          status: product.status || "active",
-          isActive: true
-        };
-
-        const t10 = Number.isFinite(product.slab10_40) ? product.slab10_40 : undefined;
-        const t50 = Number.isFinite(product.slab50_100) ? product.slab50_100 : undefined;
-        const pricingTiers = [
-          ...(t10 !== undefined ? [{ minQty: 10, unitPrice: t10 }] : []),
-          ...(t50 !== undefined ? [{ minQty: 50, unitPrice: t50 }] : []),
-        ];
-        if (pricingTiers.length) pd.pricingTiers = pricingTiers;
-        return pd;
-      });
-
-      const response = await bulkUploadProducts(productsData);
-      if (response?.success) {
-        showNotification(`✅ Uploaded ${response.successCount} products`, 'success');
-        if (response.failureCount) showNotification(`⚠️ ${response.failureCount} products failed`, 'error');
-        setBulkProducts([]); setCsvFile(null); if (csvInputRef.current) csvInputRef.current.value = '';
-        onStatsRefresh();
-      } else throw new Error(response?.message || 'Bulk upload failed');
-    } catch (e: any) {
-      showNotification(`❌ Bulk upload failed: ${e.message}`, 'error');
-    } finally {
-      setIsBulkSubmitting(false);
-    }
-  };
-
-  const downloadSampleCSV = () => {
-    const sampleData = [
-      'name,price,compare at price,stock,category,description,specifications,images,tier_10_40,tier_50_100',
-      'Sample TWS Earbuds,1299,1500,50,TWS,"Wireless earbuds","{""battery"":""30mAh"",""bt"":""5.3""}","https://...",114,108'
-    ].join('\n');
-    const blob = new Blob([sampleData], { type: 'text/csv' });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a'); a.href = url; a.download = 'sample-products.csv'; a.click(); window.URL.revokeObjectURL(url);
-  };
-
-  return (
-    <div className="product-management-container">
-      <div className="upload-mode-header">
-        <h2>📦 Product Management</h2>
-        <div className="upload-mode-tabs">
-          <button className={uploadMode === 'single' ? 'active' : ''} onClick={() => setUploadMode('single')} disabled={isSubmitting || isBulkSubmitting}>📄 Single Upload</button>
-          <button className={uploadMode === 'bulk' ? 'active' : ''} onClick={() => setUploadMode('bulk')} disabled={isSubmitting || isBulkSubmitting}>📊 Bulk Upload</button>
-        </div>
-      </div>
-
-      {uploadMode === 'single' && (
-        <form className="single-upload-form" onSubmit={handleSingleSubmit}>
-          <div className="form-section">
-            <h3>📱 Single Product Upload</h3>
-
-            <div className="form-row">
-              <div className="form-group">
-                <label htmlFor="name">Product Name *</label>
-                <input type="text" id="name" name="name" value={formData.name} onChange={handleInputChange} disabled={isSubmitting} placeholder="Enter product name" required />
-              </div>
-              <div className="form-group">
-                <label htmlFor="price">Price *</label>
-                <input type="number" id="price" name="price" value={formData.price} onChange={handleInputChange} disabled={isSubmitting} placeholder="0.00" min="0" step="0.01" required />
-              </div>
-            </div>
-
-            <div className="form-group">
-              <label htmlFor="compareAtPrice">Compare at price (MRP)</label>
-              <input type="number" id="compareAtPrice" name="compareAtPrice" value={formData.compareAtPrice} onChange={handleInputChange} disabled={isSubmitting} placeholder="0.00" min="0" step="0.01" />
-              <small style={{color:'#666'}}>Shown as strike-through if greater than Price.</small>
-            </div>
-
-            {/* NEW: slab price fields */}
-            <div className="form-row">
-              <div className="form-group">
-                <label htmlFor="slab10_40">10–40 Qty Price (ex-GST)</label>
-                <input type="number" id="slab10_40" name="slab10_40" value={formData.slab10_40} onChange={handleInputChange} disabled={isSubmitting} placeholder="e.g., 114" min="0" step="0.01" />
-                <small className="hint">Creates pricingTiers entry with minQty=10</small>
-              </div>
-              <div className="form-group">
-                <label htmlFor="slab50_100">50–100 Qty Price (ex-GST)</label>
-                <input type="number" id="slab50_100" name="slab50_100" value={formData.slab50_100} onChange={handleInputChange} disabled={isSubmitting} placeholder="e.g., 108" min="0" step="0.01" />
-                <small className="hint">Creates pricingTiers entry with minQty=50</small>
-              </div>
-            </div>
-
-            <div className="form-row">
-              <div className="form-group">
-                <label htmlFor="stock">Stock Quantity</label>
-                <input type="number" id="stock" name="stock" value={formData.stock} onChange={handleInputChange} disabled={isSubmitting} placeholder="0" min="0" />
-              </div>
-              <div className="form-group">
-                <label htmlFor="category">Category *</label>
-                <select id="category" name="category" value={formData.category} onChange={handleInputChange} disabled={isSubmitting} required>
-                  <option value="">Select Category</option>
-                  <option value="TWS">TWS Earbuds</option>
-                  <option value="Bluetooth Neckbands">Bluetooth Neckband</option>
-                  <option value="Data Cables">Data Cables</option>
-                  <option value="Mobile Chargers">Mobile Chargers</option>
-                  <option value="Integrated Circuits & Chips">Integrated Circuits & Chips</option>
-                  <option value="Mobile Repairing Tools">Mobile Repairing Tools</option>
-                  <option value="Car Chargers">Car Charger</option>
-                  <option value="Bluetooth Speakers">Bluetooth Speaker</option>
-                  <option value="Power Banks">Power Bank</option>
-                  <option value="Others">Other</option>
-                </select>
-              </div>
-            </div>
-
-            <div className="form-group">
-              <label htmlFor="description">Description</label>
-              <textarea id="description" name="description" value={formData.description} onChange={handleInputChange} disabled={isSubmitting} placeholder="Enter product description" rows={3} />
-            </div>
-
-            <div className="form-group">
-              <label htmlFor="specifications">Product Specifications (JSON)</label>
-              <textarea
-                id="specifications"
-                name="specifications"
-                value={specificationsText}
-                onChange={(e) => handleSpecificationsChange(e.target.value)}
-                disabled={isSubmitting}
-                placeholder={`{
-  "input": "AC 100-240V",
-  "output": "DC 5V 2.4A",
-  "ports": "USB-A x 2",
-  "cable": "Type-C 1m",
-  "warranty": "6 months",
-  "color": "Black"
-}`}
-                rows={8}
-                style={{ fontFamily: 'monospace', fontSize: '14px' }}
-              />
-              {specificationsError ? (
-                <div className="spec-error">❌ {specificationsError}</div>
-              ) : specificationsObj ? (
-                <div className="spec-ok">✅ {Object.keys(specificationsObj).length} specs loaded</div>
-              ) : null}
-            </div>
-
-            {/* Cloudinary Upload */}
-            <div className="form-group">
-              <label>Product Images</label>
-              <CloudinaryImageUpload
-                onUploadSuccess={handleImageUploadSuccess}
-                onUploadProgress={handleUploadProgress}
-                multiple={true}
-                maxFiles={5}
-                disabled={isSubmitting}
-                showNotification={showNotification}
-              />
-              {uploadedImages.length > 0 && (
-                <div className="uploaded-images-display">
-                  <h4>✅ Uploaded Images ({uploadedImages.length}):</h4>
-                  <div className="uploaded-images-grid">
-                    {uploadedImages.map((image, index) => (
-                      <div key={index} className="uploaded-image-item">
-                        <img src={generateResponsiveImageUrl(image.secure_url, { width: 100, height: 100, crop: 'fill' })} alt={`Product ${index + 1}`} />
-                        <div className="image-info">
-                          <small>📸 Cloudinary URL</small>
-                          <small>{image.public_id}</small>
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
-
-            <button type="submit" className={`submit-btn ${isSubmitting ? 'submitting' : ''}`} disabled={isSubmitting}>
-              {isSubmitting ? '⏳ Uploading...' : '🚀 Upload Product'}
-            </button>
-          </div>
-        </form>
-      )}
-
-      {uploadMode === 'bulk' && (
-        <div className="bulk-upload-form">
-          <div className="bulk-section">
-            <h3>📊 Bulk Product Upload</h3>
-            <div className="bulk-upload-actions">
-              <input type="file" accept=".csv" onChange={handleCSVUpload} disabled={isBulkSubmitting} ref={csvInputRef} style={{ display: 'none' }} id="csv-upload" />
-              <label htmlFor="csv-upload" className="upload-csv-btn">📊 Select CSV File</label>
-              <button type="button" onClick={downloadSampleCSV} className="download-sample-btn">📄 Download Sample CSV</button>
-            </div>
-            {csvFile && (<div className="csv-info"><p>📁 Selected: <strong>{csvFile.name}</strong></p></div>)}
-
-            {bulkProducts.length > 0 && (
-              <div className="bulk-preview">
-                <div className="preview-header">
-                  <h4>Products Preview ({bulkProducts.length} products)</h4>
-                  <div className="preview-stats">
-                    <span className="valid-count">✅ Valid: {bulkProducts.filter(p => p.isValid).length}</span>
-                    <span className="invalid-count">❌ Invalid: {bulkProducts.filter(p => !p.isValid).length}</span>
-                  </div>
-                </div>
-
-                <div className="products-table-container">
-                  <table className="products-preview-table">
-                    <thead>
-                      <tr>
-                        <th>#</th>
-                        <th>Name</th>
-                        <th>Price</th>
-                        <th>Compare</th>
-                        <th>Stock</th>
-                        <th>Category</th>
-                        <th>Validity</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {bulkProducts.map((p, index) => (
-                        <tr key={index} className={p.isValid ? 'valid' : 'invalid'}>
-                          <td>{index + 1}</td>
-                          <td>{p.name}</td>
-                          <td>₹{p.price}</td>
-                          <td>{p.compareAtPrice ? `₹${p.compareAtPrice}` : '—'}</td>
-                          <td>{p.stock || '0'}</td>
-                          <td>{p.category}</td>
-                          <td>{p.isValid ? <span className="status-valid">✅ Valid</span> : <span className="status-invalid" title={p.errors.join(', ')}>❌ Invalid</span>}</td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-
-                <div className="bulk-submit-actions">
-                  <button onClick={handleBulkSubmit} disabled={isBulkSubmitting || bulkProducts.filter(p => p.isValid).length === 0} className={`bulk-submit-btn ${isBulkSubmitting ? 'submitting' : ''}`}>
-                    {isBulkSubmitting ? '⏳ Uploading Products...' : '🚀 Upload All Valid Products'}
-                  </button>
-                  <button onClick={() => setBulkProducts([])} disabled={isBulkSubmitting} className="cancel-bulk-btn">❌ Cancel</button>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-});
-
 /* -------------------------------- Overview -------------------------------- */
 const Overview = React.memo<{
   stats: any;
@@ -1071,7 +1407,7 @@ const Overview = React.memo<{
     <div className="stats-grid" style={{display:'grid',gridTemplateColumns:'repeat(3,minmax(0,1fr))',gap:16}}>
       <div className="stat-card"><h3>Total Products</h3><div className="stat-number">{stats.totalProducts}</div></div>
       <button className="stat-card gradient" onClick={onOpenPending} style={{cursor:'pointer'}}><h3>Pending Orders</h3><div className="stat-number">{stats.pendingOrders}</div></button>
-      <button className="stat-card gradient" onClick={onOpenTodaySales} style={{cursor:'pointer'}}><h3>Today’s Sales</h3><div className="stat-number">₹{Number(stats.todaySales||0).toLocaleString()}</div></button>
+      <button className="stat-card gradient" onClick={onOpenTodaySales} style={{cursor:'pointer'}}><h3>Today's Sales</h3><div className="stat-number">₹{Number(stats.todaySales||0).toLocaleString()}</div></button>
       <button className="stat-card gradient" onClick={onOpenLowStock} style={{cursor:'pointer'}}><h3>Low Stock Items</h3><div className="stat-number">{stats.lowStockItems}</div></button>
       <button className="stat-card gradient" onClick={onOpenAllOrders} style={{cursor:'pointer'}}><h3>Total Orders</h3><div className="stat-number">{stats.totalOrders}</div></button>
       <button className="stat-card gradient" onClick={onOpenUsers} style={{cursor:'pointer'}}><h3>Total Users</h3><div className="stat-number">{stats.totalUsers}</div></button>
