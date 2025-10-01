@@ -242,10 +242,10 @@ const productSchema = new Schema<IProduct>(
     metaTitle: { 
       type: String, 
       trim: true, 
-      maxlength: [60, 'Meta title cannot exceed 60 characters'],
+      maxlength: [160, 'Meta title cannot exceed 60 characters'],
       validate: {
         validator: function(v: string) {
-          return !v || v.length <= 60;
+          return !v || v.length <= 160;
         },
         message: 'Meta title should be under 60 characters for better SEO'
       }
