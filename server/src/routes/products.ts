@@ -1,48 +1,22 @@
-// src/routes/products.routes.ts
+// products.routes.ts
 import express from 'express';
 import mongoose, { SortOrder } from 'mongoose';
 import Product from '../models/Product';
-import NodeCache from 'node-cache';
 
 const router = express.Router();
 
 /* ------------------------------------------------------------------ */
-/* Utils                                                              */
+/* Utilities                                                          */
 /* ------------------------------------------------------------------ */
 const toNumber = (v: any, d: number) => (v == null || v === '' ? d : Number(v));
 const isNonEmpty = (v: any) => typeof v === 'string' && v.trim() !== '';
 
-/** Build an absolute image URL that the FE can always use */
-function pickImage(p: any, base = 'https://nakodamobile.in') {
-  // Prefer primaryImage (string/object) then images[0] (string/object)
-  const prim = p?.primaryImage;
-  const first = Array.isArray(p?.images) ? p.images[0] : undefined;
-
-  let url: any =
-    (typeof prim === 'string' ? prim : prim?.url || prim?.secure_url) ||
-    (typeof first === 'string' ? first : first?.url || first?.secure_url) ||
-    null;
-
-  // Normalize /uploads/* → absolute
-  if (url && typeof url === 'string' && url.startsWith('/uploads/')) {
-    url = `${base}${url}`;
-  }
-  return url;
-}
-
-/** Slim fields for list responses (detail route returns full doc) */
-const LIST_FIELDS =
-  'name slug price mrp category brand images.0 primaryImage averageRating ratingsCount stockQuantity inStock isActive createdAt updatedAt';
-
-/** Small 30s cache for hot first-page queries */
-const listCache = new NodeCache({ stdTTL: 30, checkperiod: 60 });
-
-/** FE sort tokens → Mongo sort */
+/** Translate FE sort tokens to Mongo sort objects */
 const sortMap: Record<string, Record<string, SortOrder>> = {
   createdAt: { createdAt: -1 },
-  price: { price: 1 }, // flips with order
-  rating: { averageRating: -1, ratingsCount: -1 },
-  trending: { trendingScore: -1, updatedAt: -1, createdAt: -1 },
+  price: { price: 1 },                                   // will flip with `order`
+  rating: { rating: -1, reviews: -1 },
+  trending: { trendingScore: -1, updatedAt: -1, createdAt: -1 }, // for aggregate
 };
 
 function getSort(
@@ -51,14 +25,16 @@ function getSort(
 ): Record<string, SortOrder> {
   const sb = Array.isArray(sortBy) ? sortBy[0] : sortBy;
   const ord: SortOrder = (Array.isArray(order) ? order[0] : order) === 'asc' ? 1 : -1;
+
   if (sb && sortMap[sb]) {
     const obj = { ...sortMap[sb] };
     const keys = Object.keys(obj);
-    if (keys.length === 1) obj[keys[0]] = ord;
+    if (keys.length === 1) obj[keys[0]] = ord; // only flip single-key sorts
     return obj;
   }
   return { createdAt: -1 };
 }
+
 
 /* ------------------------------------------------------------------ */
 /* Routes                                                             */
@@ -66,58 +42,52 @@ function getSort(
 
 /**
  * GET /products/search?q=...&category=...&minPrice=...&maxPrice=...
- * Uses $text when index exists, else regex fallback.
  */
 router.get('/search', async (req, res) => {
   try {
     const { q, category, minPrice, maxPrice } = req.query as Record<string, string>;
-    if (!isNonEmpty(q)) return res.status(400).json({ success: false, message: 'Search query required' });
 
-    const filter: any = { isActive: true };
+    if (!isNonEmpty(q)) {
+      return res.status(400).json({ success: false, message: 'Search query required' });
+    }
+
+    const filter: any = {
+      isActive: true,
+      $or: [
+        { name: { $regex: q, $options: 'i' } },
+        { description: { $regex: q, $options: 'i' } },
+      ],
+    };
+
     if (isNonEmpty(category) && category !== 'all') filter.category = category;
     if (minPrice) filter.price = { ...(filter.price || {}), $gte: Number(minPrice) };
     if (maxPrice) filter.price = { ...(filter.price || {}), $lte: Number(maxPrice) };
 
-    res.set('Cache-Control', 'public, max-age=15, s-maxage=30, stale-while-revalidate=60');
+    const products = await Product.find(filter)
+      .sort({ createdAt: -1 })
+      .select(
+        'name description price stockQuantity category brand images rating reviews inStock isActive specifications createdAt updatedAt'
+      )
+      .lean();
 
-    // Detect if any text index exists on the schema
-    const hasText =
-      typeof (Product.schema as any).indexes === 'function' &&
-      (Product.schema as any).indexes().some((idx: any[]) =>
-        Object.values(idx?.[0] || {}).includes('text')
-      );
-
-    let items: any[] = [];
-    if (hasText) {
-      filter.$text = { $search: q!.trim() };
-      const query = Product.find(filter)
-        // @ts-ignore add score
-        .select({ ...LIST_FIELDS.split(' ').reduce((p, f) => ({ ...p, [f]: 1 }), {}), score: { $meta: 'textScore' } })
-        // @ts-ignore sort by score then newest
-        .sort({ score: { $meta: 'textScore' }, createdAt: -1 })
-        .limit(48)
-        .lean();
-      items = await query.exec();
-    } else {
-      filter.$or = [
-        { name: { $regex: q, $options: 'i' } },
-        { description: { $regex: q, $options: 'i' } },
-      ];
-      items = await Product.find(filter).select(LIST_FIELDS).sort({ createdAt: -1, _id: -1 }).limit(48).lean();
-    }
-
-    const products = items.map(p => ({ ...p, thumbnail: pickImage(p) }));
-    res.json({ success: true, products, count: products.length, query: q });
+    res.json({
+      success: true,
+      message: 'Search completed',
+      products,
+      query: q,
+      count: products.length,
+    });
   } catch (error: any) {
     console.error('❌ /products/search error:', error);
     res.status(500).json({ success: false, message: 'Search failed', error: error.message });
   }
 });
 
-/** GET /products/categories */
+/**
+ * GET /products/categories  → distinct category names
+ */
 router.get('/categories', async (_req, res) => {
   try {
-    res.set('Cache-Control', 'public, max-age=60, s-maxage=120');
     const categories = await Product.distinct('category', { isActive: true });
     res.json({ success: true, categories });
   } catch (error: any) {
@@ -125,38 +95,41 @@ router.get('/categories', async (_req, res) => {
   }
 });
 
-/** GET /products/categories/list */
+/**
+ * GET /products/categories/list  → categories with counts
+ */
 router.get('/categories/list', async (_req, res) => {
   try {
-    res.set('Cache-Control', 'public, max-age=60, s-maxage=120');
     const categories = await Product.aggregate([
       { $match: { isActive: true, inStock: { $ne: false } } },
       { $group: { _id: '$category', count: { $sum: 1 } } },
       { $sort: { count: -1 } },
     ]);
-    res.json({ success: true, categories });
+
+    res.json({ success: true, message: 'Categories fetched', categories });
   } catch (error: any) {
     console.error('❌ /products/categories/list error:', error);
     res.status(500).json({ success: false, message: 'Failed to fetch categories', error: error.message });
   }
 });
 
-/** GET /products/trending?limit=12 */
+/**
+ * GET /products/trending?limit=12
+ */
 router.get('/trending', async (req, res) => {
   try {
     const { limit = '12' } = req.query as Record<string, string>;
-    const l = Math.min(48, Math.max(1, Number(limit) || 12));
+    const l = Math.min(1000, Math.max(1, Number(limit) || 12));
 
-    res.set('Cache-Control', 'public, max-age=15, s-maxage=30, stale-while-revalidate=60');
-
-    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    const now = new Date();
+    const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
 
     const results = await Product.aggregate([
       { $match: { isActive: true } },
       {
         $addFields: {
-          _rating: { $ifNull: ['$averageRating', 0] },
-          _reviews: { $ifNull: ['$ratingsCount', 0] },
+          _rating: { $ifNull: ['$rating', 0] },
+          _reviews: { $ifNull: ['$reviews', 0] },
           _recent: { $cond: [{ $gte: ['$updatedAt', thirtyDaysAgo] }, 1, 0] },
         },
       },
@@ -169,116 +142,141 @@ router.get('/trending', async (req, res) => {
       },
       { $sort: { trendingScore: -1, updatedAt: -1, createdAt: -1 } },
       { $limit: l },
-      { $project: LIST_FIELDS.split(' ').reduce((p, f) => ({ ...p, [f]: 1 }), {}) },
+      {
+        $project: {
+          name: 1,
+          description: 1,
+          price: 1,
+          stockQuantity: 1,
+          category: 1,
+          brand: 1,
+          images: 1,
+          rating: 1,
+          reviews: 1,
+          inStock: 1,
+          isActive: 1,
+          specifications: 1,
+          createdAt: 1,
+          updatedAt: 1,
+          trendingScore: 1,
+        },
+      },
     ]);
 
-    const products = results.map(p => ({ ...p, thumbnail: pickImage(p) }));
-    res.json({ success: true, products, count: products.length });
+    res.json({ success: true, message: 'Trending products', products: results, count: results.length });
   } catch (error: any) {
     console.error('❌ /products/trending error:', error);
     res.status(500).json({ success: false, message: 'Failed to fetch trending products', error: error.message });
   }
 });
 
-/** GET /products/brand/:brand?limit=12&excludeId=... */
+/**
+ * GET /products/brand/:brand?limit=12&excludeId=...
+ */
 router.get('/brand/:brand', async (req, res) => {
   try {
     const { brand } = req.params;
     const { limit = '12', excludeId } = req.query as Record<string, string>;
-    const l = Math.min(48, Math.max(1, Number(limit) || 12));
-
-    res.set('Cache-Control', 'public, max-age=15, s-maxage=30, stale-while-revalidate=60');
 
     const filter: any = { brand, isActive: true };
-    if (excludeId && mongoose.isValidObjectId(excludeId)) {
-      filter._id = { $ne: new mongoose.Types.ObjectId(excludeId) };
-    }
+    if (excludeId) filter._id = { $ne: excludeId };
 
-    const items = await Product.find(filter)
-      .sort({ createdAt: -1, _id: -1 })
-      .limit(l)
-      .select(LIST_FIELDS)
+    const products = await Product.find(filter)
+      .sort({ createdAt: -1 })
+      .limit(Math.min(1000, Math.max(1, Number(limit) || 12)))
+      .select(
+        'name description price stockQuantity category brand images rating reviews inStock isActive specifications createdAt updatedAt'
+      )
       .lean();
 
-    const products = items.map(p => ({ ...p, thumbnail: pickImage(p) }));
-    res.json({ success: true, products, count: products.length });
+    res.json({ success: true, message: `Products in brand ${brand}`, products, count: products.length });
   } catch (error: any) {
     console.error('❌ /products/brand error:', error);
     res.status(500).json({ success: false, message: 'Failed to fetch brand products', error: error.message });
   }
 });
 
-/** GET /products/category/:category */
+/**
+ * GET /products/category/:category
+ */
+
 router.get('/category/:category', async (req, res) => {
   try {
     const { category } = req.params;
 
-    res.set('Cache-Control', 'public, max-age=15, s-maxage=30, stale-while-revalidate=60');
-
-    const items = await Product.find({ category, isActive: true })
-      .sort({ createdAt: -1, _id: -1 })
-      .select(LIST_FIELDS)
+    const products = await Product.find({ category, isActive: true })
+      .sort({ createdAt: -1 })
+      .select(
+        'name description price stockQuantity category brand images rating reviews inStock isActive specifications createdAt updatedAt'
+      )
       .lean();
 
-    const products = items.map(p => ({ ...p, thumbnail: pickImage(p) }));
-    res.json({ success: true, products, count: products.length, category });
+    res.json({
+      success: true,
+      message: `Products in ${category} category`,
+      products,
+      category,
+      count: products.length,
+    });
   } catch (error: any) {
     console.error('❌ /products/category error:', error);
     res.status(500).json({ success: false, message: 'Failed to fetch category products', error: error.message });
   }
 });
 
-/** GET /products/:id/related?limit=12 */
+/**
+ * GET /products/:id/related?limit=12
+ */
 router.get('/:id/related', async (req, res) => {
   try {
     const { id } = req.params;
     const { limit = '12' } = req.query as Record<string, string>;
-    const l = Math.min(48, Math.max(1, Number(limit) || 12));
 
     if (!mongoose.isValidObjectId(id)) {
       return res.status(400).json({ success: false, message: 'Invalid product id format' });
     }
 
-    res.set('Cache-Control', 'public, max-age=15, s-maxage=30, stale-while-revalidate=60');
-
     const base = await Product.findById(id).select('category brand').lean();
     if (!base) return res.status(404).json({ success: false, message: 'Base product not found' });
 
     const filter: any = {
-      _id: { $ne: new mongoose.Types.ObjectId(id) },
+      _id: { $ne: id },
       isActive: true,
       $or: [{ category: base.category }, { brand: base.brand }],
     };
 
-    const items = await Product.find(filter)
-      .sort({ updatedAt: -1, _id: -1 })
-      .limit(l)
-      .select(LIST_FIELDS)
+    const products = await Product.find(filter)
+      .sort({ updatedAt: -1 })
+      .limit(Math.min(1000, Math.max(1, Number(limit) || 12)))
+      .select(
+        'name description price stockQuantity category brand images rating reviews inStock isActive specifications createdAt updatedAt'
+      )
       .lean();
 
-    const products = items.map(p => ({ ...p, thumbnail: pickImage(p) }));
-    res.json({ success: true, products, count: products.length });
+    res.json({ success: true, message: 'Related products', products, count: products.length });
   } catch (error: any) {
     console.error('❌ /products/:id/related error:', error);
     res.status(500).json({ success: false, message: 'Failed to fetch related products', error: error.message });
   }
 });
 
-/** GET /products/:id (single) */
+/**
+ * GET /products/:id  (single)
+ */
 router.get('/:id', async (req, res) => {
   try {
     const { id } = req.params;
+
     if (!mongoose.isValidObjectId(id)) {
       return res.status(400).json({ success: false, message: 'Invalid product id format' });
     }
 
-    res.set('Cache-Control', 'public, max-age=30, s-maxage=60, stale-while-revalidate=120');
+    const product = await Product.findById(id).select('-__v').lean();
+    if (!product) {
+      return res.status(404).json({ success: false, message: 'Product not found' });
+    }
 
-    const product: any = await Product.findById(id).select('-__v').lean();
-    if (!product) return res.status(404).json({ success: false, message: 'Product not found' });
-
-    product.thumbnail = pickImage(product);
-    res.json({ success: true, product });
+    res.json({ success: true, message: 'Product details fetched', product });
   } catch (error: any) {
     console.error('❌ /products/:id error:', error);
     res.status(500).json({ success: false, message: 'Failed to fetch product details', error: error.message });
@@ -299,51 +297,52 @@ router.get('/', async (req, res) => {
       brand,
       search,
       sortBy = 'createdAt',
-      order = 'desc',
+      order = 'desc',              // FE may send 'sortOrder'
       page = '1',
-      limit,
+      limit,                       // let clamp handle default
       minPrice,
       maxPrice,
       excludeId,
-      sortOrder,
+      sortOrder,                   // accept alias
     } = req.query as Record<string, string>;
 
     const p = Math.max(1, toNumber(page, 1));
-    const DEFAULT_LIMIT = 24;
-    const MAX_LIMIT = 48;
+    const MAX_LIMIT = 1000;
+    const DEFAULT_LIMIT = 200;
     const l = Math.min(MAX_LIMIT, Math.max(1, toNumber(limit, DEFAULT_LIMIT)));
-    const effOrder = sortOrder ?? order;
 
     const filter: any = { isActive: true };
+
     if (isNonEmpty(category) && category !== 'all') filter.category = category;
     if (isNonEmpty(brand) && brand !== 'all') filter.brand = brand;
-    if (excludeId && mongoose.isValidObjectId(excludeId)) {
-      filter._id = { $ne: new mongoose.Types.ObjectId(excludeId) };
-    }
+    if (excludeId) filter._id = { $ne: excludeId };
+
     if (minPrice || maxPrice) {
       filter.price = {};
       if (minPrice) filter.price.$gte = Number(minPrice);
       if (maxPrice) filter.price.$lte = Number(maxPrice);
     }
 
-    // Prefer text search when available
     if (isNonEmpty(search)) {
-      filter.$text = { $search: search!.trim() };
+      filter.$or = [
+        { name: { $regex: search, $options: 'i' } },
+        { description: { $regex: search, $options: 'i' } },
+      ];
     }
 
-    // Trending path via aggregation
-    const sort = getSort(sortBy, effOrder);
+    // If trending, do the aggregate path FIRST and return
+    const effOrder = sortOrder ?? order;
     if (sortBy === 'trending') {
-      res.set('Cache-Control', 'public, max-age=15, s-maxage=30, stale-while-revalidate=60');
+      const now = new Date();
+      const thirtyDaysAgo = new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
 
-      const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
       const [results, totalAgg] = await Promise.all([
         Product.aggregate([
           { $match: filter },
           {
             $addFields: {
-              _rating: { $ifNull: ['$averageRating', 0] },
-              _reviews: { $ifNull: ['$ratingsCount', 0] },
+              _rating: { $ifNull: ['$rating', 0] },
+              _reviews: { $ifNull: ['$reviews', 0] },
               _recent: { $cond: [{ $gte: ['$updatedAt', thirtyDaysAgo] }, 1, 0] },
             },
           },
@@ -357,61 +356,71 @@ router.get('/', async (req, res) => {
           { $sort: { trendingScore: -1, updatedAt: -1, createdAt: -1 } },
           { $skip: (p - 1) * l },
           { $limit: l },
-          { $project: LIST_FIELDS.split(' ').reduce((p, f) => ({ ...p, [f]: 1 }), {}) },
+          {
+            $project: {
+              name: 1,
+              description: 1,
+              price: 1,
+              stockQuantity: 1,
+              category: 1,
+              brand: 1,
+              images: 1,
+              rating: 1,
+              reviews: 1,
+              inStock: 1,
+              isActive: 1,
+              specifications: 1,
+              createdAt: 1,
+              updatedAt: 1,
+            },
+          },
         ]),
         Product.countDocuments(filter),
       ]);
 
-      const products = results.map(p => ({ ...p, thumbnail: pickImage(p) }));
       return res.json({
         success: true,
-        products,
-        pagination: { page: p, limit: l, total: totalAgg, pages: Math.ceil(totalAgg / l), hasMore: p * l < totalAgg },
-        count: products.length,
+        message: 'Products fetched successfully (trending)',
+        products: results,
+        pagination: {
+          page: p,
+          limit: l,
+          total: totalAgg,
+          pages: Math.ceil(totalAgg / l),
+          hasMore: p * l < totalAgg,
+        },
+        count: results.length,
       });
     }
 
-    // Normal list path with small cache for page 1 without search
-    res.set('Cache-Control', 'public, max-age=15, s-maxage=30, stale-while-revalidate=60');
+    // Normal find() path
+    const sort = getSort(sortBy, effOrder);
 
-    const canCache = !isNonEmpty(search) && p === 1;
-    const cacheKey = canCache ? `plist:${category || 'all'}:${brand || 'all'}:${sortBy}:${effOrder}:${l}` : null;
-    if (cacheKey) {
-      const hit = listCache.get(cacheKey);
-      if (hit) return res.json(hit as any);
-    }
-
-    const q = Product.find(filter).select(LIST_FIELDS).sort(sort).skip((p - 1) * l).limit(l).lean();
-
-    if (filter.$text) {
-      // @ts-ignore
-      q.select({ score: { $meta: 'textScore' } });
-      // @ts-ignore
-      q.sort({ score: { $meta: 'textScore' }, ...sort });
-    }
-
-    const needCount = p === 1 && !filter.$text;
-    const [items, total] = await Promise.all([
-      q.exec(),
-      needCount ? Product.countDocuments(filter) : Promise.resolve(undefined),
+    const [products, total] = await Promise.all([
+      Product.find(filter)
+        .sort(sort)
+        .skip((p - 1) * l)
+        .limit(l)
+        .select(
+          'name description price stockQuantity category brand images rating reviews inStock isActive specifications createdAt updatedAt'
+        )
+        .lean(),
+      Product.countDocuments(filter),
     ]);
 
-    const products = items.map(p => ({ ...p, thumbnail: pickImage(p) }));
-    const payload = {
+    res.json({
       success: true,
+      message: 'Products fetched successfully',
       products,
       pagination: {
         page: p,
         limit: l,
-        total: total ?? undefined,
-        pages: total ? Math.ceil(total / l) : undefined,
-        hasMore: total ? p * l < total : true,
+        total,
+        pages: Math.ceil(total / l),
+        hasMore: p * l < total,
       },
       count: products.length,
-    };
-
-    if (cacheKey) listCache.set(cacheKey, payload);
-    res.json(payload);
+    });
   } catch (error: any) {
     console.error('❌ GET /products error:', error);
     res.status(500).json({ success: false, message: 'Failed to fetch products', error: error.message });
