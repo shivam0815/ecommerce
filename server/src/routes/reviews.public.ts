@@ -203,7 +203,7 @@ r.get(
 
     try {
       const { productId } = req.query as { productId: string };
-
+res.set('Cache-Control', 'public, max-age=30, s-maxage=60, stale-while-revalidate=120');
       const cacheKey = `review-summary:${productId}`;
       const cached = reviewCache.get(cacheKey);
       if (cached) {

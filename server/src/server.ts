@@ -12,7 +12,7 @@ import path from 'path';
 import fs from 'fs';
 import http from 'http';
 import { Server, Socket } from 'socket.io';
-
+import { readLimiter, writeLimiter, rateLimitedObserver } from './config/rateLimiter';
 import { connectDatabase } from './config/database';
 import passport from './config/passport';
 
@@ -154,34 +154,11 @@ app.use((req, res, next) => {
 
 
 // Rate limiting
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: isProd ? 1000 : 10000,
-  standardHeaders: true,
-  legacyHeaders: false,
-  skip: (req) => ['/api/health', '/api/debug'].some((p) => req.path.startsWith(p)),
-  handler: (req, res) => {
-    console.warn('🚨 Rate limit exceeded', {
-      ip: req.ip,
-      path: req.path,
-      method: req.method,
-      timestamp: new Date().toISOString()
-    });
-    res.status(429).json({
-      error: 'Too many requests from this IP, please try again later.',
-      retryAfter: '15 minutes',
-      timestamp: new Date().toISOString(),
-      requestId: (req as any).requestId
-    });
-  }
-});
-app.use('/api', limiter);
-// put this ABOVE app.use(cors(...))
-app.use((_, res, next) => {
-  res.header('Vary', 'Origin');
-  next();
-});
 
+
+app.use(['/api/products', '/api/search', '/api/reviews', '/api/blog'], readLimiter);
+app.use(['/api/cart', '/api/orders', '/api/payment', '/api/auth', '/api/wishlist', '/api/user'], writeLimiter);
+app.use(rateLimitedObserver);
 // CORS
 app.use(
   cors({
