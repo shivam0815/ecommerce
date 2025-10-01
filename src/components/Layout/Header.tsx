@@ -25,16 +25,16 @@ type Category = {
 
 // ---- Categories (update image paths to your assets) ----
 const CATEGORIES: Category[] = [
-   { label: 'Chargers',              slug: 'chargers',           img: '/Charger1.webp' },
-  { label: 'Car Charger',       slug: 'Car-Charger',    img: '/CarCharger.webp' },
-   { label: 'Data Cables',                slug: 'Data-cables',             img: '/cable.png' },
-  { label: 'True Wireless Earbuds', slug: 'tws',                img: '/Earbud-removebg-preview.png' },
-    { label: 'Neckbands',             slug: 'neckband',           img: '/Neckband-removebg-preview.png' },
-  { label: 'Wireless Speakers',     slug: 'wireless-speakers',  img: '/Bluetooth-Speaker.webp' },
-    { label: 'ICs',             slug: 'Mobile ICs',           img: '/ics.webp' },
+   { label: 'Chargers',              slug: 'Mobile Chargers',           img: '/Charger1.webp' },
+  { label: 'Car Charger',       slug: 'Car Chargers',    img: '/CarCharger.webp' },
+   { label: 'Data Cables',                slug: 'Data Cables',             img: '/cable.png' },
+  { label: 'True Wireless Earbuds', slug: 'TWS',                img: '/Earbud-removebg-preview.png' },
+    { label: 'Neckbands',             slug: 'Bluetooth Neckbands',           img: '/Neckband-removebg-preview.png' },
+  { label: 'Wireless Speakers',     slug: 'Bluetooth Speakers',  img: '/Bluetooth-Speaker.webp' },
+    { label: 'ICs',             slug: 'Integrated Circuits & Chips',           img: '/ics.webp' },
  
-{ label: 'Power Banks',           slug: 'power-bank',         img: '/Powerbank.webp' },
-  { label: 'Mobile Tools',    slug: 'mobile-accessories', img: '/Reapring-Tools.webp' }
+{ label: 'Power Banks',           slug: 'Power banks',         img: '/Powerbank.webp' },
+  { label: 'Mobile Tools',    slug: 'Accessories', img: '/Reapring-Tools.webp' }
 
 ];
 

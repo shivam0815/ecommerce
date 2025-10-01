@@ -282,6 +282,11 @@ const CheckoutPage: React.FC = () => {
           quantity: item.quantity,
           price: item.price,
         })),
+        // top-level fields required by PaymentOrderData
+        subtotal: rawSubtotal,
+        tax,
+        shipping: shippingFee,
+        total,
         // @ts-ignore
         shippingAddress: shipping,
         // @ts-ignore
