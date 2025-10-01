@@ -218,16 +218,45 @@ const Products: React.FC = () => {
   return (
     <div className="min-h-screen bg-gray-50">
 <SEO
-  title="Shop Products"
-  description="Browse TWS, Bluetooth neckbands, data cables, chargers, ICs, and tools."
-  canonicalPath="/products"
+  title={
+    selectedCategory
+      ? `Shop ${selectedCategory} Online | Nakoda Mobile`
+      : searchTerm
+      ? `Search results for "${searchTerm}" | Nakoda Mobile`
+      : `Shop Premium Tech Accessories | Nakoda Mobile`
+  }
+  description={
+    selectedCategory
+      ? `Explore premium ${selectedCategory} at wholesale prices. Shop authentic, tested products with fast Pan-India shipping.`
+      : searchTerm
+      ? `Find products matching "${searchTerm}" including chargers, neckbands, TWS, cables and more. Best prices at Nakoda Mobile.`
+      : `Browse our curated range of TWS, Bluetooth neckbands, data cables, chargers, IC chips, tools, and accessories. Trusted quality & fast shipping across India.`
+  }
+  canonicalPath={
+    selectedCategory
+      ? `/products?category=${encodeURIComponent(selectedCategory)}`
+      : searchTerm
+      ? `/products?search=${encodeURIComponent(searchTerm)}`
+      : `/products`
+  }
   jsonLd={{
     '@context': 'https://schema.org',
     '@type': 'CollectionPage',
-    name: 'Products',
-    url: 'https://nakodamobile.in/products'
+    name: selectedCategory
+      ? `${selectedCategory} Collection`
+      : searchTerm
+      ? `Search: ${searchTerm}`
+      : 'Products',
+    url: `https://nakodamobile.in/products${
+      selectedCategory ? `?category=${encodeURIComponent(selectedCategory)}` : ''
+    }${searchTerm ? `?search=${encodeURIComponent(searchTerm)}` : ''}`,
+    description:
+      selectedCategory
+        ? `Wide range of ${selectedCategory} at Nakoda Mobile.`
+        : 'Shop high-quality mobile accessories and electronics.',
   }}
 />
+
 
       {/* Hero */}
       <div className="bg-gradient-to-r from-blue-600 to-purple-600 text-white py-16">

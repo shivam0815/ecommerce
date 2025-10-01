@@ -488,12 +488,40 @@ const ProductDetail: React.FC = () => {
     const invalidId = error.includes('Invalid product ID') || error.includes('Cast to ObjectId');
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
-        <SEO
-          title="Shop Products"
-          description="Browse TWS, Bluetooth neckbands, data cables, chargers, ICs, and tools."
-          canonicalPath="/products"
-          jsonLd={{ '@context': 'https://schema.org', '@type': 'CollectionPage', name: 'Products', url: 'https://nakodamobile.in/products' }}
-        />
+       <SEO
+  title={product?.seo?.metaTitle || product?.name || 'Product'}
+  description={
+    product?.seo?.metaDescription ||
+    product?.description?.slice(0, 155) ||
+    `Buy ${product?.name || 'Product'} online at Nakoda Mobile.`
+  }
+  image={
+    product?.seo?.ogImage ||
+    (Array.isArray(product?.images) ? product.images[0] : undefined)
+  }
+  canonicalPath={product?.seo?.canonicalPath || `/product/${product?._id ?? ''}`}
+  jsonLd={{
+    '@context': 'https://schema.org',
+    '@type': 'Product',
+    name: product?.name || 'Product',
+    image: Array.isArray(product?.images) ? product.images : [],
+    description: product?.seo?.metaDescription || product?.description?.slice(0, 155), // ✅ updated here
+    sku: product?._id,
+    brand: product?.brand ? { '@type': 'Brand', name: product.brand } : undefined,
+    category: product?.category,
+    offers: {
+      '@type': 'Offer',
+      priceCurrency: 'INR',
+      price: product?.price,
+      availability:
+        product?.inStock === false
+          ? 'https://schema.org/OutOfStock'
+          : 'https://schema.org/InStock',
+    },
+  }}
+/>
+
+
         <div className="text-center max-w-md mx-auto p-6">
           <div className="text-6xl mb-4">{invalidId ? '🔍' : '⚠️'}</div>
           <h2 className="text-2xl font-bold text-gray-900 mb-2">

@@ -34,6 +34,12 @@ export interface Product {
   updatedAt?: Date | string;
   compareAtPrice?: number | null;
   brand?: string;
+    seo?: {
+    metaTitle?: string;
+    metaDescription?: string;
+    canonicalPath?: string;
+    ogImage?: string;
+  };
 }
 
 /**

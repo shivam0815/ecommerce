@@ -62,6 +62,9 @@ function buildCategoryItems(categoryNames: string[], products: Product[]): Categ
   });
 }
 
+
+
+
 const CategoriesPage: React.FC = () => {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(true);

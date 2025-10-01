@@ -334,7 +334,7 @@ productSchema.virtual('seoTitle').get(function (this: IProduct) {
   const site = 'Nakoda Mobile';
   const t = this.metaTitle?.trim() || this.seo?.metaTitle?.trim();
   if (t) return t;
-  return clamp(`${this.name} — Bulk Supplier | ${site}`, 60);
+  return clamp(`${this.name} — Bulk Supplier | ${site}`, 160);
 });
 
 productSchema.virtual('seoDescription').get(function (this: IProduct) {
