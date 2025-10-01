@@ -23,15 +23,15 @@ const recalcProductRating = async (productId: mongoose.Types.ObjectId | string) 
   const count = agg[0]?.count ?? 0;
 
   await Product.findByIdAndUpdate(pid, {
-    rating: Math.round(avg * 10) / 10,
-    reviewsCount: count,
+    averageRating: Math.round(avg * 10) / 10,
+    ratingsCount: count,
+    reviews: count, // keep old field in sync
   });
 
-  // Bust cache for this product
-  reviewCache.del(`review-summary:${pid}`);
+  reviewCache.del(`review-summary:${pid}`); // Bust cache
 };
 
-/* ----------------------------- Endpoints ----------------------------- */
+
 
 // 📌 Paginated list of reviews + distribution
 export const listReviews = async (req: Request, res: Response) => {

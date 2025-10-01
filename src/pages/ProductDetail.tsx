@@ -118,38 +118,38 @@ const isUserLoggedIn = () => {
 
 
 /** Hook: live review summary for a product card */
-const useReviewSummary = (productId?: string) => {
-  const [avg, setAvg] = useState(0);
-  const [count, setCount] = useState(0);
+// const useReviewSummary = (productId?: string) => {
+//   const [avg, setAvg] = useState(0);
+//   const [count, setCount] = useState(0);
 
-  useEffect(() => {
-    if (!productId) return;
-    let off = false;
-    const load = async () => {
-      try {
-        const s = await reviewsService.summary(productId);
-        if (!off) {
-          setAvg(Number(s.averageRating || 0));
-          setCount(Number(s.reviewCount || 0));
-        }
-      } catch {/* ignore */}
-    };
-    load();
+//   useEffect(() => {
+//     if (!productId) return;
+//     let off = false;
+//     const load = async () => {
+//       try {
+//         const s = await reviewsService.summary(productId);
+//         if (!off) {
+//           setAvg(Number(s.averageRating || 0));
+//           setCount(Number(s.reviewCount || 0));
+//         }
+//       } catch {/* ignore */}
+//     };
+//     load();
 
-    const onChanged = (e: any) => { if (e?.detail?.productId === productId) load(); };
-    window.addEventListener('reviews:changed', onChanged);
-    const onStorage = (e: StorageEvent) => { if (e.key === `reviews:changed:${productId}`) load(); };
-    window.addEventListener('storage', onStorage);
+//     const onChanged = (e: any) => { if (e?.detail?.productId === productId) load(); };
+//     window.addEventListener('reviews:changed', onChanged);
+//     const onStorage = (e: StorageEvent) => { if (e.key === `reviews:changed:${productId}`) load(); };
+//     window.addEventListener('storage', onStorage);
 
-    return () => {
-      off = true;
-      window.removeEventListener('reviews:changed', onChanged);
-      window.removeEventListener('storage', onStorage);
-    };
-  }, [productId]);
+//     return () => {
+//       off = true;
+//       window.removeEventListener('reviews:changed', onChanged);
+//       window.removeEventListener('storage', onStorage);
+//     };
+//   }, [productId]);
 
-  return { avg, count };
-};
+//   return { avg, count };
+// };
 
 /** Mini product card used in rails */
 const MiniCard: React.FC<{ p: Product }> = ({ p }) => {
@@ -159,9 +159,10 @@ const MiniCard: React.FC<{ p: Product }> = ({ p }) => {
   const pid: string = (p as any)._id || (p as any).id;
   const firstImg =
     (Array.isArray(p.images) ? p.images.find((i: string) => i && i !== 'null' && i !== 'undefined') : '') || '';
+ const rounded = Math.round(p.averageRating ?? 0);
+  const reviewCount = p.ratingsCount ?? 0;
+  
 
-  const { avg, count } = useReviewSummary(pid);
-  const rounded = Math.round(avg);
 
   const moq = getMOQ(p);
 
@@ -215,14 +216,18 @@ const MiniCard: React.FC<{ p: Product }> = ({ p }) => {
             </>
           )}
         </div>
-        {count > 0 && (
-          <div className="flex items-center gap-1 text-xs text-gray-600">
-            {Array.from({ length: 5 }).map((_, i) => (
-              <Star key={i} className={`h-4 w-4 ${i < rounded ? 'text-yellow-400 fill-current' : 'text-gray-300'}`} />
-            ))}
-            <span className="ml-1">({count} reviews)</span>
-          </div>
-        )}
+       {reviewCount > 0 && (
+  <div className="flex items-center gap-1 text-xs text-gray-600">
+    {Array.from({ length: 5 }).map((_, i) => (
+      <Star
+        key={i}
+        className={`h-4 w-4 ${i < rounded ? 'text-yellow-400 fill-current' : 'text-gray-300'}`}
+      />
+    ))}
+    <span className="ml-1">({reviewCount} reviews)</span>
+  </div>
+)}
+
         <div className="flex gap-2 pt-1">
           <button
             onClick={add}
@@ -331,11 +336,14 @@ const ProductDetail: React.FC = () => {
         setError(null);
         const response = await productService.getProduct(id);
 
-        const normalizedProduct: Product = {
-          ...(response.product as Product),
-          specifications: normalizeSpecifications((response.product as any)?.specifications),
-          reviewsCount: (response.product as any)?.reviewsCount ?? (response.product as any)?.reviews ?? 0,
-        };
+     const normalizedProduct: Product = {
+  ...(response.product as Product),
+  specifications: normalizeSpecifications((response.product as any)?.specifications),
+  averageRating: (response.product as any)?.averageRating ?? 0,
+  ratingsCount: (response.product as any)?.ratingsCount ?? 0,
+};
+
+
 
         setProduct(normalizedProduct);
       } catch (err: any) {
@@ -652,7 +660,30 @@ const ProductDetail: React.FC = () => {
                     <span className="bg-gray-100 text-gray-700 px-2 py-0.5 rounded-full">{(product as any).brand}</span>
                   )}
                 </div>
+
+                {/* ⭐ Reviews stars */}
+{(product.ratingsCount ?? 0) > 0 && (
+  <div className="flex items-center gap-1 text-sm text-gray-600">
+    {Array.from({ length: 5 }).map((_, i) => (
+      <Star
+        key={i}
+        className={`h-4 w-4 ${
+          i < Math.round(product.averageRating ?? 0)
+            ? 'text-yellow-400 fill-current'
+            : 'text-gray-300'
+        }`}
+      />
+    ))}
+    <span className="ml-1">({product.ratingsCount ?? 0} reviews)</span>
+  </div>
+)}
+
+
+
+                
               </div>
+
+              
 
               {/* Price (dynamic per tier) */}
               <div className="flex items-center flex-wrap gap-2 sm:gap-4">
@@ -951,26 +982,35 @@ const ProductDetail: React.FC = () => {
 
         {/* SEO structured data */}
         <script
-          type="application/ld+json"
-          dangerouslySetInnerHTML={{
-            __html: JSON.stringify({
-              '@context': 'https://schema.org/',
-              '@type': 'Product',
-              name: product.name,
-              image: normalizedImages?.map((i: string) => safeImage(i))?.slice(0, 6),
-              description: product.description,
-              sku: (product as any)._id || (product as any).id,
-              brand: (product as any).brand ? { '@type': 'Brand', name: (product as any).brand } : undefined,
-              category: product.category,
-              offers: {
-                '@type': 'Offer',
-                priceCurrency: 'INR',
-                price: unitPrice ?? product.price ?? undefined,
-                url: typeof window !== 'undefined' ? window.location.href : undefined,
-              },
-            }),
-          }}
-        />
+  type="application/ld+json"
+  dangerouslySetInnerHTML={{
+    __html: JSON.stringify({
+      '@context': 'https://schema.org/',
+      '@type': 'Product',
+      name: product.name,
+      image: normalizedImages?.map((i: string) => safeImage(i))?.slice(0, 6),
+      description: product.description,
+      sku: (product as any)._id || (product as any).id,
+      brand: (product as any).brand ? { '@type': 'Brand', name: (product as any).brand } : undefined,
+      category: product.category,
+      offers: {
+        '@type': 'Offer',
+        priceCurrency: 'INR',
+        price: unitPrice ?? product.price ?? undefined,
+        url: typeof window !== 'undefined' ? window.location.href : undefined,
+        availability: product.inStock === false
+          ? 'https://schema.org/OutOfStock'
+          : 'https://schema.org/InStock',
+      },
+      aggregateRating: {
+        '@type': 'AggregateRating',
+        ratingValue: product.averageRating || 0,
+        reviewCount: product.ratingsCount || 0,
+      },
+    }),
+  }}
+/>
+
       </div>
 
       {/* Sticky mobile checkout bar */}

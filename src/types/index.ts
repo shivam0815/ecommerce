@@ -22,6 +22,8 @@ export interface Product {
   imageUrl?: string;
   thumbnail?: string;
   rating?: number;
+    averageRating?: number;
+  ratingsCount?: number;
   reviewsCount?: number;
   inStock?: boolean;
   currency?: string; // default "INR" from UI when missing
