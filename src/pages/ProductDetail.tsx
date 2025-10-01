@@ -21,7 +21,7 @@ import { resolveImageUrl } from '../utils/imageUtils';
 import toast from 'react-hot-toast';
 import SEO from '../components/Layout/SEO';
 import Reviews from '../components/Layout/Reviews';
-import { reviewsService } from '../services/reviewsService';
+
 import Breadcrumbs from './Breadcrumbs';
 
 /* ------------------------- Config ------------------------- */
