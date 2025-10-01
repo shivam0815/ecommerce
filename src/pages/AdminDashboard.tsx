@@ -361,7 +361,7 @@ slab100_exact: '',
             }
 
             // Validate meta fields lengths
-            if (p.metaTitle && p.metaTitle.length > 60) {
+            if (p.metaTitle && p.metaTitle.length > 160) {
               p.errors.push("Meta title should be under 60 characters for SEO");
             }
             if (p.metaDescription && p.metaDescription.length > 160) {
@@ -434,7 +434,7 @@ if (t100raw !== '' && t100raw !== undefined) p.slab100_exact = Number.isFinite(t
     }
 
     // Validate meta fields
-    if (formData.metaTitle && formData.metaTitle.length > 60) {
+    if (formData.metaTitle && formData.metaTitle.length > 160) {
       showNotification('Meta title should be under 60 characters for better SEO', 'error');
       return;
     }
@@ -693,10 +693,10 @@ if (pricingTiers.length) pd.pricingTiers = pricingTiers;
                 onChange={handleInputChange} 
                 disabled={isSubmitting} 
                 placeholder="Best TWS Earbuds - Premium Sound Quality" 
-                maxLength={60}
+                maxLength={160}
               />
               <small className="hint">
-                {formData.metaTitle.length}/60 characters. Used for search engine results and browser tab title.
+                {formData.metaTitle.length}/160 characters. Used for search engine results and browser tab title.
               </small>
             </div>
 
@@ -1135,7 +1135,7 @@ slab100_exact: (() => {
       showNotification('SKU must be at least 3 characters', 'error');
       return;
     }
-    if (editFormData.metaTitle && editFormData.metaTitle.length > 60) {
+    if (editFormData.metaTitle && editFormData.metaTitle.length > 160) {
       showNotification('Meta title should be under 60 characters for better SEO', 'error');
       return;
     }
