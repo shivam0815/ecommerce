@@ -7,16 +7,34 @@ import NodeCache from 'node-cache';
 const router = express.Router();
 
 /* ------------------------------------------------------------------ */
-/* Utilities                                                          */
+/* Utils                                                              */
 /* ------------------------------------------------------------------ */
 const toNumber = (v: any, d: number) => (v == null || v === '' ? d : Number(v));
 const isNonEmpty = (v: any) => typeof v === 'string' && v.trim() !== '';
 
-/** Slim fields for listing responses (keep details for /products/:id) */
+/** Build an absolute image URL that the FE can always use */
+function pickImage(p: any, base = 'https://nakodamobile.in') {
+  // Prefer primaryImage (string/object) then images[0] (string/object)
+  const prim = p?.primaryImage;
+  const first = Array.isArray(p?.images) ? p.images[0] : undefined;
+
+  let url: any =
+    (typeof prim === 'string' ? prim : prim?.url || prim?.secure_url) ||
+    (typeof first === 'string' ? first : first?.url || first?.secure_url) ||
+    null;
+
+  // Normalize /uploads/* → absolute
+  if (url && typeof url === 'string' && url.startsWith('/uploads/')) {
+    url = `${base}${url}`;
+  }
+  return url;
+}
+
+/** Slim fields for list responses (detail route returns full doc) */
 const LIST_FIELDS =
   'name slug price mrp category brand images.0 primaryImage averageRating ratingsCount stockQuantity inStock isActive createdAt updatedAt';
 
-/** In-memory cache for hot first-page queries (smooths bursts) */
+/** Small 30s cache for hot first-page queries */
 const listCache = new NodeCache({ stdTTL: 30, checkperiod: 60 });
 
 /** FE sort tokens → Mongo sort */
@@ -48,51 +66,47 @@ function getSort(
 
 /**
  * GET /products/search?q=...&category=...&minPrice=...&maxPrice=...
- * Uses text search when index exists; falls back to regex.
+ * Uses $text when index exists, else regex fallback.
  */
 router.get('/search', async (req, res) => {
   try {
     const { q, category, minPrice, maxPrice } = req.query as Record<string, string>;
-    if (!isNonEmpty(q)) {
-      return res.status(400).json({ success: false, message: 'Search query required' });
-    }
+    if (!isNonEmpty(q)) return res.status(400).json({ success: false, message: 'Search query required' });
 
     const filter: any = { isActive: true };
     if (isNonEmpty(category) && category !== 'all') filter.category = category;
     if (minPrice) filter.price = { ...(filter.price || {}), $gte: Number(minPrice) };
     if (maxPrice) filter.price = { ...(filter.price || {}), $lte: Number(maxPrice) };
 
-    // Prefer $text search (requires text index). Fallback to regex if absent.
-    const canText =
-      typeof (Product.schema as any).indexes === 'function' &&
-      (Product.schema as any).indexes().some((idx: any[]) =>
-        Object.values(idx[0] || {}).includes('text')
-      );
-
     res.set('Cache-Control', 'public, max-age=15, s-maxage=30, stale-while-revalidate=60');
 
-    let products;
-    if (canText) {
-      filter.$text = { $search: q.trim() };
-      products = await Product.find(filter)
-        // @ts-ignore
+    // Detect if any text index exists on the schema
+    const hasText =
+      typeof (Product.schema as any).indexes === 'function' &&
+      (Product.schema as any).indexes().some((idx: any[]) =>
+        Object.values(idx?.[0] || {}).includes('text')
+      );
+
+    let items: any[] = [];
+    if (hasText) {
+      filter.$text = { $search: q!.trim() };
+      const query = Product.find(filter)
+        // @ts-ignore add score
         .select({ ...LIST_FIELDS.split(' ').reduce((p, f) => ({ ...p, [f]: 1 }), {}), score: { $meta: 'textScore' } })
-        // @ts-ignore
+        // @ts-ignore sort by score then newest
         .sort({ score: { $meta: 'textScore' }, createdAt: -1 })
         .limit(48)
         .lean();
+      items = await query.exec();
     } else {
       filter.$or = [
         { name: { $regex: q, $options: 'i' } },
         { description: { $regex: q, $options: 'i' } },
       ];
-      products = await Product.find(filter)
-        .select(LIST_FIELDS)
-        .sort({ createdAt: -1, _id: -1 })
-        .limit(48)
-        .lean();
+      items = await Product.find(filter).select(LIST_FIELDS).sort({ createdAt: -1, _id: -1 }).limit(48).lean();
     }
 
+    const products = items.map(p => ({ ...p, thumbnail: pickImage(p) }));
     res.json({ success: true, products, count: products.length, query: q });
   } catch (error: any) {
     console.error('❌ /products/search error:', error);
@@ -100,9 +114,7 @@ router.get('/search', async (req, res) => {
   }
 });
 
-/**
- * GET /products/categories  → distinct category names
- */
+/** GET /products/categories */
 router.get('/categories', async (_req, res) => {
   try {
     res.set('Cache-Control', 'public, max-age=60, s-maxage=120');
@@ -113,9 +125,7 @@ router.get('/categories', async (_req, res) => {
   }
 });
 
-/**
- * GET /products/categories/list  → categories with counts
- */
+/** GET /products/categories/list */
 router.get('/categories/list', async (_req, res) => {
   try {
     res.set('Cache-Control', 'public, max-age=60, s-maxage=120');
@@ -131,9 +141,7 @@ router.get('/categories/list', async (_req, res) => {
   }
 });
 
-/**
- * GET /products/trending?limit=12
- */
+/** GET /products/trending?limit=12 */
 router.get('/trending', async (req, res) => {
   try {
     const { limit = '12' } = req.query as Record<string, string>;
@@ -164,16 +172,15 @@ router.get('/trending', async (req, res) => {
       { $project: LIST_FIELDS.split(' ').reduce((p, f) => ({ ...p, [f]: 1 }), {}) },
     ]);
 
-    res.json({ success: true, products: results, count: results.length });
+    const products = results.map(p => ({ ...p, thumbnail: pickImage(p) }));
+    res.json({ success: true, products, count: products.length });
   } catch (error: any) {
     console.error('❌ /products/trending error:', error);
     res.status(500).json({ success: false, message: 'Failed to fetch trending products', error: error.message });
   }
 });
 
-/**
- * GET /products/brand/:brand?limit=12&excludeId=...
- */
+/** GET /products/brand/:brand?limit=12&excludeId=... */
 router.get('/brand/:brand', async (req, res) => {
   try {
     const { brand } = req.params;
@@ -187,12 +194,13 @@ router.get('/brand/:brand', async (req, res) => {
       filter._id = { $ne: new mongoose.Types.ObjectId(excludeId) };
     }
 
-    const products = await Product.find(filter)
+    const items = await Product.find(filter)
       .sort({ createdAt: -1, _id: -1 })
       .limit(l)
       .select(LIST_FIELDS)
       .lean();
 
+    const products = items.map(p => ({ ...p, thumbnail: pickImage(p) }));
     res.json({ success: true, products, count: products.length });
   } catch (error: any) {
     console.error('❌ /products/brand error:', error);
@@ -200,20 +208,19 @@ router.get('/brand/:brand', async (req, res) => {
   }
 });
 
-/**
- * GET /products/category/:category
- */
+/** GET /products/category/:category */
 router.get('/category/:category', async (req, res) => {
   try {
     const { category } = req.params;
 
     res.set('Cache-Control', 'public, max-age=15, s-maxage=30, stale-while-revalidate=60');
 
-    const products = await Product.find({ category, isActive: true })
+    const items = await Product.find({ category, isActive: true })
       .sort({ createdAt: -1, _id: -1 })
       .select(LIST_FIELDS)
       .lean();
 
+    const products = items.map(p => ({ ...p, thumbnail: pickImage(p) }));
     res.json({ success: true, products, count: products.length, category });
   } catch (error: any) {
     console.error('❌ /products/category error:', error);
@@ -221,9 +228,7 @@ router.get('/category/:category', async (req, res) => {
   }
 });
 
-/**
- * GET /products/:id/related?limit=12
- */
+/** GET /products/:id/related?limit=12 */
 router.get('/:id/related', async (req, res) => {
   try {
     const { id } = req.params;
@@ -245,12 +250,13 @@ router.get('/:id/related', async (req, res) => {
       $or: [{ category: base.category }, { brand: base.brand }],
     };
 
-    const products = await Product.find(filter)
+    const items = await Product.find(filter)
       .sort({ updatedAt: -1, _id: -1 })
       .limit(l)
       .select(LIST_FIELDS)
       .lean();
 
+    const products = items.map(p => ({ ...p, thumbnail: pickImage(p) }));
     res.json({ success: true, products, count: products.length });
   } catch (error: any) {
     console.error('❌ /products/:id/related error:', error);
@@ -258,22 +264,20 @@ router.get('/:id/related', async (req, res) => {
   }
 });
 
-/**
- * GET /products/:id  (single)
- */
+/** GET /products/:id (single) */
 router.get('/:id', async (req, res) => {
   try {
     const { id } = req.params;
-
     if (!mongoose.isValidObjectId(id)) {
       return res.status(400).json({ success: false, message: 'Invalid product id format' });
     }
 
     res.set('Cache-Control', 'public, max-age=30, s-maxage=60, stale-while-revalidate=120');
 
-    const product = await Product.findById(id).select('-__v').lean();
+    const product: any = await Product.findById(id).select('-__v').lean();
     if (!product) return res.status(404).json({ success: false, message: 'Product not found' });
 
+    product.thumbnail = pickImage(product);
     res.json({ success: true, product });
   } catch (error: any) {
     console.error('❌ /products/:id error:', error);
@@ -322,12 +326,12 @@ router.get('/', async (req, res) => {
       if (maxPrice) filter.price.$lte = Number(maxPrice);
     }
 
-    // Prefer text search when index exists
+    // Prefer text search when available
     if (isNonEmpty(search)) {
       filter.$text = { $search: search!.trim() };
     }
 
-    // Trending path uses aggregation and returns early
+    // Trending path via aggregation
     const sort = getSort(sortBy, effOrder);
     if (sortBy === 'trending') {
       res.set('Cache-Control', 'public, max-age=15, s-maxage=30, stale-while-revalidate=60');
@@ -358,15 +362,16 @@ router.get('/', async (req, res) => {
         Product.countDocuments(filter),
       ]);
 
+      const products = results.map(p => ({ ...p, thumbnail: pickImage(p) }));
       return res.json({
         success: true,
-        products: results,
+        products,
         pagination: { page: p, limit: l, total: totalAgg, pages: Math.ceil(totalAgg / l), hasMore: p * l < totalAgg },
-        count: results.length,
+        count: products.length,
       });
     }
 
-    // List path with caching for page 1 without search
+    // Normal list path with small cache for page 1 without search
     res.set('Cache-Control', 'public, max-age=15, s-maxage=30, stale-while-revalidate=60');
 
     const canCache = !isNonEmpty(search) && p === 1;
@@ -385,13 +390,13 @@ router.get('/', async (req, res) => {
       q.sort({ score: { $meta: 'textScore' }, ...sort });
     }
 
-    // Count only when useful (page 1 and not text search)
     const needCount = p === 1 && !filter.$text;
-    const [products, total] = await Promise.all([
+    const [items, total] = await Promise.all([
       q.exec(),
       needCount ? Product.countDocuments(filter) : Promise.resolve(undefined),
     ]);
 
+    const products = items.map(p => ({ ...p, thumbnail: pickImage(p) }));
     const payload = {
       success: true,
       products,
