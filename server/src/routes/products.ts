@@ -271,12 +271,18 @@ router.get('/:id', async (req, res) => {
       return res.status(400).json({ success: false, message: 'Invalid product id format' });
     }
 
-    const product = await Product.findById(id).select('-__v').lean();
-    if (!product) {
-      return res.status(404).json({ success: false, message: 'Product not found' });
-    }
+  const product = await Product.findById(id).select('-__v').lean();
+  if (!product) {
+    return res.status(404).json({ success: false, message: 'Product not found' });
+  }
 
-    res.json({ success: true, message: 'Product details fetched', product });
+  // derive SEO metadata from a hydrated document instance (if the model exposes getSeoMeta)
+  const productDoc = (Product as any).hydrate(product);
+  const { title, description, canonical, image } = typeof productDoc.getSeoMeta === 'function'
+    ? productDoc.getSeoMeta('Nakoda Mobile', 'https://nakodamobile.in')
+    : { title: undefined, description: undefined, canonical: undefined, image: undefined };
+
+  res.json({ success: true, message: 'Product details fetched', product, seo: { title, description, canonical, image } });
   } catch (error: any) {
     console.error('❌ /products/:id error:', error);
     res.status(500).json({ success: false, message: 'Failed to fetch product details', error: error.message });

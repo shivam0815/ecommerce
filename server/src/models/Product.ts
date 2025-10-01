@@ -129,7 +129,7 @@ const PricingTierSchema = new Schema<PricingTier>(
 /* SEO sub-schema */
 const SEOSchema = new Schema<SEOFields>(
   {
-    metaTitle:       { type: String, trim: true, default: '', maxlength: 60 },
+    metaTitle:       { type: String, trim: true, default: '', maxlength: 160 },
     metaDescription: { type: String, trim: true, default: '', maxlength: 160 },
     canonicalPath:   { type: String, trim: true, default: '' },
     ogImage:         { type: String, trim: true, default: '' },
@@ -239,17 +239,18 @@ const productSchema = new Schema<IProduct>(
     incrementStep: { type: Number, min: 1, default: 1 },  // 1 = disabled
 
     // SEO Fields - BOTH flattened AND nested for flexibility
-    metaTitle: { 
-      type: String, 
-      trim: true, 
-      maxlength: [160, 'Meta title cannot exceed 60 characters'],
-      validate: {
-        validator: function(v: string) {
-          return !v || v.length <= 160;
-        },
-        message: 'Meta title should be under 60 characters for better SEO'
-      }
+ metaTitle: { 
+  type: String, 
+  trim: true, 
+  maxlength: [160, 'Meta title cannot exceed 160 characters'],
+  validate: {
+    validator: function(v: string) {
+      return !v || v.length <= 160;
     },
+    message: 'Meta title should be under 160 characters for better SEO'
+  }
+},
+
     metaDescription: { 
       type: String, 
       trim: true, 
