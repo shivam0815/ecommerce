@@ -103,6 +103,7 @@ const ProductReview: React.FC = () => {
       setReviews(prev => prev.filter(r => r._id !== reviewId));
       setTotal(t => Math.max(0, t - 1));
       toast.success('Review deleted');
+
       // if list is empty after delete and not on first page, go back a page
       if (reviews.length === 1 && page > 1) {
         setPage(p => Math.max(1, p - 1));
@@ -182,6 +183,7 @@ const ProductReview: React.FC = () => {
 
   return (
     <div className="product-review-container">
+      {/* Error Banner */}
       {error && (
         <div
           className="error-banner"
@@ -203,6 +205,7 @@ const ProductReview: React.FC = () => {
         </div>
       )}
 
+      {/* Header + Filters */}
       <div className="header">
         <h2>⭐ Product Reviews &amp; Feedback</h2>
 
@@ -270,67 +273,12 @@ const ProductReview: React.FC = () => {
         </div>
       </div>
 
-      {/* Stats */}
-      <div className="stats-overview">
-        <div className="stat-card">
-          <h3>Average Rating</h3>
-          <div className="rating-display">
-            <span className="rating-number">{averageRating.toFixed(1)}</span>
-            <div className="stars">
-              {[1, 2, 3, 4, 5].map(star => (
-                <span key={star} className={star <= averageRating ? 'star filled' : 'star'}>
-                  ⭐
-                </span>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        <div className="stat-card">
-          <h3>Total Reviews (filtered)</h3>
-          <span className="stat-number">{total}</span>
-        </div>
-
-        <div className="stat-card">
-          <h3>Verified (this page)</h3>
-          <span className="stat-number">{reviews.filter(r => r.verified).length}</span>
-        </div>
-      </div>
-
-      {/* Charts */}
-      <div className="charts-container">
-        <div className="chart">
-          <h3>Rating Distribution</h3>
-          <Bar
-            data={barChartData}
-            options={{
-              responsive: true,
-              plugins: {
-                legend: { display: false },
-                title: { display: true, text: 'Reviews by Star Rating' },
-              },
-            }}
-          />
-        </div>
-
-        <div className="chart">
-          <h3>Quality Assessment</h3>
-          <Pie
-            data={pieChartData}
-            options={{
-              responsive: true,
-              plugins: {
-                legend: { position: 'bottom' as const },
-                title: { display: true, text: 'Review Quality Distribution' },
-              },
-            }}
-          />
-        </div>
-      </div>
-
-      {/* List */}
+      {/* ====== REVIEWS FIRST ====== */}
       <div className="reviews-list">
-        <div className="list-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        <div
+          className="list-header"
+          style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}
+        >
           <h3>Recent Reviews</h3>
           <div className="page-info" style={{ opacity: 0.8 }}>
             Showing <strong>{from}</strong>–<strong>{to}</strong> of <strong>{total}</strong>
@@ -406,13 +354,9 @@ const ProductReview: React.FC = () => {
           ))
         )}
 
-        {/* Pagination controls */}
+        {/* Pagination controls (stay with list) */}
         <div className="pagination" style={{ display: 'flex', gap: 8, justifyContent: 'center', marginTop: 16 }}>
-          <button
-            onClick={() => setPage(p => Math.max(1, p - 1))}
-            disabled={page <= 1}
-            title="Previous page"
-          >
+          <button onClick={() => setPage(p => Math.max(1, p - 1))} disabled={page <= 1} title="Previous page">
             ◀ Prev
           </button>
 
@@ -427,6 +371,63 @@ const ProductReview: React.FC = () => {
           >
             Next ▶
           </button>
+        </div>
+      </div>
+
+      {/* ====== THEN STATS + CHARTS ====== */}
+      <div className="stats-overview" style={{ marginTop: 24 }}>
+        <div className="stat-card">
+          <h3>Average Rating</h3>
+          <div className="rating-display">
+            <span className="rating-number">{averageRating.toFixed(1)}</span>
+            <div className="stars">
+              {[1, 2, 3, 4, 5].map(star => (
+                <span key={star} className={star <= averageRating ? 'star filled' : 'star'}>
+                  ⭐
+                </span>
+              ))}
+            </div>
+          </div>
+        </div>
+
+        <div className="stat-card">
+          <h3>Total Reviews (filtered)</h3>
+          <span className="stat-number">{total}</span>
+        </div>
+
+        <div className="stat-card">
+          <h3>Verified (this page)</h3>
+          <span className="stat-number">{reviews.filter(r => r.verified).length}</span>
+        </div>
+      </div>
+
+      <div className="charts-container">
+        <div className="chart">
+          <h3>Rating Distribution</h3>
+          <Bar
+            data={barChartData}
+            options={{
+              responsive: true,
+              plugins: {
+                legend: { display: false },
+                title: { display: true, text: 'Reviews by Star Rating' },
+              },
+            }}
+          />
+        </div>
+
+        <div className="chart">
+          <h3>Quality Assessment</h3>
+          <Pie
+            data={pieChartData}
+            options={{
+              responsive: true,
+              plugins: {
+                legend: { position: 'bottom' as const },
+                title: { display: true, text: 'Review Quality Distribution' },
+              },
+            }}
+          />
         </div>
       </div>
     </div>
