@@ -136,23 +136,27 @@ const HeroSlider: React.FC = () => {
 }, []);
 
 
-  const onMouseLeave = useCallback(
-    (e: React.MouseEvent) => {
-      if (prefersReduced) return;
-      const swiperEl = (e.currentTarget as HTMLElement).querySelector('.swiper') as any;
-      swiperEl?.swiper?.autoplay?.start?.();
-    },
-    [prefersReduced]
-  );
+ // above return()
+const handleMouseEnter = useCallback((e: React.MouseEvent<HTMLElement>) => {
+  const swiperEl = (e.currentTarget as HTMLElement).querySelector('.swiper') as any;
+  swiperEl?.swiper?.autoplay?.stop?.();
+}, []);
+
+const handleMouseLeave = useCallback((e: React.MouseEvent<HTMLElement>) => {
+  if (prefersReduced) return;
+  const swiperEl = (e.currentTarget as HTMLElement).querySelector('.swiper') as any;
+  swiperEl?.swiper?.autoplay?.start?.();
+}, [prefersReduced]);
+
 
   return (
     <section
-      className="w-full relative"
-      aria-label="Featured promotions carousel"
-      onMouseEnter={onMouseEnter}
-      onMouseLeave={onMouseLeave}
-    >
-      <Swiper
+  className="w-full relative"
+  aria-label="Featured promotions carousel"
+  onMouseEnter={handleMouseEnter}
+  onMouseLeave={handleMouseLeave}
+>
+<Swiper
         modules={[Autoplay, Pagination, Navigation, A11y, Keyboard]}
         slidesPerView={1}
         centeredSlides
