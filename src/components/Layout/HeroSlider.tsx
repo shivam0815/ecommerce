@@ -22,13 +22,26 @@ type Slide = {
 };
 
 const slides: Slide[] = [
+
+
+
+{
+    title: 'Bulk Order',
+    subtitle: 'Feasible and Cost Effective',
+    cta: 'Grab Deal',
+    link: '/oem',
+    bg: '/Front-Banner.webp',
+    position: 'center',
+    alt: 'Bulk packaging for large B2B orders',
+  },
+
   {
     title: 'TWS Earbuds',
     subtitle: 'AirDopes Prime 701ANC',
     price: '₹2,199',
     cta: 'Shop Now',
     link: '/products',
-    bg: '/ban1.webp',
+    bg: '/Earbuds-Poster.webp',
     position: 'center',
     alt: 'Premium TWS earbuds on a gradient backdrop',
     // Example variants if you export multiple sizes:
@@ -39,40 +52,32 @@ const slides: Slide[] = [
     subtitle: 'High-Quality Mobile Accessories at Competitive Prices',
     cta: 'Grab Deal',
     link: '/oem',
-    bg: '/ban5.webp',
+    bg: '/Accessories-Poster-1.webp',
     position: 'center',
     alt: 'Wholesale boxes of mobile accessories',
     // variants: { 640: '/ban5-640.webp', 1024: '/ban5-1024.webp', 1536: '/ban5-1536.webp', 1920: '/ban5-1920.webp' },
   },
   {
-    title: 'Fast Charging Cables',
+    title: 'Tools',
     subtitle: 'Durable & Reliable',
     price: '₹299',
     cta: 'Buy Cables',
     link: '/products',
-    bg: '/ban10.webp',
+    bg: '/Tools-Display.webp', // use a wide banner image (1920×700+)
     position: 'center',
-    alt: 'Type-C fast charging cable close-up',
+    alt: 'Best quality tools for mobile repairs',
   },
   {
-    title: 'Premium Accessories',
+    title: 'Premium Neckband',
     subtitle: 'Compact & Efficient',
     price: '₹899',
     cta: 'Grab Deal',
     link: '/products',
-    bg: '/ban11.webp',
+    bg: '/Neckband-Poster.webp',
     position: 'right center',
-    alt: 'Compact premium mobile charger and accessories',
+    alt: 'Compact for premium neckband headphones',
   },
-  {
-    title: 'Bulk Order',
-    subtitle: 'Feasible and Cost Effective',
-    cta: 'Grab Deal',
-    link: '/oem',
-    bg: '/ban2.webp',
-    position: 'center',
-    alt: 'Bulk packaging for large B2B orders',
-  },
+  
   {
     title: 'OEM Services',
     subtitle: 'Your Brand, Our Expertise',
