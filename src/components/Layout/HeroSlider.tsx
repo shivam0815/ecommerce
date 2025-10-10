@@ -13,19 +13,14 @@ type Slide = {
   cta: string;
   link: string;
   bg: string;                  // default image
-  position?: string;           // CSS object-position
-  alt?: string;                // accessible alt text
-  /** Optional responsive variants: width(px) -> url */
+  position?: string;           // CSS object-position e.g., 'center' or '50% 35%'
+  alt?: string;
   variants?: Record<number, string>;
-  /** If using Cloudinary, set true to auto-transform to widths below */
   cloudinary?: boolean;
 };
 
 const slides: Slide[] = [
-
-
-
-{
+  {
     title: 'Bulk Order',
     subtitle: 'Feasible and Cost Effective',
     cta: 'Grab Deal',
@@ -34,7 +29,6 @@ const slides: Slide[] = [
     position: 'center',
     alt: 'Bulk packaging for large B2B orders',
   },
-
   {
     title: 'TWS Earbuds',
     subtitle: 'AirDopes Prime 701ANC',
@@ -44,8 +38,6 @@ const slides: Slide[] = [
     bg: '/Earbuds-Poster.webp',
     position: 'center',
     alt: 'Premium TWS earbuds on a gradient backdrop',
-    // Example variants if you export multiple sizes:
-    // variants: { 640: '/ban1-640.webp', 1024: '/ban1-1024.webp', 1536: '/ban1-1536.webp', 1920: '/ban1-1920.webp' },
   },
   {
     title: 'Wholesale Mobile Accessories',
@@ -55,7 +47,6 @@ const slides: Slide[] = [
     bg: '/Accessories-Poster-1.webp',
     position: 'center',
     alt: 'Wholesale boxes of mobile accessories',
-    // variants: { 640: '/ban5-640.webp', 1024: '/ban5-1024.webp', 1536: '/ban5-1536.webp', 1920: '/ban5-1920.webp' },
   },
   {
     title: 'Tools',
@@ -63,7 +54,7 @@ const slides: Slide[] = [
     price: '₹299',
     cta: 'Buy Cables',
     link: '/products',
-    bg: '/Tools-Display.webp', // use a wide banner image (1920×700+)
+    bg: '/Tools-Display.webp',
     position: 'center',
     alt: 'Best quality tools for mobile repairs',
   },
@@ -77,7 +68,6 @@ const slides: Slide[] = [
     position: 'right center',
     alt: 'Compact for premium neckband headphones',
   },
-  
   {
     title: 'OEM Services',
     subtitle: 'Your Brand, Our Expertise',
@@ -89,31 +79,25 @@ const slides: Slide[] = [
   },
 ];
 
-// Breakpoints you care about (must match your exported widths if using variants)
+// responsive width breakpoints for srcset
 const WIDTHS = [640, 768, 1024, 1280, 1536, 1920] as const;
 
-/** Build a Cloudinary URL with width transform */
 const cloudinaryW = (url: string, w: number) =>
   url.includes('/upload/')
     ? url.replace('/upload/', `/upload/f_auto,q_auto,w_${w}/`)
     : url;
 
-/** Build srcset from slide config */
 const buildSrcSet = (s: Slide) => {
-  // Prefer explicit variants if present
   if (s.variants && Object.keys(s.variants).length) {
     const pairs = Object.entries(s.variants)
       .sort(([a], [b]) => Number(a) - Number(b))
       .map(([w, u]) => `${u} ${w}w`);
-    // Fallback include base bg too
     pairs.push(`${s.bg} 2000w`);
     return pairs.join(', ');
   }
-  // If Cloudinary, auto-generate sized transforms
   if (s.cloudinary) {
     return WIDTHS.map((w) => `${cloudinaryW(s.bg, w)} ${w}w`).join(', ');
   }
-  // Otherwise repeat base (still valid; not as optimal)
   return WIDTHS.map((w) => `${s.bg} ${w}w`).join(', ');
 };
 
@@ -122,38 +106,44 @@ const SIZES =
 
 const HeroSlider: React.FC = () => {
   const prefersReduced = useMemo(
-    () => (typeof window !== 'undefined' ? window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches : false),
+    () =>
+      typeof window !== 'undefined'
+        ? window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches
+        : false,
     []
   );
 
-  // Preload the first slide image (best LCP)
-  useEffect(() => {
-    const first = slides[0];
-    if (!first) return;
-    const link = document.createElement('link');
-    link.rel = 'preload';
-    link.as = 'image';
-    link.href = first.bg;
-    link.setAttribute('imagesizes', SIZES);
-    link.setAttribute('imagesrcset', buildSrcSet(first));
-    // Higher priority for the first image
-    (link as any).fetchpriority = 'high';
-    document.head.appendChild(link);
-    return () => {
-      document.head.removeChild(link);
-    };
-  }, []);
+  // Preload first slide for LCP
+ useEffect(() => {
+  const first = slides[0];
+  if (!first) return;
 
-  // Pause autoplay on hover/focus; resume on leave/blur
-  const onMouseEnter = useCallback((e: React.MouseEvent) => {
-    const swiperEl = (e.currentTarget as HTMLElement).querySelector('.swiper') as any;
-    swiperEl?.swiper?.autoplay?.stop?.();
-  }, []);
-  const onMouseLeave = useCallback((e: React.MouseEvent) => {
-    if (prefersReduced) return;
-    const swiperEl = (e.currentTarget as HTMLElement).querySelector('.swiper') as any;
-    swiperEl?.swiper?.autoplay?.start?.();
-  }, [prefersReduced]);
+  const link = document.createElement('link');
+  link.rel = 'preload';
+  link.as = 'image';
+  link.href = first.bg;
+  link.setAttribute('imagesizes', SIZES);
+  link.setAttribute('imagesrcset', buildSrcSet(first));
+  // @ts-expect-error fetchpriority is not in TS DOM lib yet
+  link.fetchpriority = 'high';
+
+  // ensure the effect body returns nothing
+  // and the cleanup returns a function with no value
+  document.head.appendChild(link); // returns the node, but we ignore it
+  return () => {
+    if (link.parentNode) link.parentNode.removeChild(link); // returns void
+  };
+}, []);
+
+
+  const onMouseLeave = useCallback(
+    (e: React.MouseEvent) => {
+      if (prefersReduced) return;
+      const swiperEl = (e.currentTarget as HTMLElement).querySelector('.swiper') as any;
+      swiperEl?.swiper?.autoplay?.start?.();
+    },
+    [prefersReduced]
+  );
 
   return (
     <section
@@ -187,30 +177,31 @@ const HeroSlider: React.FC = () => {
           const isFirst = i === 0;
           return (
             <SwiperSlide key={i} aria-roledescription="slide">
-              <div className="relative w-full h-[52vh] sm:h-[60vh] md:h-[72vh] lg:h-[80vh] xl:h-[86vh] overflow-hidden">
-                {/* Responsive image */}
-                <picture>
-                  {/* If you have jpeg fallbacks, add another <source type="image/jpeg" ... /> */}
-                  <source type="image/webp" srcSet={srcSet} sizes={SIZES} />
-                  <img
-                    src={s.bg}
-                    alt={s.alt ?? s.title}
-                    loading={isFirst ? 'eager' : 'lazy'}
-                    decoding="async"
-                    // @ts-ignore
-                    fetchpriority={isFirst ? 'high' : 'low'}
-                    className="absolute inset-0 h-full w-full object-cover"
-                    style={{ objectPosition: s.position || 'center' }}
-                  />
-                </picture>
+              <div className="relative w-full overflow-hidden">
+                {/* aspect-ratio wrapper keeps image proportional on all screens */}
+                <div className="aspect-[21/9] sm:aspect-[16/7] md:aspect-[16/6] lg:aspect-[16/5] xl:aspect-[21/7] min-h-[260px] sm:min-h-[340px] md:min-h-[420px]">
+                  <picture>
+                    <source type="image/webp" srcSet={srcSet} sizes={SIZES} />
+                    <img
+                      src={s.bg}
+                      alt={s.alt ?? s.title}
+                      loading={isFirst ? 'eager' : 'lazy'}
+                      decoding="async"
+                      // @ts-ignore
+                      fetchpriority={isFirst ? 'high' : 'low'}
+                      className="h-full w-full object-cover"
+                      style={{ objectPosition: s.position || 'center' }}
+                    />
+                  </picture>
+                </div>
 
-                {/* Scrim for contrast */}
+                {/* scrim */}
                 <div className="absolute inset-0 bg-black/35 md:bg-gradient-to-r md:from-black/70 md:via-black/30 md:to-transparent" />
 
-                {/* TEXT */}
-                <div className="relative z-10 h-full max-w-7xl mx-auto px-4 md:px-6 lg:px-8">
-                  <div className="h-full flex items-center text-center md:text-left justify-center md:justify-start">
-                    <div className="w-full md:max-w-xl lg:max-w-2xl">
+                {/* text block */}
+                <div className="absolute inset-0 z-10 flex items-center">
+                  <div className="w-full max-w-7xl mx-auto px-4 md:px-6 lg:px-8">
+                    <div className="w-full md:max-w-xl lg:max-w-2xl text-center md:text-left">
                       <h1 className="text-white font-extrabold leading-tight text-3xl xs:text-4xl sm:text-5xl md:text-6xl">
                         {s.title}
                       </h1>
@@ -243,8 +234,13 @@ const HeroSlider: React.FC = () => {
         })}
       </Swiper>
 
-      {/* Ensure controls visible */}
+      {/* Controls and height fixes */}
       <style>{`
+        .hero-swiper,
+        .hero-swiper .swiper,
+        .hero-swiper .swiper-wrapper,
+        .hero-swiper .swiper-slide { height: auto; }
+
         .hero-swiper { --swiper-theme-color: #fff; }
         .hero-swiper .swiper-pagination-bullet { opacity: .7; }
         .hero-swiper .swiper-pagination-bullet-active { opacity: 1; }
