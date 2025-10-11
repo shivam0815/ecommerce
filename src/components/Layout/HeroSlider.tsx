@@ -58,40 +58,25 @@ const HeroSlider: React.FC = () => {
       >
         {slides.map((s, i) => (
           <SwiperSlide key={i}>
-  <Link to={s.link} className="block">
-    <div className="relative w-full overflow-hidden bg-transparent">
-      {/* aspect ratio wrapper keeps consistent height */}
-      <div className="aspect-[16/9] sm:aspect-[21/9]">
-        <picture>
-          {s.bgMobile && (
-            <source media="(max-width: 639px)" type="image/webp" srcSet={s.bgMobile} />
-          )}
-          {s.bgMobileFallback && (
-            <source media="(max-width: 639px)" srcSet={s.bgMobileFallback} />
-          )}
-          <source type="image/webp" srcSet={s.bg} />
-          {s.bgFallback && <source srcSet={s.bgFallback} />}
-          <img
-            src={s.bgFallback || s.bg}
-            alt={s.alt || 'hero banner'}
-            loading={i === 0 ? 'eager' : 'lazy'}
-            decoding="async"
-            className="absolute inset-0 w-full h-full object-cover"   // <- no object-contain on mobile
-            style={{ objectPosition: s.position || 'center' }}
-            onError={(e) => {
-              const t = e.currentTarget;
-              // swap to fallback if webp or main fails
-              if (s.bgFallback && t.src !== window.location.origin + s.bgFallback) {
-                t.src = s.bgFallback;
-              }
-            }}
-          />
-        </picture>
-      </div>
-    </div>
-  </Link>
-</SwiperSlide>
-
+            <Link to={s.link} className="block">
+              <div className="w-full h-[230px] xs:h-[280px] sm:h-[360px] md:h-[480px] lg:h-[560px] xl:h-[620px] relative overflow-hidden bg-neutral-900">
+                <picture>
+                  {s.bgMobile && <source media="(max-width: 639px)" type="image/webp" srcSet={s.bgMobile} />}
+                  {s.bgMobileFallback && <source media="(max-width: 639px)" srcSet={s.bgMobileFallback} />}
+                  <source type="image/webp" srcSet={s.bg} />
+                  {s.bgFallback && <source srcSet={s.bgFallback} />}
+                  <img
+                    src={s.bgFallback || s.bg}
+                    alt={s.alt || 'hero banner'}
+                    loading={i === 0 ? 'eager' : 'lazy'}
+                    decoding="async"
+                    className="absolute inset-0 w-full h-full object-contain sm:object-cover"
+                    style={{ objectPosition: s.position || 'center' }}
+                  />
+                </picture>
+              </div>
+            </Link>
+          </SwiperSlide>
         ))}
       </Swiper>
 
