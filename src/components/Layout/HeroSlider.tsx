@@ -10,21 +10,18 @@ import { Link } from 'react-router-dom';
 
 type Slide = {
   link: string;
-  bg: string;
-  bgFallback?: string;
-  bgMobile?: string;
-  bgMobileFallback?: string;
-  alt?: string;
-  position?: string;
+  bg: string;         // must exist in /public
+  alt: string;
+  position?: string;  // CSS object-position
 };
 
 const slides: Slide[] = [
-  { link: '/oem', bg: '/Front-Banner.webp', bgFallback: '/Front-Banner.jpg', bgMobile: '/Front-Banner-m.webp', bgMobileFallback: '/Front-Banner-m.jpg', alt: 'Bulk Order', position: 'center' },
-  { link: '/products', bg: '/Earbuds-Poster.webp', bgFallback: '/Earbuds-Poster.jpg', bgMobile: '/Earbuds-Poster-m.webp', bgMobileFallback: '/Earbuds-Poster-m.jpg', alt: 'TWS Earbuds' },
-  { link: '/oem', bg: '/Accessories-Poster-1.webp', bgFallback: '/Accessories-Poster-1.jpg', bgMobile: '/Accessories-Poster-1-m.webp', bgMobileFallback: '/Accessories-Poster-1-m.jpg', alt: 'Wholesale Accessories' },
-  { link: '/products', bg: '/Tools-Display.webp', bgFallback: '/Tools-Display.jpg', bgMobile: '/Tools-Display-m.webp', bgMobileFallback: '/Tools-Display-m.jpg', alt: 'Best quality tools for mobile repairs' },
-  { link: '/products', bg: '/Neckband-Poster.webp', bgFallback: '/Neckband-Poster.jpg', bgMobile: '/Neckband-Poster-m.webp', bgMobileFallback: '/Neckband-Poster-m.jpg', alt: 'Premium Neckband', position: 'center right' },
-  { link: '/oem', bg: '/bna7.webp', bgFallback: '/bna7.jpg', bgMobile: '/bna7-m.webp', bgMobileFallback: '/bna7-m.jpg', alt: 'OEM Services' },
+  { link: '/oem',      bg: '/Front-Banner.webp',     alt: 'Bulk Order',           position: 'center' },
+  { link: '/products', bg: '/Earbuds-Poster.webp',   alt: 'TWS Earbuds' },
+  { link: '/oem',      bg: '/Accessories-Poster-1.webp', alt: 'Wholesale Accessories' },
+  { link: '/products', bg: '/Tools-Display.webp',    alt: 'Repair Tools' },
+  { link: '/products', bg: '/Neckband-Poster.webp',  alt: 'Premium Neckband',     position: 'center right' },
+  { link: '/oem',      bg: '/bna7.webp',             alt: 'OEM Services' },
 ];
 
 const HeroSlider: React.FC = () => {
@@ -32,13 +29,9 @@ const HeroSlider: React.FC = () => {
     () => typeof window !== 'undefined' && window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches,
     []
   );
-
   const swiperRef = useRef<SwiperType | null>(null);
-
   const stop = useCallback(() => swiperRef.current?.autoplay?.stop?.(), []);
-  const start = useCallback(() => {
-    if (!prefersReduced) swiperRef.current?.autoplay?.start?.();
-  }, [prefersReduced]);
+  const start = useCallback(() => { if (!prefersReduced) swiperRef.current?.autoplay?.start?.(); }, [prefersReduced]);
 
   return (
     <section className="w-full relative" aria-label="Featured promotions" onMouseEnter={stop} onMouseLeave={start}>
@@ -59,21 +52,16 @@ const HeroSlider: React.FC = () => {
         {slides.map((s, i) => (
           <SwiperSlide key={i}>
             <Link to={s.link} className="block">
+              {/* fixed heights per breakpoint, safe background behind object-contain */}
               <div className="w-full h-[230px] xs:h-[280px] sm:h-[360px] md:h-[480px] lg:h-[560px] xl:h-[620px] relative overflow-hidden bg-neutral-900">
-                <picture>
-                  {s.bgMobile && <source media="(max-width: 639px)" type="image/webp" srcSet={s.bgMobile} />}
-                  {s.bgMobileFallback && <source media="(max-width: 639px)" srcSet={s.bgMobileFallback} />}
-                  <source type="image/webp" srcSet={s.bg} />
-                  {s.bgFallback && <source srcSet={s.bgFallback} />}
-                  <img
-                    src={s.bgFallback || s.bg}
-                    alt={s.alt || 'hero banner'}
-                    loading={i === 0 ? 'eager' : 'lazy'}
-                    decoding="async"
-                    className="absolute inset-0 w-full h-full object-contain sm:object-cover"
-                    style={{ objectPosition: s.position || 'center' }}
-                  />
-                </picture>
+                <img
+                  src={s.bg}
+                  alt={s.alt}
+                  loading={i === 0 ? 'eager' : 'lazy'}
+                  decoding="async"
+                  className="absolute inset-0 w-full h-full object-contain sm:object-cover"
+                  style={{ objectPosition: s.position || 'center' }}
+                />
               </div>
             </Link>
           </SwiperSlide>
