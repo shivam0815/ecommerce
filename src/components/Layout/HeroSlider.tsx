@@ -1,3 +1,4 @@
+// src/components/HeroSlider.tsx
 import React, { useCallback, useEffect, useMemo } from 'react';
 import { Swiper, SwiperSlide } from 'swiper/react';
 import { Autoplay, Pagination, Navigation, A11y, Keyboard } from 'swiper/modules';
@@ -8,70 +9,122 @@ import { Link } from 'react-router-dom';
 
 type Slide = {
   title: string;
-  subtitle?: string;
-  price?: string;
   cta: string;
   link: string;
-  bg: string;
-  position?: string;
+  bg: string;                 // desktop/wide image
+  bgMobile?: string;          // mobile/tall image (optional)
+  position?: string;          // desktop focal point
+  positionMobile?: string;    // mobile focal point
   alt?: string;
-  variants?: Record<number, string>;
-  cloudinary?: boolean;
 };
 
 const slides: Slide[] = [
-  { title: 'Bulk Order', subtitle: 'Feasible and Cost Effective', cta: 'Grab Deal', link: '/oem', bg: '/Front-Banner.webp', position: 'center', alt: 'Bulk packaging for large B2B orders' },
-  { title: 'TWS Earbuds', subtitle: 'AirDopes Prime 701ANC', price: '₹2,199', cta: 'Shop Now', link: '/products', bg: '/Earbuds-Poster.webp', position: 'center', alt: 'Premium TWS earbuds on a gradient backdrop' },
-  { title: 'Wholesale Mobile Accessories', subtitle: 'High-Quality Mobile Accessories at Competitive Prices', cta: 'Grab Deal', link: '/oem', bg: '/Accessories-Poster-1.webp', position: 'center', alt: 'Wholesale boxes of mobile accessories' },
-  { title: 'Tools', subtitle: 'Durable & Reliable', price: '₹299', cta: 'Buy Cables', link: '/products', bg: '/Tools-Display.webp', position: 'center', alt: 'Best quality tools for mobile repairs' },
-  { title: 'Premium Neckband', subtitle: 'Compact & Efficient', price: '₹899', cta: 'Grab Deal', link: '/products', bg: '/Neckband-Poster.webp', position: 'right center', alt: 'Compact for premium neckband headphones' },
-  { title: 'OEM Services', subtitle: 'Your Brand, Our Expertise', cta: 'Grab Deal', link: '/oem', bg: '/bna7.webp', position: 'center', alt: 'OEM branding on accessories packaging' },
+  {
+    title: 'Bulk Order',
+    cta: 'Grab Deal',
+    link: '/oem',
+    bg: '/Front-Banner.webp',
+    bgMobile: '/Front-Banner-m.webp',
+    position: 'center',
+    positionMobile: 'center',
+    alt: 'Bulk packaging for large B2B orders',
+  },
+  {
+    title: 'TWS Earbuds',
+    cta: 'Shop Now',
+    link: '/products',
+    bg: '/Earbuds-Poster.webp',
+    bgMobile: '/Earbuds-Poster-m.webp',
+    position: 'center',
+    positionMobile: 'center 30%',
+    alt: 'Premium TWS earbuds',
+  },
+  {
+    title: 'Wholesale Mobile Accessories',
+    cta: 'Grab Deal',
+    link: '/oem',
+    bg: '/Accessories-Poster-1.webp',
+    bgMobile: '/Accessories-Poster-1-m.webp',
+    position: 'center',
+    positionMobile: 'center',
+    alt: 'Wholesale boxes of mobile accessories',
+  },
+  {
+    title: 'Tools',
+    cta: 'Buy Now',
+    link: '/products',
+    bg: '/Tools-Display.webp',
+    bgMobile: '/Tools-Display-m.webp',
+    position: 'center',
+    positionMobile: 'center',
+    alt: 'Best quality tools for mobile repairs',
+  },
+  {
+    title: 'Premium Neckband',
+    cta: 'Grab Deal',
+    link: '/products',
+    bg: '/Neckband-Poster.webp',
+    bgMobile: '/Neckband-Poster-m.webp',
+    position: 'right center',
+    positionMobile: 'center 35%',
+    alt: 'Premium neckband headphones',
+  },
+  {
+    title: 'OEM Services',
+    cta: 'Grab Deal',
+    link: '/oem',
+    bg: '/bna7.webp',
+    bgMobile: '/bna7-m.webp',
+    position: 'center',
+    positionMobile: 'center',
+    alt: 'OEM branding on accessories packaging',
+  },
 ];
 
-const WIDTHS = [640, 768, 1024, 1280, 1536, 1920] as const;
-const cloudinaryW = (url: string, w: number) =>
-  url.includes('/upload/') ? url.replace('/upload/', `/upload/f_auto,q_auto,w_${w}/`) : url;
-
-const buildSrcSet = (s: Slide) => {
-  if (s.variants && Object.keys(s.variants).length) {
-    const pairs = Object.entries(s.variants)
-      .sort(([a], [b]) => Number(a) - Number(b))
-      .map(([w, u]) => `${u} ${w}w`);
-    pairs.push(`${s.bg} 2000w`);
-    return pairs.join(', ');
-  }
-  if (s.cloudinary) return WIDTHS.map((w) => `${cloudinaryW(s.bg, w)} ${w}w`).join(', ');
-  return WIDTHS.map((w) => `${s.bg} ${w}w`).join(', ');
-};
-
 const SIZES =
-  '(min-width:1536px) 1536px, (min-width:1280px) 1280px, (min-width:1024px) 1024px, (min-width:768px) 768px, (min-width:640px) 640px, 100vw';
+  '(min-width:1024px) 1024px, (min-width:768px) 768px, 100vw';
 
 const HeroSlider: React.FC = () => {
   const prefersReduced = useMemo(
-    () => (typeof window !== 'undefined' ? window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches : false),
+    () =>
+      typeof window !== 'undefined'
+        ? window.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches
+        : false,
     []
   );
 
+  // Preload first slide images for LCP (desktop + mobile)
   useEffect(() => {
     const first = slides[0];
     if (!first) return;
-    const link = document.createElement('link');
-    link.rel = 'preload';
-    link.as = 'image';
-    link.href = first.bg;
-    link.setAttribute('imagesizes', SIZES);
-    link.setAttribute('imagesrcset', buildSrcSet(first));
+
+    const linkDesk = document.createElement('link');
+    linkDesk.rel = 'preload';
+    linkDesk.as = 'image';
+    linkDesk.href = first.bg;
     // @ts-expect-error
-    link.fetchpriority = 'high';
-    document.head.appendChild(link);
-    return () => { link.parentNode?.removeChild(link); };
+    linkDesk.fetchpriority = 'high';
+    document.head.appendChild(linkDesk);
+
+    const linkMob = document.createElement('link');
+    linkMob.rel = 'preload';
+    linkMob.as = 'image';
+    linkMob.href = first.bgMobile || first.bg;
+    // @ts-expect-error
+    linkMob.fetchpriority = 'high';
+    document.head.appendChild(linkMob);
+
+    return () => {
+      linkDesk.parentNode?.removeChild(linkDesk);
+      linkMob.parentNode?.removeChild(linkMob);
+    };
   }, []);
 
   const handleMouseEnter = useCallback((e: React.MouseEvent<HTMLElement>) => {
     const swiperEl = (e.currentTarget as HTMLElement).querySelector('.swiper') as any;
     swiperEl?.swiper?.autoplay?.stop?.();
   }, []);
+
   const handleMouseLeave = useCallback((e: React.MouseEvent<HTMLElement>) => {
     if (prefersReduced) return;
     const swiperEl = (e.currentTarget as HTMLElement).querySelector('.swiper') as any;
@@ -79,7 +132,12 @@ const HeroSlider: React.FC = () => {
   }, [prefersReduced]);
 
   return (
-    <section className="w-full relative" aria-label="Featured promotions carousel" onMouseEnter={handleMouseEnter} onMouseLeave={handleMouseLeave}>
+    <section
+      className="w-full relative"
+      aria-label="Featured promotions carousel"
+      onMouseEnter={handleMouseEnter}
+      onMouseLeave={handleMouseLeave}
+    >
       <Swiper
         modules={[Autoplay, Pagination, Navigation, A11y, Keyboard]}
         slidesPerView={1}
@@ -91,39 +149,49 @@ const HeroSlider: React.FC = () => {
         navigation
         keyboard={{ enabled: true, onlyInViewport: true }}
         a11y={{ enabled: true }}
+        autoHeight
         className="hero-swiper"
       >
         {slides.map((s, i) => {
-          const srcSet = buildSrcSet(s);
           const isFirst = i === 0;
           return (
             <SwiperSlide key={i} aria-roledescription="slide">
-              {/* Whole slide is a link. No visible text overlay. */}
-              <Link to={s.link} aria-label={`${s.cta}: ${s.title}`} className="block group cursor-pointer">
+              {/* Entire slide is the link. No text overlay. */}
+              <Link to={s.link} className="block group focus:outline-none">
                 <div className="relative w-full overflow-hidden">
-                  <div className="aspect-[21/9] sm:aspect-[16/7] md:aspect-[16/6] lg:aspect-[16/5] xl:aspect-[21/7] min-h-[260px] sm:min-h-[340px] md:min-h-[420px]">
+                  {/* Tall on mobile, wide on desktop */}
+                  <div className="aspect-[4/5] sm:aspect-[16/9] min-h-[260px] sm:min-h-[360px]">
                     <picture>
-                      <source type="image/webp" srcSet={srcSet} sizes={SIZES} />
+                      {/* Desktop source */}
+                      <source media="(min-width: 640px)" srcSet={s.bg} />
+                      {/* Mobile fallback */}
                       <img
-                        src={s.bg}
+                        src={s.bgMobile || s.bg}
                         alt={s.alt ?? s.title}
                         loading={isFirst ? 'eager' : 'lazy'}
                         decoding="async"
+                        sizes={SIZES}
                         // @ts-ignore
                         fetchpriority={isFirst ? 'high' : 'low'}
-                        className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.02]"
-                        style={{ objectPosition: s.position || 'center' }}
+                        className="block h-full w-full object-cover"
+                        // object-position differs by breakpoint via CSS variables
+                        style={
+                          {
+                            '--obj-pos-mobile': s.positionMobile || s.position || 'center',
+                            '--obj-pos-desktop': s.position || 'center',
+                            objectPosition:
+                              typeof window !== 'undefined' && window.innerWidth >= 640
+                                ? (s.position || 'center')
+                                : (s.positionMobile || s.position || 'center'),
+                          } as React.CSSProperties
+                        }
                       />
                     </picture>
                   </div>
 
-                  {/* optional subtle scrim for consistency; remove if not wanted */}
+                  {/* Optional subtle scrim to improve contrast if you add badges later */}
                   <div className="pointer-events-none absolute inset-0 bg-black/10" />
-
-                  {/* screen-reader only text (keeps SEO/a11y without visible overlay) */}
-                  <span className="sr-only">
-                    {s.title}. {s.subtitle ? `${s.subtitle}. ` : ''}{s.price ? `Starting at ${s.price}. ` : ''}{s.cta}.
-                  </span>
+                  <span className="sr-only">{s.title}. {s.cta}.</span>
                 </div>
               </Link>
             </SwiperSlide>
@@ -136,7 +204,7 @@ const HeroSlider: React.FC = () => {
         .hero-swiper .swiper,
         .hero-swiper .swiper-wrapper,
         .hero-swiper .swiper-slide { height: auto; }
-        .hero-swiper { --swiper-theme-color: #fff; }
+        .hero-swiper img { display: block; } /* remove inline-img gap */
         .hero-swiper .swiper-pagination-bullet { opacity: .7; }
         .hero-swiper .swiper-pagination-bullet-active { opacity: 1; }
         .hero-swiper .swiper-button-next, .hero-swiper .swiper-button-prev {
