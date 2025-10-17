@@ -1,5 +1,5 @@
 // src/pages/Home.tsx
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState,useRef  } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
@@ -17,6 +17,8 @@ import toast from 'react-hot-toast';
 import { generateResponsiveImageUrl } from '../utils/cloudinaryBrowser';
 import { useTranslation } from 'react-i18next';
 import { resolveImageUrl, getFirstImageUrl } from '../utils/imageUtils';
+ import { useFirstVisitCelebration } from '../hooks/useFirstVisitCelebration';
+import { useAuth } from '../hooks/useAuth';
 
 const isValidEmail = (e: string) => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/i.test(e.trim());
 const API_BASE = (import.meta as any).env?.VITE_API_URL || 'https://nakodamobile.in/api';
@@ -41,6 +43,16 @@ const priceOffPct = (price?: number, original?: number) => {
 
 const Home: React.FC = () => {
   const navigate = useNavigate();
+   const { user } = useAuth(); // ✅ useAuth() is a hook call, returns object
+  const celebrationRef = useRef<HTMLDivElement | null>(null); // ✅ useRef, not user()
+
+  // Firecracker on first login/visit (per user, 24h cooldown)
+ useFirstVisitCelebration({
+   enabled: true,
+    userId: user?.id || user?.id || 'anon',
+    cooldownHours: 24,
+    containerRef: celebrationRef,
+  });
   const [hoveredCategory, setHoveredCategory] = useState<string | null>(null);
   const [currentTestimonial, setCurrentTestimonial] = useState(0);
 
@@ -161,6 +173,7 @@ const Home: React.FC = () => {
 
   return (
     <div className="min-h-screen">
+    <div ref={celebrationRef} className="min-h-screen"></div>
       <SEO
         title="Home "
         description="Shop OEM/wholesale mobile accessories—TWS, neckbands, chargers, cables, ICs & more, delhi, brand name, best seller, Car Charger, Aux Cable, data Cable, Bluetooth Speaker, Power Bank, Ear Phone, Mobile fast Charger, Mat * Rubber, Mobile Repairing tools, Mobile accessries, Oem Services."
