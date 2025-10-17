@@ -172,8 +172,8 @@ const Home: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen">
-    <div ref={celebrationRef} className="min-h-screen"></div>
+    <div ref={celebrationRef} className="min-h-screen">
+    
       <SEO
         title="Home "
         description="Shop OEM/wholesale mobile accessories—TWS, neckbands, chargers, cables, ICs & more, delhi, brand name, best seller, Car Charger, Aux Cable, data Cable, Bluetooth Speaker, Power Bank, Ear Phone, Mobile fast Charger, Mat * Rubber, Mobile Repairing tools, Mobile accessries, Oem Services."
