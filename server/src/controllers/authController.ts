@@ -213,7 +213,7 @@ export const login = async (req: Request, res: Response): Promise<void> => {
     const token = generateToken(user.id.toString(), user.role);
     console.log('✅ Login successful for:', email);
 
-  res.json({
+ res.json({
   success: true,
   message: 'Login successful',
   token,
@@ -225,9 +225,10 @@ export const login = async (req: Request, res: Response): Promise<void> => {
     isVerified: user.isVerified,
     lastLoginIST: toIST(user.lastLogin),
     createdAtIST: toIST(user.createdAt),
-    updatedAtIST: toIST(user.updatedAt),
+    updatedAtIST: toIST(user.updatedAt)
   }
 });
+
 
 
   } catch (error: any) {
@@ -555,7 +556,7 @@ export const getProfile = async (req: Request, res: Response): Promise<void> => 
       return;
     }
 
-  res.json({
+ res.json({
   success: true,
   user: {
     id: userDetails.id,
@@ -567,9 +568,10 @@ export const getProfile = async (req: Request, res: Response): Promise<void> => 
     isActive: userDetails.isActive,
     createdAtIST: toIST(userDetails.createdAt),
     updatedAtIST: toIST(userDetails.updatedAt),
-    
+    lastLoginIST: toIST(userDetails.lastLogin)
   }
 });
+
 
   } catch (error: any) {
     console.error('Get profile error:', error);
