@@ -6,9 +6,12 @@ import api from '../config/api';
 import { productService } from '../services/productService';
 import type { Product } from '../types';
 import SEO from '../components/Layout/SEO';
+
 /* ---------- helpers ---------- */
 const isValidObjectId = (s?: string) => !!s && /^[a-f\d]{24}$/i.test(s);
 const getId = (p: any): string | undefined => p?._id || p?.id;
+
+const PAGE_SIZE = 24;
 
 const Products: React.FC = () => {
   const [searchTerm, setSearchTerm] = useState('');
@@ -16,6 +19,7 @@ const Products: React.FC = () => {
   const [priceRange, setPriceRange] = useState<[number, number]>([0, 20000]);
   const [sortBy, setSortBy] = useState<'name' | 'price-low' | 'price-high' | 'rating'>('name');
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
+  const [page, setPage] = useState(1);
 
   // Real data state
   const [products, setProducts] = useState<Product[]>([]);
@@ -25,18 +29,17 @@ const Products: React.FC = () => {
   // Categories: try API, fall back to static
   const [categories, setCategories] = useState<string[]>([
     'Car Chargers',
-  'Bluetooth Neckbands',
-  'TWS',
-  'Data Cables',
-  'Mobile Chargers',
-  'Bluetooth Speakers',
-  'Power Banks',
-  'Integrated Circuits & Chips',
-  'Mobile Repairing Tools',
-  'Electronics',
-  'Accessories',
-  'Others'
-
+    'Bluetooth Neckbands',
+    'TWS',
+    'Data Cables',
+    'Mobile Chargers',
+    'Bluetooth Speakers',
+    'Power Banks',
+    'Integrated Circuits & Chips',
+    'Mobile Repairing Tools',
+    'Electronics',
+    'Accessories',
+    'Others'
   ]);
 
   // Fetch categories (non-blocking, best-effort)
@@ -186,6 +189,31 @@ const Products: React.FC = () => {
     return filtered;
   }, [products, searchTerm, selectedCategory, priceRange, sortBy]);
 
+  // Reset page when filters/sort change
+  useEffect(() => {
+    setPage(1);
+  }, [searchTerm, selectedCategory, priceRange, sortBy]);
+
+  // Pagination slice
+  const { pagedProducts, totalPages, from, to, total } = useMemo(() => {
+    const total = filteredProducts.length;
+    const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
+    const safePage = Math.min(page, totalPages);
+    const start = (safePage - 1) * PAGE_SIZE;
+    const end = Math.min(start + PAGE_SIZE, total);
+    return {
+      pagedProducts: filteredProducts.slice(start, end),
+      totalPages,
+      from: total ? start + 1 : 0,
+      to: end,
+      total,
+    };
+  }, [filteredProducts, page]);
+
+  const goPrev = () => setPage((p) => Math.max(1, p - 1));
+  const goNext = () => setPage((p) => Math.min(totalPages, p + 1));
+  const goTo = (n: number) => setPage(() => Math.min(Math.max(1, n), totalPages));
+
   const handleManualRefresh = () => fetchProducts(true);
 
   if (loading) {
@@ -217,46 +245,45 @@ const Products: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-gray-50">
-<SEO
-  title={
-    selectedCategory
-      ? `Shop ${selectedCategory} Online | Nakoda Mobile`
-      : searchTerm
-      ? `Search results for "${searchTerm}" | Nakoda Mobile`
-      : `Shop Premium Tech Accessories | Nakoda Mobile`
-  }
-  description={
-    selectedCategory
-      ? `Explore premium ${selectedCategory} at wholesale prices. Shop authentic, tested products with fast Pan-India shipping.`
-      : searchTerm
-      ? `Find products matching "${searchTerm}" including chargers, neckbands, TWS, cables and more. Best prices at Nakoda Mobile.`
-      : `Browse our curated range of TWS, Bluetooth neckbands, data cables, chargers, IC chips, tools, and accessories. Trusted quality & fast shipping across India.`
-  }
-  canonicalPath={
-    selectedCategory
-      ? `/products?category=${encodeURIComponent(selectedCategory)}`
-      : searchTerm
-      ? `/products?search=${encodeURIComponent(searchTerm)}`
-      : `/products`
-  }
-  jsonLd={{
-    '@context': 'https://schema.org',
-    '@type': 'CollectionPage',
-    name: selectedCategory
-      ? `${selectedCategory} Collection`
-      : searchTerm
-      ? `Search: ${searchTerm}`
-      : 'Products',
-    url: `https://nakodamobile.in/products${
-      selectedCategory ? `?category=${encodeURIComponent(selectedCategory)}` : ''
-    }${searchTerm ? `?search=${encodeURIComponent(searchTerm)}` : ''}`,
-    description:
-      selectedCategory
-        ? `Wide range of ${selectedCategory} at Nakoda Mobile.`
-        : 'Shop high-quality mobile accessories and electronics.',
-  }}
-/>
-
+      <SEO
+        title={
+          selectedCategory
+            ? `Shop ${selectedCategory} Online | Nakoda Mobile`
+            : searchTerm
+            ? `Search results for "${searchTerm}" | Nakoda Mobile`
+            : `Shop Premium Tech Accessories | Nakoda Mobile`
+        }
+        description={
+          selectedCategory
+            ? `Explore premium ${selectedCategory} at wholesale prices. Shop authentic, tested products with fast Pan-India shipping.`
+            : searchTerm
+            ? `Find products matching "${searchTerm}" including chargers, neckbands, TWS, cables and more. Best prices at Nakoda Mobile.`
+            : `Browse our curated range of TWS, Bluetooth neckbands, data cables, chargers, IC chips, tools, and accessories. Trusted quality & fast shipping across India.`
+        }
+        canonicalPath={
+          selectedCategory
+            ? `/products?category=${encodeURIComponent(selectedCategory)}`
+            : searchTerm
+            ? `/products?search=${encodeURIComponent(searchTerm)}`
+            : `/products`
+        }
+        jsonLd={{
+          '@context': 'https://schema.org',
+          '@type': 'CollectionPage',
+          name: selectedCategory
+            ? `${selectedCategory} Collection`
+            : searchTerm
+            ? `Search: ${searchTerm}`
+            : 'Products',
+          url: `https://nakodamobile.in/products${
+            selectedCategory ? `?category=${encodeURIComponent(selectedCategory)}` : ''
+          }${searchTerm ? `?search=${encodeURIComponent(searchTerm)}` : ''}`,
+          description:
+            selectedCategory
+              ? `Wide range of ${selectedCategory} at Nakoda Mobile.`
+              : 'Shop high-quality mobile accessories and electronics.',
+        }}
+      />
 
       {/* Hero */}
       <div className="bg-gradient-to-r from-blue-600 to-purple-600 text-white py-16">
@@ -374,17 +401,35 @@ const Products: React.FC = () => {
           </div>
         )}
 
-        {/* Results meta */}
-        <div className="mb-6">
+        {/* Results meta + pagination top */}
+        <div className="mb-6 flex items-center justify-between">
           <p className="text-gray-600">
-            Showing {filteredProducts.length} of {products.length} products
+            Showing {from}-{to} of {total} products
             {selectedCategory && ` in ${selectedCategory}`}
             {searchTerm && ` matching "${searchTerm}"`}
           </p>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={goPrev}
+              disabled={page === 1}
+              className={`px-3 py-2 rounded-md ${page === 1 ? 'bg-gray-200 text-gray-500' : 'bg-gray-800 text-white hover:bg-black'}`}
+            >
+              Prev
+            </button>
+            <span className="text-sm text-gray-700">Page {page} / {totalPages}</span>
+            <button
+              onClick={goNext}
+              disabled={page === totalPages}
+              className={`px-3 py-2 rounded-md ${page === totalPages ? 'bg-gray-200 text-gray-500' : 'bg-gray-800 text-white hover:bg-black'}`}
+            >
+              Next
+            </button>
+          </div>
         </div>
 
         {/* Grid/List */}
-        {filteredProducts.length > 0 ? (
+        {pagedProducts.length > 0 ? (
           <motion.div
             className={
               viewMode === 'grid'
@@ -395,10 +440,9 @@ const Products: React.FC = () => {
             animate={{ opacity: 1 }}
             transition={{ duration: 0.5 }}
           >
-            {filteredProducts.map((product, i) => {
+            {pagedProducts.map((product, i) => {
               const pid = getId(product);
-              // robust key: prefer real id, else fall back to name+index
-              const key = pid || `${product.name || 'item'}-${i}`;
+              const key = pid || `${product.name || 'item'}-${(page - 1) * PAGE_SIZE + i}`;
               return (
                 <motion.div
                   key={key}
@@ -434,6 +478,67 @@ const Products: React.FC = () => {
                 Refresh Products
               </button>
             </div>
+          </div>
+        )}
+
+        {/* Pagination bottom */}
+        {totalPages > 1 && pagedProducts.length > 0 && (
+          <div className="mt-8 flex items-center justify-center gap-2 flex-wrap">
+            <button
+              onClick={goPrev}
+              disabled={page === 1}
+              className={`px-3 py-2 rounded-md ${page === 1 ? 'bg-gray-200 text-gray-500' : 'bg-gray-800 text-white hover:bg-black'}`}
+            >
+              Prev
+            </button>
+
+            {/* compact numeric pager: first, prev-1, current, next+1, last */}
+            {Array.from({ length: totalPages }).slice(0, 1).map((_, idx) => (
+              <button
+                key={`first-${idx}`}
+                onClick={() => goTo(1)}
+                className={`px-3 py-2 rounded-md ${page === 1 ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}
+              >
+                1
+              </button>
+            ))}
+            {page > 3 && <span className="px-2 text-gray-500">…</span>}
+            {page > 2 && (
+              <button
+                onClick={() => goTo(page - 1)}
+                className="px-3 py-2 rounded-md bg-gray-200 text-gray-700 hover:bg-gray-300"
+              >
+                {page - 1}
+              </button>
+            )}
+            {page !== 1 && page !== totalPages && (
+              <button className="px-3 py-2 rounded-md bg-blue-600 text-white">{page}</button>
+            )}
+            {page < totalPages - 1 && (
+              <button
+                onClick={() => goTo(page + 1)}
+                className="px-3 py-2 rounded-md bg-gray-200 text-gray-700 hover:bg-gray-300"
+              >
+                {page + 1}
+              </button>
+            )}
+            {page < totalPages - 2 && <span className="px-2 text-gray-500">…</span>}
+            {totalPages > 1 && (
+              <button
+                onClick={() => goTo(totalPages)}
+                className={`px-3 py-2 rounded-md ${page === totalPages ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}
+              >
+                {totalPages}
+              </button>
+            )}
+
+            <button
+              onClick={goNext}
+              disabled={page === totalPages}
+              className={`px-3 py-2 rounded-md ${page === totalPages ? 'bg-gray-200 text-gray-500' : 'bg-gray-800 text-white hover:bg-black'}`}
+            >
+              Next
+            </button>
           </div>
         )}
       </div>

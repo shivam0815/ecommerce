@@ -4,23 +4,7 @@ import { X, MessageCircle, Send, Sparkles, Loader2, RefreshCw, Minus, Maximize2,
 import type { Product } from "../../types"; // adjust as needed
 import ProductCard from "../UI/ProductCard"; // optional; has graceful fallback below
 
-/**
- * Artha – Nakoda Mobile AI Assistant (client-side widget)
- *
- * Key upgrades in this version:
- * 1) Fully mobile‑responsive bottom‑sheet UX (safe‑area aware), large tap targets
- * 2) Accessibility: labels, roles, focus trap, Escape/Tab nav, reduced‑motion friendly
- * 3) Robust intent parser (price ranges, sort, category synonyms, basic Hinglish/Hindi support)
- * 4) Product + order APIs with retries, aborts, offline guard, skeleton loaders
- * 5) Sticky input on mobile, on‑screen keyboard safe, iOS 100vh quirks handled
- * 6) Persistent open/minimized state + compact, resilient localStorage helpers
- * 7) Cleaner errors, quick filters (price ceiling + sort), dynamic chips, graceful ProductCard fallback
- * 8) Smaller fixes: removed dead code, safer SSR guards, memoized handlers, analytics hook
- */
 
-/* =========================================
-   Types
-========================================= */
 type Role = "user" | "assistant" | "system";
 
 type Message = {
