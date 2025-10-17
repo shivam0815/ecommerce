@@ -4,9 +4,9 @@ import { useEffect, MutableRefObject } from 'react';
 type Opts = {
   enabled: boolean;
   userId?: string;
-  cooldownHours?: number; // 24 = once per day
+  cooldownHours?: number;
   containerRef?: MutableRefObject<HTMLElement | null>;
-  message?: string; // optional overlay text
+  message?: string;
 };
 
 const keyFor = (uid?: string) => `celebrated_v3_firecracker_plus_${uid ?? 'anon'}`;
@@ -16,23 +16,29 @@ export function useFirstVisitCelebration({
   userId,
   cooldownHours = 24,
   containerRef,
-  message = '🎉 Welcome to Nakoda Mobile! ',
+  message = '🎉 Welcome to Nakoda Mobile!',
 }: Opts) {
   useEffect(() => {
     if (!enabled) return;
+    if (typeof window === 'undefined' || typeof document === 'undefined') return;
 
     const k = keyFor(userId);
-    const last = localStorage.getItem(k);
+    const last = Number(localStorage.getItem(k) || 0);
     const now = Date.now();
-    if (last && now - Number(last) < cooldownHours * 3600_000) return;
+    if (now - last < cooldownHours * 3600_000) return;
 
+    // Set cooldown early to avoid duplicate firing in dev StrictMode
+    localStorage.setItem(k, String(now));
+
+    let disposed = false;
     let cleanup = () => {};
+
     (async () => {
+      // dynamic import keeps Vite happy
       const confetti = (await import('canvas-confetti')).default;
 
       const host = containerRef?.current ?? document.body;
 
-      // Canvas
       const canvas = document.createElement('canvas');
       Object.assign(canvas.style, {
         position: 'fixed',
@@ -41,39 +47,36 @@ export function useFirstVisitCelebration({
         height: '100%',
         pointerEvents: 'none',
         zIndex: '9999',
-      } as CSSStyleDeclaration);
+      } as Partial<CSSStyleDeclaration>);
       host.appendChild(canvas);
 
       const fire = confetti.create(canvas, { resize: true, useWorker: true });
 
-      // --- 1) Multi-color palette
       const COLORS = ['#ff0040', '#ff7a00', '#ffd400', '#27d17f', '#00c6ff', '#8a2be2'];
-
-      // Sound helper (2) sound sync
       const playPop = () => {
         try {
-          // Put a small file at: /public/sfx/firecracker.mp3
+          // Place this file at: public/firecracker.mp3
           new Audio('/firecracker.mp3').play().catch(() => {});
         } catch {}
       };
 
-      // Optional text overlay (6)
       const msg = document.createElement('div');
       msg.textContent = message;
-      msg.style.position = 'fixed';
-      msg.style.top = '38%';
-      msg.style.left = '50%';
-      msg.style.transform = 'translateX(-50%)';
-      msg.style.fontSize = '2rem';
-      msg.style.fontWeight = '700';
-      msg.style.color = '#fff';
-      msg.style.textShadow = '0 2px 12px rgba(0,0,0,0.6)';                                                                          
-      msg.style.zIndex = '10000';
-      msg.style.opacity = '0';
-      msg.style.animation = 'celeFade 3.6s ease 0.3s forwards';
+      Object.assign(msg.style, {
+        position: 'fixed',
+        top: '38%',
+        left: '50%',
+        transform: 'translateX(-50%)',
+        fontSize: '2rem',
+        fontWeight: '700',
+        color: '#fff',
+        textShadow: '0 2px 12px rgba(0,0,0,0.6)',
+        zIndex: '10000',
+        opacity: '0',
+        animation: 'celeFade 3.6s ease 0.3s forwards',
+      } as Partial<CSSStyleDeclaration>);
       host.appendChild(msg);
 
-      // Inject keyframes once
       const styleId = 'celebration-keyframes';
       if (!document.getElementById(styleId)) {
         const style = document.createElement('style');
@@ -90,28 +93,24 @@ export function useFirstVisitCelebration({
 
       const timeouts: number[] = [];
       const intervals: number[] = [];
-
-      // Trail + explosion with enhancements: (3) trails & glow, (4) variable heights, (1) colors, (2) sound
-      const launchFirecracker = (fromLeft: boolean, delay = 0) => {
+      const launch = (fromLeft: boolean, delay = 0) => {
         const tid = window.setTimeout(() => {
+          if (disposed) return;
           const xStart = fromLeft ? 0.04 : 0.96;
-          const xTarget = fromLeft
-            ? Math.random() * 0.42 + 0.22
-            : Math.random() * 0.42 + 0.36;
-          // variable heights (0.07–0.28)
+          const xTarget = fromLeft ? Math.random() * 0.42 + 0.22 : Math.random() * 0.42 + 0.36;
           const yTarget = Math.random() * 0.21 + 0.07;
           const yStart = 0.96;
           const steps = 20;
           let step = 0;
 
           const trailId = window.setInterval(() => {
+            if (disposed) return clearInterval(trailId);
             step++;
             const t = step / steps;
-            const ease = (u: number) => 1 - Math.pow(1 - u, 2); // ease-out
+            const ease = (u: number) => 1 - Math.pow(1 - u, 2);
             const x = xStart + (xTarget - xStart) * ease(t);
             const y = yStart + (yTarget - yStart) * ease(t);
 
-            // small trail sparks (glow)
             fire({
               particleCount: 10,
               startVelocity: 60,
@@ -121,11 +120,10 @@ export function useFirstVisitCelebration({
               origin: { x, y },
               scalar: 0.5,
               drift: fromLeft ? 0.25 : -0.25,
-              colors: COLORS, // multi-color trail
+              colors: COLORS,
               shapes: ['circle'],
             });
 
-            // occasional brighter flare
             if (step % 5 === 0) {
               fire({
                 particleCount: 6,
@@ -141,8 +139,6 @@ export function useFirstVisitCelebration({
 
             if (step >= steps) {
               clearInterval(trailId);
-
-              // Explosion core
               playPop();
               fire({
                 particleCount: 140,
@@ -156,7 +152,6 @@ export function useFirstVisitCelebration({
                 shapes: ['circle', 'square'],
               });
 
-              // Ring
               const ringDelay = window.setTimeout(() => {
                 playPop();
                 fire({
@@ -172,7 +167,6 @@ export function useFirstVisitCelebration({
               }, 120);
               timeouts.push(ringDelay);
 
-              // Crackle
               const crackleDelay = window.setTimeout(() => {
                 fire({
                   particleCount: 70,
@@ -194,15 +188,13 @@ export function useFirstVisitCelebration({
         timeouts.push(tid);
       };
 
-      // Sequence: staggered launches from both sides
-      launchFirecracker(true, 0);
-      launchFirecracker(false, 220);
-      launchFirecracker(true, 440);
-      launchFirecracker(false, 660);
-      launchFirecracker(Math.random() > 0.5, 880);
-      launchFirecracker(Math.random() > 0.5, 1100);
+      launch(true, 0);
+      launch(false, 220);
+      launch(true, 440);
+      launch(false, 660);
+      launch(Math.random() > 0.5, 880);
+      launch(Math.random() > 0.5, 1100);
 
-      // (5) Finale burst
       const finaleDelay = window.setTimeout(() => {
         playPop();
         fire({
@@ -216,7 +208,6 @@ export function useFirstVisitCelebration({
           colors: COLORS,
           shapes: ['circle', 'square'],
         });
-        // Finale shimmer
         const shimmerId = window.setInterval(() => {
           fire({
             particleCount: 24,
@@ -230,26 +221,23 @@ export function useFirstVisitCelebration({
           });
         }, 90);
         intervals.push(shimmerId);
-
-        // stop shimmer after ~1.2s
         const stopShimmer = window.setTimeout(() => clearInterval(shimmerId), 1200);
         timeouts.push(stopShimmer);
       }, 1500);
       timeouts.push(finaleDelay);
 
-      localStorage.setItem(k, String(now));
-
       cleanup = () => {
-        try {
-          fire.reset();
-        } catch {}
-        timeouts.forEach((id) => clearTimeout(id));
-        intervals.forEach((id) => clearInterval(id));
+        try { fire.reset(); } catch {}
+        timeouts.forEach(clearTimeout);
+        intervals.forEach(clearInterval);
         canvas.remove();
         msg.remove();
       };
     })();
 
-    return () => cleanup();
+    return () => {
+      disposed = true;
+      cleanup();
+    };
   }, [enabled, userId, cooldownHours, containerRef, message]);
 }
