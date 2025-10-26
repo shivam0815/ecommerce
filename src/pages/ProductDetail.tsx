@@ -21,6 +21,7 @@ import { resolveImageUrl } from '../utils/imageUtils';
 import toast from 'react-hot-toast';
 import SEO from '../components/Layout/SEO';
 import Reviews from '../components/Layout/Reviews';
+import { useAuth } from '../hooks/useAuth';
 
 import Breadcrumbs from './Breadcrumbs';
 
@@ -117,41 +118,15 @@ const isUserLoggedIn = () => {
 
 
 
-/** Hook: live review summary for a product card */
-// const useReviewSummary = (productId?: string) => {
-//   const [avg, setAvg] = useState(0);
-//   const [count, setCount] = useState(0);
+const { user } = useAuth();
+const { id } = useParams<{ id: string }>();
+const shareUrl = useMemo(() => {
+  if (typeof window === 'undefined') return '';
+  const url = new URL(window.location.href);
+  if (user?.referralCode) url.searchParams.set('ref', user.referralCode);
+  return url.toString();
+}, [user?.referralCode, id]);
 
-//   useEffect(() => {
-//     if (!productId) return;
-//     let off = false;
-//     const load = async () => {
-//       try {
-//         const s = await reviewsService.summary(productId);
-//         if (!off) {
-//           setAvg(Number(s.averageRating || 0));
-//           setCount(Number(s.reviewCount || 0));
-//         }
-//       } catch {/* ignore */}
-//     };
-//     load();
-
-//     const onChanged = (e: any) => { if (e?.detail?.productId === productId) load(); };
-//     window.addEventListener('reviews:changed', onChanged);
-//     const onStorage = (e: StorageEvent) => { if (e.key === `reviews:changed:${productId}`) load(); };
-//     window.addEventListener('storage', onStorage);
-
-//     return () => {
-//       off = true;
-//       window.removeEventListener('reviews:changed', onChanged);
-//       window.removeEventListener('storage', onStorage);
-//     };
-//   }, [productId]);
-
-//   return { avg, count };
-// };
-
-/** Mini product card used in rails */
 const MiniCard: React.FC<{ p: Product }> = ({ p }) => {
   const navigate = useNavigate();
   const { addToCart, isLoading } = useCart();
@@ -805,17 +780,20 @@ const ProductDetail: React.FC = () => {
                       whileTap={{ scale: 0.95 }}
                       className="w-10 h-10 sm:w-11 sm:h-11 shrink-0 p-0 border border-gray-300 rounded-lg hover:bg-gray-50 inline-flex items-center justify-center"
                       onClick={() => {
-                        const url = window.location.href;
-                        const text = `${product.name} - ${product.description ?? ''}`.slice(0, 180);
-                        if ((navigator as any).share) (navigator as any).share({ title: product.name, text, url }).catch(() => {
-                          navigator.clipboard.writeText(url);
-                          toast.success('Product link copied to clipboard!');
-                        });
-                        else {
-                          navigator.clipboard.writeText(url);
-                          toast.success('Product link copied to clipboard!');
-                        }
-                      }}
+  const text = `${product.name} - ${product.description ?? ''}`.slice(0, 180);
+  const url = shareUrl;
+  const nav: any = navigator;
+  if (nav.share) {
+    nav.share({ title: product.name, text, url }).catch(() => {
+      navigator.clipboard.writeText(url);
+      toast.success('Referral link copied');
+    });
+  } else {
+    navigator.clipboard.writeText(url);
+    toast.success('Referral link copied');
+  }
+}}
+
                       title="Share"
                       aria-label="Share"
                     >
@@ -823,7 +801,8 @@ const ProductDetail: React.FC = () => {
                     </motion.button>
 
                     <a
-                      href={`https://wa.me/?text=${encodeURIComponent(`${product.name} ${window.location.href}`)}`}
+                      href={`https://wa.me/?text=${encodeURIComponent(`${product.name} ${shareUrl}`)}`}
+
                       target="_blank"
                       rel="noreferrer"
                       className="w-10 h-10 sm:w-11 sm:h-11 shrink-0 p-0 border border-green-300 rounded-lg hover:bg-green-50 text-green-700 inline-flex items-center justify-center"

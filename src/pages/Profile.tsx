@@ -1,5 +1,5 @@
 // src/pages/Profile.tsx
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+import React, { useEffect, useState, useCallback, useRef,useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import clsx from 'clsx';
@@ -62,6 +62,8 @@ interface User {
   createdAt: string;
   avatar?: string;
   isVerified?: boolean;
+  referralCode?: string;
+
   preferences?: {
     notifications: boolean;
     theme: 'light' | 'dark';
@@ -166,6 +168,12 @@ const Profile: React.FC = () => {
 
   // NEW: open Return modal with the chosen order
   const [returnOrder, setReturnOrder] = useState<Order | null>(null);
+// build refer link once per code change
+const refLink = useMemo(() => {
+  if (!user?.referralCode) return '';
+  const base = typeof window !== 'undefined' ? window.location.origin : '';
+  return `${base}?ref=${user.referralCode}`;
+}, [user?.referralCode]);
 
   const navigate = useNavigate();
   const socketRef = useRef<ReturnType<typeof io> | null>(null);
@@ -293,6 +301,8 @@ const Profile: React.FC = () => {
         }
       }
     };
+    ;
+
 
     // Retry because the widget may render after script onload
     const retryApplyStyles = () => {
@@ -408,7 +418,36 @@ const Profile: React.FC = () => {
           )}
         </div>
 
-        {/* Tabs (vertical, polished) */}
+        {user?.referralCode && (
+          <div className="bg-white rounded-2xl shadow-sm border border-gray-100 p-6 md:p-8 mb-6">
+            <h3 className="text-lg font-semibold text-gray-900 mb-2">Refer & Earn</h3>
+            <p className="text-sm text-gray-600 mb-3">Share your link. Earn commission on paid orders.</p>
+            <div className="flex flex-col sm:flex-row gap-2">
+              <input
+                readOnly
+                value={refLink}
+                className="flex-1 px-3 py-2 border border-gray-200 rounded-lg bg-gray-50 text-gray-900"
+              />
+              <button
+                onClick={() => refLink && navigator.clipboard.writeText(refLink)}
+                className="px-4 py-2 rounded-lg bg-gray-900 text-white hover:bg-black"
+              >
+                Copy link
+              </button>
+              <a
+                href={`https://wa.me/?text=${encodeURIComponent(refLink)}`}
+                target="_blank"
+                rel="noreferrer"
+                className="px-4 py-2 rounded-lg border border-green-600 text-green-700 hover:bg-green-50"
+              >
+                WhatsApp
+              </a>
+            </div>
+            <div className="mt-2 text-xs text-gray-500">
+              Your code: <span className="font-mono">{user.referralCode}</span>
+            </div>
+          </div>
+        )}
         <div className="bg-white rounded-2xl shadow-sm border border-gray-100">
           <div className="flex flex-col md:flex-row">
             {/* Sidebar nav */}

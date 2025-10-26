@@ -139,7 +139,12 @@ export interface IOrder extends Document {
   shippedAt?: Date;
   deliveredAt?: Date;
   cancelledAt?: Date;
-
+refSource?: {
+  code?: string;
+  refUserId?: Types.ObjectId;
+  firstTouch?: Date;
+  lastTouch?: Date;
+};
   // Notes & refunds
   notes?: string;
   customerNotes?: string;
@@ -289,6 +294,12 @@ const OrderSchema = new Schema<IOrder, IOrderModel, IOrderMethods>(
 
     shippingAddress: { type: AddressSchema, required: true },
     billingAddress: { type: AddressSchema, required: true },
+refSource: {
+  code: { type: String },
+  refUserId: { type: Schema.Types.ObjectId, ref: 'User', index: true },
+  firstTouch: Date,
+  lastTouch: Date,
+},
 
     paymentMethod: { type: String, enum: ["razorpay", "cod"], required: true },
 
@@ -459,6 +470,8 @@ OrderSchema.index({ "gst.wantInvoice": 1, createdAt: -1 }); // ✅ fast filter f
 OrderSchema.index({ shipmentId: 1 });
 OrderSchema.index({ awbCode: 1 });
 OrderSchema.index({ "shippingPayment.linkId": 1 });
+OrderSchema.index({ 'refSource.refUserId': 1, createdAt: -1 });
+
 
 /* ------------------------------------------------------------------ */
 /* Middleware                                                          */

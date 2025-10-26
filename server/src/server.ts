@@ -15,7 +15,8 @@ import { Server, Socket } from 'socket.io';
 import { readLimiter, writeLimiter, rateLimitedObserver } from './config/rateLimiter';
 import { connectDatabase } from './config/database';
 import passport from './config/passport';
-
+import cookieParser from 'cookie-parser';
+import { captureReferral } from './middleware/captureReferral';
 import searchRoutes from './routes/searchRoutes';
 import reviewsPublic from './routes/reviews.public';
 import chatRoutes from './routes/chat';
@@ -282,7 +283,8 @@ app.use(
 // API Routes (public first)
 app.use('/api/auth', authRoutes);
 app.use('/api', phoneAuthRoutes)
-
+app.use(cookieParser());
+app.use(captureReferral);
 app.use('/api/products', productRoutes);
 app.use('/api/cart',  cartRoutes);
 app.use('/api/orders', orderRoutes);
@@ -318,6 +320,8 @@ import debugRoutes from './routes/debug';
 app.use('/api', debugRoutes);
 import pricingRouter from './routes/pricing';
 app.use('/api', pricingRouter);
+import referralRoutes from "./routes/referralRoutes";
+app.use("/api/referrals", referralRoutes);
 
 // Health
 app.get('/api/health', async (_req, res): Promise<void> => {

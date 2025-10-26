@@ -9,6 +9,12 @@ import Cart from "../models/Cart";
 import Product from "../models/Product";
 import EmailAutomationService from "../config/emailService";
 import type {} from "../types/express";
+import User from "../models/User";
+import { captureCommission } from "../services/referralService";
+
+const FT = "ref_ft";
+const LT = "ref_lt";
+const pickRef = (req: any) => req.cookies?.[LT] || req.cookies?.[FT] || (req as any)?._refCode || null;
 
 /* ───────────────── Types ───────────────── */
 interface AuthenticatedUser {
@@ -177,7 +183,21 @@ export const createOrder = async (req: Request, res: Response): Promise<void> =>
 
     // Build GST block
     const gstBlock = buildGstBlock(req.body, shippingAddress, { subtotal, tax });
-
+let refSource: any = undefined;
+try {
+  const code = pickRef(req);
+  if (code) {
+    const refUser = await User.findOne({ referralCode: code }).select("_id").lean();
+    if (refUser && String(refUser._id) !== String(userId)) {
+      refSource = {
+        code,
+        refUserId: refUser._id,
+        firstTouch: req.cookies?.[FT] ? new Date() : undefined,
+        lastTouch: req.cookies?.[LT] ? new Date() : undefined,
+      };
+    }
+  }
+} catch {}
     // Create and save
     const order = new Order({
       userId: new mongoose.Types.ObjectId(userId),
@@ -197,6 +217,7 @@ export const createOrder = async (req: Request, res: Response): Promise<void> =>
 
       gst: gstBlock,
       customerNotes: (extras?.orderNotes || "").toString().trim() || undefined,
+        refSource,  
     });
 
     const savedOrder = await order.save();
@@ -943,3 +964,31 @@ function buildGstBlock(
       undefined,
   };
 }
+
+export const markPaid = async (req: Request, res: Response): Promise<void> => {
+  try {
+    const { orderId } = req.params;
+
+    if (!mongoose.Types.ObjectId.isValid(orderId)) {
+      res.status(400).json({ success: false, message: "Invalid order ID" });
+      return;
+    }
+
+    const order = await Order.findByIdAndUpdate(
+      orderId,
+      { paymentStatus: "paid", paidAt: new Date() },
+      { new: true }
+    );
+
+    if (!order) {
+      res.status(404).json({ success: false, message: "Order not found" });
+      return;
+    }
+
+    await captureCommission(order);
+    res.json({ success: true, order });
+  } catch (e: any) {
+    res.status(500).json({ success: false, message: "Server error" });
+  }
+};
+

@@ -74,6 +74,7 @@ export interface User {
   token?: any;
   isVerified?: boolean;
   twoFactorEnabled?: boolean;
+  referralCode?: string;
 }
 
 export interface Address {

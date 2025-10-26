@@ -12,12 +12,14 @@ export interface IUser {
   password?: string;
   phone?: string;
   role: 'user' | 'admin';
+    referralCode?: string;
   address?: {
     street?: string;
     city?: string;
     state?: string;
     pincode?: string;
     country?: string;
+  
   };
 
   // ✅ ADDED - Account Status (was missing)
@@ -135,6 +137,7 @@ const userSchema = new Schema<IUserDocument>({
     type: String,
     trim: true
   },
+  
 
   // OTP Email Verification
   isVerified: {
@@ -164,6 +167,7 @@ const userSchema = new Schema<IUserDocument>({
     default: 'local'
   }],
   avatar: String,
+referralCode: { type: String, unique: true, index: true },
 
   // Two-Factor Authentication
   twoFactorSecret: String,
@@ -187,7 +191,10 @@ const userSchema = new Schema<IUserDocument>({
   isActive: { type: Boolean, default: true },
   deactivatedAt: Date,
   deactivationReason: String
-}, {
+},
+
+
+{
   timestamps: true
 });
 
@@ -200,6 +207,7 @@ userSchema.index({ emailVerificationOtp: 1 });
 userSchema.index({ passwordResetToken: 1 });
 userSchema.index({ passwordResetOtp: 1 });
 userSchema.index({ lockUntil: 1 });
+userSchema.index({ referralCode: 1 }, { unique: true });
 
 // ✅ FIXED - Hash password before saving with proper typing
 userSchema.pre('save', async function(next) {
@@ -215,6 +223,12 @@ userSchema.pre('save', async function(next) {
     next(error);
   }
 });
+
+userSchema.pre('save', function(next) {
+  if (!this.referralCode) this.referralCode = makeRefCode();
+  next();
+});
+
 
 // ✅ FIXED - Account locking virtual with proper typing
 userSchema.virtual('isLocked').get(function() {
@@ -327,12 +341,10 @@ userSchema.methods.addLoginHistory = function(ip: string, userAgent: string, suc
     this.loginHistory = this.loginHistory.slice(-10);
   }
 };
-const UserSchema = new Schema({
-  // ...
-  preferences: {
-    notifications: { type: Boolean, default: true },
-    theme: { type: String, enum: ['light', 'dark'], default: 'light' },
-    language: { type: String, enum: ['en','hi','bn','ta','te','mr','gu'], default: 'en' }
-  }
-});
+
+
+function makeRefCode(): string {
+  return crypto.randomBytes(4).toString('hex').slice(0,8).toUpperCase();
+}
+
 export default mongoose.model<IUserDocument>('User', userSchema);

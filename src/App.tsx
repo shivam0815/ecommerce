@@ -51,6 +51,7 @@ import BlogPost from './pages/BlogPost';
 import Privacy from './pages/Privacy';
 import Terms from './pages/Terms';
 import Video from "./pages/Video";
+import ReferralDashboard from './pages/ReferralDashboard';
 
 
 // ✅ Use the auth context directly; no new files are added
@@ -95,6 +96,7 @@ function App() {
           {/* PUBLIC */}
           <Route path="/" element={<PublicLayout><Home /></PublicLayout>} />
   <Route path="/video" element={<Video />} />
+  <Route path="/referrals" element={<PublicLayout><ReferralDashboard /></PublicLayout>} />
 
           {/* Products listing + detail */}
           <Route path="/products" element={<PublicLayout><Products /></PublicLayout>} />
