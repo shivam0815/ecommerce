@@ -43,7 +43,7 @@ import webhookRouter from './routes/webhooks';
 // S3 presign & delete routes
 import uploadsS3 from './routes/uploadsS3';
 import shipping from './routes/shipping';
-
+import referralRoutes from './routes/referralRoutes'; // ✅
 const app = express();
 const server = http.createServer(app);
 
@@ -279,10 +279,12 @@ app.use(
     }
   })
 );
-
+// Serve frontend static files in prod
 // API Routes (public first)
 app.use('/api/auth', authRoutes);
 app.use('/api', phoneAuthRoutes)
+
+app.use('/api/referral', referralRoutes);
 app.use(cookieParser());
 app.use(captureReferral);
 app.use('/api/products', productRoutes);
@@ -320,8 +322,7 @@ import debugRoutes from './routes/debug';
 app.use('/api', debugRoutes);
 import pricingRouter from './routes/pricing';
 app.use('/api', pricingRouter);
-import referralRoutes from "./routes/referralRoutes";
-app.use("/api/referrals", referralRoutes);
+
 
 // Health
 app.get('/api/health', async (_req, res): Promise<void> => {
