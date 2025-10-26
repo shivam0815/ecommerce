@@ -118,14 +118,8 @@ const isUserLoggedIn = () => {
 
 
 
-const { user } = useAuth();
-const { id } = useParams<{ id: string }>();
-const shareUrl = useMemo(() => {
-  if (typeof window === 'undefined') return '';
-  const url = new URL(window.location.href);
-  if (user?.referralCode) url.searchParams.set('ref', user.referralCode);
-  return url.toString();
-}, [user?.referralCode, id]);
+
+
 
 const MiniCard: React.FC<{ p: Product }> = ({ p }) => {
   const navigate = useNavigate();
@@ -266,7 +260,16 @@ const ProductRail: React.FC<{ title: string; items: Product[]; to?: string }> = 
 
 /* ------------------------------ Component ------------------------------ */
 const ProductDetail: React.FC = () => {
+   const { user } = useAuth();
   const { id } = useParams<{ id: string }>();
+
+  const shareUrl = useMemo(() => {
+    if (typeof window === 'undefined') return '';
+    const url = new URL(window.location.href);
+    if (user?.referralCode) url.searchParams.set('ref', user.referralCode);
+    return url.toString();
+  }, [user?.referralCode, id]);
+  
   const navigate = useNavigate();
   const [product, setProduct] = useState<Product | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
