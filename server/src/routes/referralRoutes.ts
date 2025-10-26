@@ -5,6 +5,7 @@ import { authenticate } from "../middleware/auth";
 
 const router = express.Router();
 
+router.get("/_ping", (_req, res) => res.json({ ok: true }));
 // GET my referral summary (requires login)
 router.get("/summary", authenticate, async (req: any, res) => {
   try {
