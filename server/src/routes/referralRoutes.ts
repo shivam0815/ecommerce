@@ -65,4 +65,24 @@ router.get("/admin/all", authenticate, async (req: any, res) => {
   res.json({ success: true, list });
 });
 
+
+
+// GET user referral history (requires login)
+router.get("/history", authenticate, async (req: any, res) => {
+  try {
+    const userId = req.user._id;
+
+    const history = await ReferralCommission.find({ refUserId: userId })
+      .populate("buyerUserId", "name email")
+      .populate("orderId", "orderNumber total paymentStatus")
+      .sort({ createdAt: -1 })
+      .lean();
+
+    res.json({ success: true, history });
+  } catch (e: any) {
+    res.status(500).json({ success: false, message: e.message });
+  }
+});
+
+
 export default router;
