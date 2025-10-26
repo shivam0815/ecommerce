@@ -283,7 +283,7 @@ app.use(
 // API Routes (public first)
 app.use('/api/auth', authRoutes);
 app.use('/api', phoneAuthRoutes)
-app.use('/api/referrals', referralRoutes);
+
 app.use('/api/referral', referralRoutes);
 app.use(cookieParser());
 app.use(captureReferral);
