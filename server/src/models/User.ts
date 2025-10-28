@@ -1,5 +1,5 @@
 // src/models/User.ts - COMPLETE FIXED VERSION
-import mongoose, { Schema, Document } from 'mongoose';
+import mongoose, { Schema, Document,Types } from 'mongoose';
 import bcrypt from 'bcryptjs';
 import crypto from 'crypto';
 import speakeasy from 'speakeasy';
@@ -74,6 +74,7 @@ export interface IUser {
 }
 
 export interface IUserDocument extends IUser, Document {
+  _id: Types.ObjectId;    
   comparePassword(candidatePassword: string): Promise<boolean>;
   generateEmailVerificationOtp(): string;
   verifyEmailOtp(enteredOtp: string): boolean;
