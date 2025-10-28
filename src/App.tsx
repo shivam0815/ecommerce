@@ -1,5 +1,5 @@
 // src/App.tsx
-import React from 'react';
+import React, { useEffect } from 'react';
 import {
   BrowserRouter as Router,
   Routes,
@@ -12,6 +12,7 @@ import { Toaster } from 'react-hot-toast';
 import { ToastContainer } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
 // import
+
 import ScrollToTop from './components/Layout/ScrollToTop';
 
 // inside <Routes>
@@ -84,7 +85,34 @@ function GuardedProfileRoute() {
     : <Navigate to="/login" replace state={{ from: location }} />;
 }
 
+
+
+
+
 function App() {
+
+   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const aff = params.get('aff');
+    if (aff) {
+      // 30 दिन कुकी
+      document.cookie =
+        `aff=${encodeURIComponent(aff)}; Path=/; Max-Age=${60*60*24*30}; SameSite=Lax${location.protocol==='https:'?'; Secure':''}`;
+
+      localStorage.setItem('affiliateCode', aff);
+
+      fetch('/api/aff/visit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: aff }),
+      }).catch(() => {});
+
+      // URL साफ
+      params.delete('aff');
+      const newUrl = window.location.pathname + (params.toString() ? `?${params.toString()}` : '');
+      window.history.replaceState({}, '', newUrl);
+    }
+  }, []);
   return (
     <Router>
        <ScrollToTop />
