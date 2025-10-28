@@ -125,7 +125,9 @@ export interface IOrder extends Document {
 
   status: OrderStatus;
   orderStatus: OrderStatus;
-
+affiliateCode?: string;
+  affiliateAttributionStatus?: 'none' | 'pending' | 'attributed' | 'skipped' | 'paid';
+  affiliateClickId?: string; 
   // Tracking
   trackingNumber?: string;
   trackingUrl?: string;
@@ -296,13 +298,14 @@ const OrderSchema = new Schema<IOrder, IOrderModel, IOrderMethods>(
     shippingAddress: { type: AddressSchema, required: true },
     billingAddress: { type: AddressSchema, required: true },
     
-channel: { type: String, enum: ['b2b', 'b2c'], default: 'b2b', index: true },
-refSource: {
-  code: { type: String },
-  refUserId: { type: Schema.Types.ObjectId, ref: 'User', index: true },
-  firstTouch: Date,
-  lastTouch: Date,
+affiliateCode: { type: String, trim: true, uppercase: true, index: true },
+affiliateAttributionStatus: {
+  type: String,
+  enum: ['none', 'pending', 'attributed', 'skipped', 'paid'],
+  default: 'none',
+  index: true,
 },
+affiliateClickId: { type: String, trim: true },
 
     paymentMethod: { type: String, enum: ["razorpay", "cod"], required: true },
 
@@ -473,7 +476,8 @@ OrderSchema.index({ "gst.wantInvoice": 1, createdAt: -1 }); // ✅ fast filter f
 OrderSchema.index({ shipmentId: 1 });
 OrderSchema.index({ awbCode: 1 });
 OrderSchema.index({ "shippingPayment.linkId": 1 });
-OrderSchema.index({ 'refSource.refUserId': 1, createdAt: -1 });
+OrderSchema.index({ affiliateCode: 1, createdAt: -1 });
+OrderSchema.index({ affiliateAttributionStatus: 1, createdAt: -1 });
 
 
 /* ------------------------------------------------------------------ */
