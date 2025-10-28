@@ -23,6 +23,10 @@ import {
   QuestionMarkCircleIcon,
   DocumentTextIcon,
 } from '@heroicons/react/24/solid';
+// top of Profile.tsx
+import { getReferralSummary, getReferralHistory, requestReferralPayout } from '../services/referralService';
+import AffiliateDashboard from '../components/Layout/AffiliateDashboard';
+
 
 import NotificationCenter from '../components/Layout/NotificationCenter';
 import HelpSupport from '../components/Layout/HelpSupport';
@@ -161,7 +165,7 @@ const Profile: React.FC = () => {
   const [ordersLoading, setOrdersLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<
-    'profile' | 'orders' |  'security' | 'notifications' | 'support' | 'faqs' | 'terms' | 'returns'
+    'profile' | 'orders' |  'security' | 'notifications' | 'support' | 'faqs' | 'terms' | 'returns' | 'affiliate'
   >('profile');
   const [orderFilter, setOrderFilter] = useState<'all' | 'pending' | 'completed'>('all');
   const [isUpdating, setIsUpdating] = useState(false);
@@ -461,6 +465,8 @@ const refLink = useMemo(() => {
                   { id: 'support', label: 'Help & Support', icon: <LifebuoyIcon className="w-4 h-4" /> },
                   { id: 'faqs', label: 'FAQs', icon: <QuestionMarkCircleIcon className="w-4 h-4" /> },
                   { id: 'terms', label: 'Terms', icon: <DocumentTextIcon className="w-4 h-4" /> },
+                  { id: 'affiliate', label: 'Affiliate', icon: <ShieldCheckIcon className="w-4 h-4" /> },
+
                 ].map(t => (
                   <button
                     key={t.id}
@@ -526,7 +532,7 @@ const refLink = useMemo(() => {
                     <HelpSupport />
                   </motion.div>
                 )}
-
+                
                 {activeTab === 'faqs' && (
                   <motion.div key="faqs" variants={fade} initial="hidden" animate="visible" exit="exit">
                     <FAQs />
@@ -538,6 +544,14 @@ const refLink = useMemo(() => {
                     <Terms />
                   </motion.div>
                 )}
+
+
+                {activeTab === 'affiliate' && (
+  <motion.div key="affiliate" variants={fade} initial="hidden" animate="visible" exit="exit">
+    <AffiliateDashboard referralCode={user.referralCode} />
+  </motion.div>
+)}
+
               </AnimatePresence>
             </section>
           </div>

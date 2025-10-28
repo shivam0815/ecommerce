@@ -11,6 +11,8 @@ import EmailAutomationService from "../config/emailService";
 import type {} from "../types/express";
 import User from "../models/User";
 import { captureCommission } from "../services/referralService";
+import { tryAttributeOrder } from "../services/affiliate.service";
+
 
 const FT = "ref_ft";
 const LT = "ref_lt";
@@ -221,6 +223,17 @@ try {
     });
 
     const savedOrder = await order.save();
+// ⬇️ Affiliate capture for B2B orders
+try {
+  if ((savedOrder as any).channel === 'b2b') {
+    await tryAttributeOrder(savedOrder, {
+      affCode: req.cookies?.aff_code || (savedOrder as any).refSource?.code,
+      affClick: req.cookies?.aff_click || (savedOrder as any).refSource?.clickId,
+    });
+  }
+} catch (e) {
+  console.error("Affiliate attribution failed:", e);
+}
 
     // REAL-TIME STOCK DEDUCTION
     try {
@@ -985,8 +998,15 @@ export const markPaid = async (req: Request, res: Response): Promise<void> => {
       return;
     }
 
-    await captureCommission(order);
-    res.json({ success: true, order });
+    if ((order as any).channel === 'b2b') {
+  await tryAttributeOrder(order, {
+    affCode: (req as any).cookies?.aff_code || (order as any).refSource?.code,
+    affClick: (req as any).cookies?.aff_click || (order as any).refSource?.clickId,
+  });
+}
+
+res.json({ success: true, order });
+
   } catch (e: any) {
     res.status(500).json({ success: false, message: "Server error" });
   }

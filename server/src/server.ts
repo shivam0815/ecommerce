@@ -43,7 +43,9 @@ import webhookRouter from './routes/webhooks';
 // S3 presign & delete routes
 import uploadsS3 from './routes/uploadsS3';
 import shipping from './routes/shipping';
-import referralRoutes from './routes/referralRoutes'; // ✅
+
+import { captureAffiliate } from './middleware/affiliateTracking';
+import referralRoutes from './routes/referral';
 const app = express();
 const server = http.createServer(app);
 
@@ -284,9 +286,9 @@ app.use(
 app.use('/api/auth', authRoutes);
 app.use('/api', phoneAuthRoutes)
 
-app.use('/api/referral', referralRoutes);
 app.use(cookieParser());
-app.use(captureReferral);
+app.use(captureAffiliate);                 // before public site routes
+app.use('/referral', referralRoutes);
 app.use('/api/products', productRoutes);
 app.use('/api/cart',  cartRoutes);
 app.use('/api/orders', orderRoutes);

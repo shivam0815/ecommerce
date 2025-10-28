@@ -103,6 +103,7 @@ export interface IShippingPayment {
 export interface IOrder extends Document {
   userId: Types.ObjectId;
   orderNumber: string;
+  channel: 'b2b' | 'b2c';
 
   items: IOrderItem[];
 
@@ -294,6 +295,8 @@ const OrderSchema = new Schema<IOrder, IOrderModel, IOrderMethods>(
 
     shippingAddress: { type: AddressSchema, required: true },
     billingAddress: { type: AddressSchema, required: true },
+    
+channel: { type: String, enum: ['b2b', 'b2c'], default: 'b2b', index: true },
 refSource: {
   code: { type: String },
   refUserId: { type: Schema.Types.ObjectId, ref: 'User', index: true },
