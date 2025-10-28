@@ -15,7 +15,8 @@ import AdminHelpSupport from '../components/Layout/AdminHelpSupport';
 import { io } from "socket.io-client";
 import { uploadToBrowser, uploadMultipleToBrowser, generateResponsiveImageUrl } from '../utils/cloudinaryBrowser';
 import Papa from "papaparse";
-import AdminAffiliateDashboard from '../components/Layout/AffiliateDashboard';
+import AdminAffiliateDashboard from '../components/Layout/AdminAffiliateDashboard';
+
 
 /* ---------------------------------- Types --------------------------------- */
 interface AdminDashboardProps {
