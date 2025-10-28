@@ -288,7 +288,8 @@ app.use('/api', phoneAuthRoutes)
 
 app.use(cookieParser());
 app.use(captureAffiliate);                 // before public site routes
-app.use('/referral', referralRoutes);
+app.use('/api/referral', referralRoutes);
+
 app.use('/api/products', productRoutes);
 app.use('/api/cart',  cartRoutes);
 app.use('/api/orders', orderRoutes);
