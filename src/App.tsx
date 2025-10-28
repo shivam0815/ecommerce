@@ -92,27 +92,24 @@ function GuardedProfileRoute() {
 function App() {
 
    useEffect(() => {
-    const params = new URLSearchParams(window.location.search);
-    const aff = params.get('aff');
-    if (aff) {
-      // 30 दिन कुकी
-      document.cookie =
-        `aff=${encodeURIComponent(aff)}; Path=/; Max-Age=${60*60*24*30}; SameSite=Lax${location.protocol==='https:'?'; Secure':''}`;
+  const params = new URLSearchParams(window.location.search);
+  const aff = params.get('aff')?.toUpperCase();
+  if (!aff) return;
 
-      localStorage.setItem('affiliateCode', aff);
+  document.cookie = `aff=${encodeURIComponent(aff)}; Path=/; Max-Age=${60*60*24*30}; SameSite=Lax${window.location.protocol==='https:'?'; Secure':''}`;
+  localStorage.setItem('affiliateCode', aff);
 
-      fetch('/api/aff/visit', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ code: aff }),
-      }).catch(() => {});
+  fetch('/api/aff/visit', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ code: aff }),
+  }).catch(() => {});
 
-      // URL साफ
-      params.delete('aff');
-      const newUrl = window.location.pathname + (params.toString() ? `?${params.toString()}` : '');
-      window.history.replaceState({}, '', newUrl);
-    }
-  }, []);
+  params.delete('aff');
+  const newUrl = window.location.pathname + (params.toString() ? `?${params.toString()}` : '');
+  window.history.replaceState({}, '', newUrl);
+}, []);
+
   return (
     <Router>
        <ScrollToTop />

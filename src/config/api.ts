@@ -33,6 +33,19 @@ api.interceptors.request.use(
   (error) => Promise.reject(error)
 );
 
+
+
+// e.g., src/config/api.ts
+api.interceptors.request.use((config) => {
+  const code = localStorage.getItem('affiliateCode');
+  if (code) {
+    config.headers = config.headers || {};
+    config.headers['X-Affiliate'] = code;
+  }
+  return config;
+});
+
+
 /* -------------------------- RESPONSE INTERCEPTOR ------------------------- */
 const shouldSkip401Redirect = (config?: any): boolean => {
   const url: string = config?.url || "";

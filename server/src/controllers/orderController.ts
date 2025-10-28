@@ -25,7 +25,17 @@ interface AuthenticatedUser {
   role: string;
   name?: string;
 }
-
+const getAffCode = (req: any, existingOrder?: any) => {
+  const c =
+    req.cookies?.aff ||
+    req.cookies?.aff_code ||
+    req.headers['x-affiliate'] ||
+    req.body?.affiliateCode ||
+    (req as any)?._refCode ||
+    (req.body?.extras?.affiliateCode) ||
+    existingOrder?.affiliateCode;
+  return (c ? String(c).trim().toUpperCase() : null);
+};
 /* ───────────────── Business Rules: MAX & MOQ ───────────────── */
 
 const MAX_ORDER_QTY = 1000;
@@ -185,6 +195,7 @@ export const createOrder = async (req: Request, res: Response): Promise<void> =>
 
     // Build GST block
     const gstBlock = buildGstBlock(req.body, shippingAddress, { subtotal, tax });
+    const affCode = getAffCode(req);
 let refSource: any = undefined;
 try {
   const code = pickRef(req);
@@ -216,7 +227,8 @@ try {
       status: "pending",
       orderStatus: "pending",
       paymentStatus: paymentMethod === "cod" ? "cod_pending" : "awaiting_payment",
-
+      affiliateCode: affCode || undefined,
+affiliateAttributionStatus: affCode ? 'pending' : 'none',
       gst: gstBlock,
       customerNotes: (extras?.orderNotes || "").toString().trim() || undefined,
         refSource,  
@@ -225,15 +237,14 @@ try {
     const savedOrder = await order.save();
 // ⬇️ Affiliate capture for B2B orders
 try {
-  if ((savedOrder as any).channel === 'b2b') {
-    await tryAttributeOrder(savedOrder, {
-      affCode: req.cookies?.aff_code || (savedOrder as any).refSource?.code,
-      affClick: req.cookies?.aff_click || (savedOrder as any).refSource?.clickId,
-    });
-  }
+  await tryAttributeOrder(savedOrder, {
+    affCode: affCode || (savedOrder as any).refSource?.code || null,
+    affClick: req.cookies?.aff_click || null,
+  });
 } catch (e) {
-  console.error("Affiliate attribution failed:", e);
+  console.error('Affiliate attribution failed:', e);
 }
+
 
     // REAL-TIME STOCK DEDUCTION
     try {
@@ -981,33 +992,44 @@ function buildGstBlock(
 export const markPaid = async (req: Request, res: Response): Promise<void> => {
   try {
     const { orderId } = req.params;
-
     if (!mongoose.Types.ObjectId.isValid(orderId)) {
       res.status(400).json({ success: false, message: "Invalid order ID" });
       return;
     }
 
-    const order = await Order.findByIdAndUpdate(
-      orderId,
-      { paymentStatus: "paid", paidAt: new Date() },
-      { new: true }
-    );
-
+    // fetch first so we can read existing affiliate fields
+    const order = await Order.findById(orderId);
     if (!order) {
       res.status(404).json({ success: false, message: "Order not found" });
       return;
     }
 
-    if ((order as any).channel === 'b2b') {
-  await tryAttributeOrder(order, {
-    affCode: (req as any).cookies?.aff_code || (order as any).refSource?.code,
-    affClick: (req as any).cookies?.aff_click || (order as any).refSource?.clickId,
-  });
-}
+    // set payment status if not already paid
+    if (order.paymentStatus !== "paid") {
+      order.paymentStatus = "paid";
+      (order as any).paidAt = new Date();
+    }
 
-res.json({ success: true, order });
+    // affiliate attribution (no channel gate)
+    try {
+      const affCode = getAffCode(req, order);
+      const affClick = (req as any).cookies?.aff_click || null;
 
-  } catch (e: any) {
+      // persist code on order for audit if missing
+      if (affCode && !(order as any).affiliateCode) {
+        (order as any).affiliateCode = affCode;
+        (order as any).affiliateAttributionStatus =
+          (order as any).affiliateAttributionStatus || "pending";
+      }
+
+      await tryAttributeOrder(order, { affCode: affCode || undefined, affClick: affClick || undefined });
+    } catch (e) {
+      console.error("Affiliate attribution failed:", e);
+    }
+
+    const saved = await order.save();
+    res.json({ success: true, order: saved });
+  } catch {
     res.status(500).json({ success: false, message: "Server error" });
   }
 };
