@@ -99,7 +99,7 @@ function App() {
   document.cookie = `aff=${encodeURIComponent(aff)}; Path=/; Max-Age=${60*60*24*30}; SameSite=Lax${window.location.protocol==='https:'?'; Secure':''}`;
   localStorage.setItem('affiliateCode', aff);
 
-  fetch('/api/aff/visit', {
+  fetch('/aff/visit', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ code: aff }),

@@ -155,6 +155,22 @@ app.use((req, res, next) => {
   next();
 });
 
+app.use((req,res,next)=>{
+  const q = (req.query.aff || req.query.ref || req.query.r) as string | undefined;
+  if (q) {
+    res.cookie('aff', String(q).toUpperCase(), {
+      maxAge: 30*24*60*60*1000,
+      path: '/',
+      sameSite: 'lax',
+      secure: true,
+      domain: '.nakodamobile.in',   // critical if API and web use same apex
+    });
+    (req as any)._refCode = String(q).toUpperCase();
+  }
+  const hdr = req.headers['x-affiliate'];
+  if (hdr) (req as any)._refCode = String(hdr).toUpperCase();
+  next();
+});
 
 // Rate limiting
 
