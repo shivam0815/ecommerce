@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback, memo } from 'react';
+import React, { useState, useEffect, useRef, useCallback, memo, act } from 'react';
 import { getAdminStats, uploadProduct, bulkUploadProducts, getProducts, updateProduct, deleteProduct, bulkUpdateProducts } from '../config/adminApi';
 import './AdminDashboard.css';
 import OrdersTab from '../components/Layout/OrderTab';
@@ -15,6 +15,7 @@ import AdminHelpSupport from '../components/Layout/AdminHelpSupport';
 import { io } from "socket.io-client";
 import { uploadToBrowser, uploadMultipleToBrowser, generateResponsiveImageUrl } from '../utils/cloudinaryBrowser';
 import Papa from "papaparse";
+import AdminAffiliateDashboard from '../components/Layout/AffiliateDashboard';
 
 /* ---------------------------------- Types --------------------------------- */
 interface AdminDashboardProps {
@@ -1633,6 +1634,7 @@ const Navigation = memo<{
       <button className={activeTab === 'support' ? 'active' : ''} onClick={() => setActiveTab('support')}>🆘 Support</button>
       <button className={activeTab === 'notifications' ? 'active' : ''} onClick={() => setActiveTab('notifications')}>🔔 Notifications</button>
       <button className={activeTab === 'blog' ? 'active' : ''} onClick={() => setActiveTab('blog')}>📝 Blog</button>
+      <button className={activeTab === 'Affiliates' ? 'active' : ''} onClick={() => setActiveTab('Affiliates')}>🤝 Affiliates</button>
       {onLogout && (<button className="logout-btn" onClick={onLogout}>🚪 Logout</button>)}
     </div>
   </nav>
@@ -1642,7 +1644,7 @@ const Navigation = memo<{
 const AdminDashboard: React.FC<AdminDashboardProps> = ({ adminData, onLogout }) => {
   const [activeTab, setActiveTab] = useState<
     'overview' | 'products' | 'inventory' | 'orders' | 'returns' | 'reviews' | 'payments' | 'blog' |
-    'users' | 'todaySales' | 'lowStock' | 'pendingOrders' | 'allOrders' | 'support' | 'notifications'
+    'users' | 'todaySales' | 'lowStock' | 'pendingOrders' | 'allOrders' | 'support' | 'notifications'|'Affiliates'
   >('overview');
 
   const [stats, setStats] = useState({ totalProducts: 0, pendingOrders: 0, todaySales: 0, lowStockItems: 0, totalUsers: 0, totalOrders: 0 });
@@ -1711,6 +1713,9 @@ const AdminDashboard: React.FC<AdminDashboardProps> = ({ adminData, onLogout }) 
         return <PendingOrdersTab showNotification={showNotification} checkNetworkStatus={checkNetworkStatus} />;
       case 'notifications':
         return <AdminNotifications showNotification={showNotification} checkNetworkStatus={checkNetworkStatus} />;
+       case 'Affiliates':
+  return <AdminAffiliateDashboard {...({ showNotification, checkNetworkStatus } as any)} />;
+ 
       default:
         return null;
     }

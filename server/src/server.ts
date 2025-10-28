@@ -289,6 +289,9 @@ app.use('/api', phoneAuthRoutes)
 app.use(cookieParser());
 app.use(captureAffiliate);                 // before public site routes
 app.use('/api/referral', referralRoutes);
+// server.ts
+import adminAffRoutes from './routes/admin.affiliates';
+app.use('/api/admin/affiliates', adminAffRoutes);
 
 app.use('/api/products', productRoutes);
 app.use('/api/cart',  cartRoutes);
