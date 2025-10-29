@@ -293,24 +293,51 @@ const AdminAffiliateDashboard: React.FC<Props> = ({ showNotification, checkNetwo
                 </tr>
               </thead>
               <tbody>
-                {payouts.map((p:any) => (
-                  <tr key={p._id}>
-                    <Td>{String(p.affiliateId).slice(-6)}</Td>
-                    <Td>{p.monthKey}</Td>
-                    <Td>{money(p.amount)}</Td>
-                    <Td>{p.status}</Td>
-                    <Td>
-                      {p.status==='requested' ? (
-                        <>
-                          <button onClick={()=>approve(p)} style={{ marginRight:6 }}>Approve</button>
-                          <button onClick={()=>reject(p)}>Reject</button>
-                        </>
-                      ) : <span>—</span>}
-                    </Td>
-                  </tr>
-                ))}
-                {payouts.length===0 && <tr><Td colSpan={5} style={{ textAlign:'center', color:'#666' }}>No payouts</Td></tr>}
-              </tbody>
+  {payouts.map((p: any) => (
+    <React.Fragment key={p._id}>
+      <tr>
+        <Td>{p.userId?.name || String(p.affiliateId).slice(-6)}</Td>
+        <Td>{p.monthKey}</Td>
+        <Td>{money(p.amount)}</Td>
+        <Td>{p.status}</Td>
+        <Td>
+          {p.status === 'requested' ? (
+            <>
+              <button onClick={() => approve(p)} style={{ marginRight: 6 }}>Approve</button>
+              <button onClick={() => reject(p)}>Reject</button>
+            </>
+          ) : (
+            <span>—</span>
+          )}
+        </Td>
+      </tr>
+
+      {/* KYC DETAILS ROW */}
+      <tr>
+        <td colSpan={5} style={{ background: '#fafafa', padding: '8px 12px' }}>
+          <div style={{ fontSize: 13, lineHeight: 1.5 }}>
+            <b>KYC Details:</b><br />
+            <b>Account Holder:</b> {p.accountHolder || '—'}<br />
+            <b>Bank Account:</b> {p.bankAccount || '—'}<br />
+            <b>IFSC:</b> {p.ifsc || '—'}<br />
+            <b>Bank Name:</b> {p.bankName || '—'}<br />
+            <b>City:</b> {p.city || '—'}<br />
+            <b>UPI ID:</b> {p.upiId || '—'}<br />
+            <b>Aadhar (Last 4):</b> {p.aadharLast4 || '—'}<br />
+            <b>PAN:</b> {p.pan || '—'}
+          </div>
+        </td>
+      </tr>
+    </React.Fragment>
+  ))}
+
+  {payouts.length === 0 && (
+    <tr>
+      <Td colSpan={5} style={{ textAlign: 'center', color: '#666' }}>No payouts</Td>
+    </tr>
+  )}
+</tbody>
+
             </table>
           </div>
         </div>

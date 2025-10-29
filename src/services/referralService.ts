@@ -15,3 +15,6 @@ export const requestReferralPayout = async (monthKey: string) => {
   const res = await api.post('/referral/request-payout', { monthKey }); // ← added /api
   return res.data;
 };
+
+export const requestReferralPayoutSimple = (data: any) =>
+  api.post('/referral/request-payout', data);
