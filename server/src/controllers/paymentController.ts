@@ -218,11 +218,18 @@ affiliateAttributionStatus: affCode ? 'pending' : 'none',
 
     await order.save();
 
-if (affCode) {
+// Ensure affiliate attribution exists or is updated post-payment
+if (order.affiliateCode) {
   try {
-    await tryAttributeOrder(order, { affCode, affClick: req.cookies?.aff_click || null });
-  } catch {}
+    await tryAttributeOrder(order, {
+      affCode: order.affiliateCode,
+      affClick: req.cookies?.aff_click || null,
+    });
+  } catch (err) {
+    console.error('Affiliate attribution post-payment error:', err);
+  }
 }
+
 
     res.json({
       success: true,
