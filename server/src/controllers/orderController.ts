@@ -234,16 +234,14 @@ try {
         refSource,  
     });
 
-    const savedOrder = await order.save();
-
+  const savedOrder = await order.save();
 try {
-  await tryAttributeOrder(savedOrder, {
-    affCode: getAffCode(req, savedOrder) || (savedOrder as any).refSource?.code || null,
+  await tryAttributeOrder(savedOrder, {   
+    affCode: affCode || (savedOrder as any).refSource?.code || null,
     affClick: req.cookies?.aff_click || null,
   });
-} catch (e) {
-  console.error('Affiliate attribution failed:', e);
-}
+} catch {}
+
 
 
 
