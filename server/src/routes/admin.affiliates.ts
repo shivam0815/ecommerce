@@ -149,18 +149,24 @@ router.post('/payouts/:id/reject', ...secureAdminOnly, async (req: Request, res:
 });
 
 /* --------- Update rules (tiers) --------- */
+// src/routes/admin.affiliates.ts
 router.post('/affiliates/:id/rules', ...secureAdminOnly, async (req: Request, res: Response) => {
   const { tiers } = (req.body || {}) as { tiers?: Array<{ min: number; rate: number }> };
-  if (!Array.isArray(tiers) || !tiers.length) {
-    return res.status(400).json({ success: false, message: 'Invalid tiers' });
-  }
+  if (!Array.isArray(tiers)) return res.status(400).json({ success:false, message:'Invalid tiers' });
+
+  // map UI -> schema
+  const rules = tiers.map(t => ({
+    minMonthlySales: Number(t.min) || 0,
+    percent: Number(t.rate) || 0, // store as percent, e.g. 2.5 means 2.5%
+  }));
+
   const aff = await Affiliate.findByIdAndUpdate(
     req.params.id,
-    { $set: { rules: { tiers } } },
+    { $set: { rules } },                    // ← not { rules: { tiers } }
     { new: true }
   ).lean();
-  if (!aff) return res.status(404).json({ success: false, message: 'Not found' });
-  res.json({ success: true, affiliate: aff });
+  if (!aff) return res.status(404).json({ success:false, message:'Not found' });
+  res.json({ success:true, affiliate: aff });
 });
 
 /* --------- Manual adjustment (+/- commission) --------- */

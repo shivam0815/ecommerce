@@ -6,7 +6,8 @@ import {
 
 type Props = { showNotification: (m: string, t: 'success'|'error'|'info') => void; checkNetworkStatus: () => boolean };
 
-const money = (n: number) => `₹${Number(n||0).toLocaleString()}`;
+const money = (n: any) => `₹${Number(n ?? 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+
 
 const AdminAffiliateDashboard: React.FC<Props> = ({ showNotification, checkNetworkStatus }) => {
   const [q, setQ] = useState('');
@@ -38,12 +39,27 @@ const AdminAffiliateDashboard: React.FC<Props> = ({ showNotification, checkNetwo
   };
 
   const loadDetail = async (id: string) => {
-    if (!id) return;
-    try {
-      const d = await getAffiliate(id);
-      setDetail(d?.affiliate ? { ...d.affiliate, user: d.user } : null);
-    } catch (e:any) { showNotification('Failed to load affiliate', 'error'); }
-  };
+  if (!id) return;
+  try {
+    const d = await getAffiliate(id);
+    const raw = d?.affiliate ? { ...d.affiliate, user: d.user } : null;
+    const normalized = raw
+      ? {
+          ...raw,
+          rules: Array.isArray(raw.rules)
+            ? { tiers: raw.rules.map((r: any) => ({
+                min: Number(r.minMonthlySales) || 0,
+                rate: Number(r.percent) || 0,
+              })) }
+            : (raw.rules || { tiers: [] }),
+        }
+      : null;
+    setDetail(normalized);
+  } catch (e: any) {
+    showNotification('Failed to load affiliate', 'error');
+  }
+};
+
 
   const loadAttributions = async (affiliateId?: string) => {
     try {
@@ -83,13 +99,15 @@ const AdminAffiliateDashboard: React.FC<Props> = ({ showNotification, checkNetwo
   };
 
   const saveTiers = async () => {
-    if (!detail?._id) return;
-    try {
-      const tiers = (detail.rules?.tiers || []).map((t: any) => ({ min: Number(t.min)||0, rate: Number(t.rate)||0 }));
-      await updateAffiliateRules(detail._id, tiers);
-      showNotification('Rules updated', 'success');
-    } catch { showNotification('Update rules failed', 'error'); }
-  };
+  if (!detail?._id) return;
+  const tiers = (detail.rules?.tiers || []).map((t:any) => ({
+    min: Number(t.min) || 0,
+    rate: Number(t.rate) || 0, // rate is percent value, e.g. 2.5
+  }));
+  await updateAffiliateRules(detail._id, tiers);
+  showNotification('Rules updated', 'success');
+};
+
 
   const addTier = () => {
     const rules = detail?.rules || { tiers: [] };
