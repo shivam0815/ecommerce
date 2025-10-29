@@ -303,13 +303,14 @@ app.use('/api/auth', authRoutes);
 app.use('/api', phoneAuthRoutes)
 
 app.use(cookieParser());
-app.use(captureAffiliate);                 // before public site routes
+app.use(captureAffiliate);  
+import affPublic from './routes/aff.public'; 
+app.use('/api/aff', affPublic);               // before public site routes
 app.use('/api/referral', referralRoutes);
 // server.ts
 import adminAff from './routes/admin.affiliates';
 app.use('/api/admin', adminAff);
-import affPublic from './routes/aff.public'; 
-app.use('/api/aff', affPublic);
+
 
 app.use('/api/products', productRoutes);
 app.use('/api/cart',  cartRoutes);
