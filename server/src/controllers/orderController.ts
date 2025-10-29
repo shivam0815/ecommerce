@@ -235,15 +235,16 @@ try {
     });
 
     const savedOrder = await order.save();
-// ⬇️ Affiliate capture for B2B orders
+
 try {
-  await tryAttributeOrder(order, {
-    affCode: affCode || undefined,
-    affClick: req.cookies?.aff_click || undefined,
+  await tryAttributeOrder(savedOrder, {
+    affCode: getAffCode(req, savedOrder) || (savedOrder as any).refSource?.code || null,
+    affClick: req.cookies?.aff_click || null,
   });
 } catch (e) {
   console.error('Affiliate attribution failed:', e);
 }
+
 
 
     // REAL-TIME STOCK DEDUCTION

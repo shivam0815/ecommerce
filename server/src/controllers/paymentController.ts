@@ -186,7 +186,8 @@ export const createPaymentOrder = async (req: Request, res: Response): Promise<v
 
     // Build GST from payload
     const gstBlock = buildGstBlock(req.body, orderData.shippingAddress, { subtotal, tax });
-    const affCode = getAffCode(req);
+    const affCode =
+  (req.cookies?.aff || req.cookies?.aff_code || req.headers['x-affiliate'] || orderData?.extras?.affiliateCode || '').toString().toUpperCase() || undefined;
     const order = new Order({
       userId: new mongoose.Types.ObjectId(user.id),
       orderNumber: generateOrderNumber(),
@@ -214,13 +215,8 @@ affiliateAttributionStatus: affCode ? 'pending' : 'none',
 
     await order.save();
 try {
-  await tryAttributeOrder(order, {
-    affCode: affCode || undefined,
-    affClick: req.cookies?.aff_click || undefined,
-  });
-} catch (e) {
-  console.error('Affiliate attribution failed:', e);
-}
+  await tryAttributeOrder(order, { affCode: affCode || null, affClick: req.cookies?.aff_click || null });
+} catch (e) { console.error('Affiliate attribution failed:', e); }
 
     res.json({
       success: true,
