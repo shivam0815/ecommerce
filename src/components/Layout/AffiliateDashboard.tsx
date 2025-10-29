@@ -95,11 +95,12 @@ export default function AffiliateDashboard({ referralCode }: { referralCode?: st
         <>
           {/* KPIs */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
-            <Kpi label="This Month Orders" value={aff.monthOrders || 0}/>
-            <Kpi label="This Month Sales" value={`₹${(aff.monthSales||0).toFixed(2)}`}/>
-            <Kpi label="Commission Accrued" value={`₹${(aff.monthCommissionAccrued||0).toFixed(2)}`}/>
-            <Kpi label="Lifetime Commission" value={`₹${(aff.lifetimeCommission||0).toFixed(2)}`}/>
-          </div>
+  <Kpi label="This Month Orders" value={aff?.monthOrders ?? 0} />
+  <Kpi label="This Month Sales" value={`₹${Number(aff?.monthSales ?? 0).toFixed(2)}`} />
+  <Kpi label="Commission Accrued" value={`₹${Number(aff?.monthCommissionAccrued ?? 0).toFixed(2)}`} />
+  <Kpi label="Lifetime Commission" value={`₹${Number(aff?.lifetimeCommission ?? 0).toFixed(2)}`} />
+</div>
+
 
           {/* History */}
           <div className="overflow-x-auto border border-gray-100 rounded-xl">
@@ -117,9 +118,10 @@ export default function AffiliateDashboard({ referralCode }: { referralCode?: st
                 {rows.map(r=>(
                   <tr key={r._id} className="border-t border-gray-100">
                     <td className="px-4 py-2">{formatDate(r.createdAt)}</td>
-                    <td className="px-4 py-2">#{r.orderNumber}</td>
-                    <td className="px-4 py-2 text-right">₹{r.baseAmount.toFixed(2)}</td>
-                    <td className="px-4 py-2 text-right">₹{r.commissionAmount.toFixed(2)}</td>
+<td className="px-4 py-2">#{r.orderNumber}</td>
+<td className="px-4 py-2 text-right">₹{Number(r.baseAmount ?? 0).toFixed(2)}</td>
+<td className="px-4 py-2 text-right">₹{Number(r.commissionAmount ?? 0).toFixed(2)}</td>
+
                     <td className="px-4 py-2">
                       <span className={clsx(
                         'px-2 py-0.5 rounded text-xs',
@@ -146,7 +148,7 @@ export default function AffiliateDashboard({ referralCode }: { referralCode?: st
                       <div className="text-sm font-medium text-gray-900">{p.monthKey}</div>
                       <div className="text-xs text-gray-500">{p.status}</div>
                     </div>
-                    <div className="text-base font-semibold">₹{Number(p.amount||0).toFixed(2)}</div>
+                    <div className="text-base font-semibold"> ₹{Number(p?.amount ?? 0).toFixed(2)}</div>
                   </div>
                 ))}
               </div>
