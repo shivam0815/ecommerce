@@ -12,7 +12,7 @@ import type {} from "../types/express";
 import User from "../models/User";
 import { captureCommission } from "../services/referralService";
 import { tryAttributeOrder } from "../services/affiliate.service";
-
+import AffiliateAttribution from '../models/AffiliateAttribution';
 
 const FT = "ref_ft";
 const LT = "ref_lt";
@@ -559,6 +559,17 @@ export const updateOrderStatus = async (req: Request, res: Response): Promise<vo
 
     const updatedOrder = await order.save();
 
+const approveNow =
+  updatedOrder.orderStatus === 'delivered' ||
+  (updatedOrder.paymentStatus === 'paid' &&
+   ['confirmed','processing','shipped','delivered'].includes(updatedOrder.orderStatus));
+
+if (approveNow) {
+  await AffiliateAttribution.updateMany(
+    { orderId: updatedOrder._id, status: 'pending' },
+    { $set: { status: 'approved' } }
+  );
+}
     let emailSent = false;
     try {
       emailSent = await EmailAutomationService.sendOrderStatusUpdate(
@@ -1027,9 +1038,16 @@ export const markPaid = async (req: Request, res: Response): Promise<void> => {
     }
 
     const saved = await order.save();
+    if (saved.paymentStatus === 'paid') {
+      await AffiliateAttribution.updateMany(
+        { orderId: saved._id, status: 'pending' },
+        { $set: { status: 'approved' } }
+      );
+    }
+
     res.json({ success: true, order: saved });
-  } catch {
-    res.status(500).json({ success: false, message: "Server error" });
+  } catch (error: any) {
+    res.status(500).json({ success: false, message: "Server error", error: error.message });
   }
 };
 
