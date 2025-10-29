@@ -7,6 +7,7 @@ import Order from '../models/Order';
 import Cart from '../models/Cart';
 import Payment from '../models/Payment';
 import { startOfDay, endOfDay } from 'date-fns';
+import { tryAttributeOrder } from '../services/affiliate.service';
 
 interface AuthenticatedUser {
   id: string;
@@ -21,6 +22,19 @@ const razorpay = new Razorpay({
   key_id: process.env.RAZORPAY_KEY_ID!,
   key_secret: process.env.RAZORPAY_KEY_SECRET!,
 });
+
+const getAffCode = (req: any, existing?: any) => {
+  const c =
+    req.cookies?.aff ||
+    req.cookies?.aff_code ||
+    req.headers['x-affiliate'] ||
+    req.body?.affiliateCode ||
+    req.body?.orderData?.extras?.affiliateCode ||
+    (req as any)?._refCode ||
+    existing?.affiliateCode;
+  return c ? String(c).trim().toUpperCase() : null;
+};
+
 
 /* ----------------------- GST helpers (same logic as orderController) ----------------------- */
 const cleanGstin = (s?: any) =>
@@ -172,7 +186,7 @@ export const createPaymentOrder = async (req: Request, res: Response): Promise<v
 
     // Build GST from payload
     const gstBlock = buildGstBlock(req.body, orderData.shippingAddress, { subtotal, tax });
-
+    const affCode = getAffCode(req);
     const order = new Order({
       userId: new mongoose.Types.ObjectId(user.id),
       orderNumber: generateOrderNumber(),
@@ -188,6 +202,9 @@ export const createPaymentOrder = async (req: Request, res: Response): Promise<v
       status: 'pending',
       orderStatus: 'pending',
       paymentStatus: paymentMethod === 'cod' ? 'cod_pending' : 'awaiting_payment',
+      affiliateCode: affCode || undefined,
+affiliateAttributionStatus: affCode ? 'pending' : 'none',
+
       gst: gstBlock, // ⬅️ PERSIST GST
       customerNotes:
         (orderData?.extras?.orderNotes || '').toString().trim() || undefined,
@@ -196,6 +213,14 @@ export const createPaymentOrder = async (req: Request, res: Response): Promise<v
     });
 
     await order.save();
+try {
+  await tryAttributeOrder(order, {
+    affCode: affCode || undefined,
+    affClick: req.cookies?.aff_click || undefined,
+  });
+} catch (e) {
+  console.error('Affiliate attribution failed:', e);
+}
 
     res.json({
       success: true,

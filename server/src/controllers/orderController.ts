@@ -32,9 +32,9 @@ const getAffCode = (req: any, existingOrder?: any) => {
     req.headers['x-affiliate'] ||
     req.body?.affiliateCode ||
     (req as any)?._refCode ||
-    (req.body?.extras?.affiliateCode) ||
+    req.body?.extras?.affiliateCode ||
     existingOrder?.affiliateCode;
-  return (c ? String(c).trim().toUpperCase() : null);
+  return c ? String(c).trim().toUpperCase() : null;
 };
 /* ───────────────── Business Rules: MAX & MOQ ───────────────── */
 
@@ -228,7 +228,7 @@ try {
       orderStatus: "pending",
       paymentStatus: paymentMethod === "cod" ? "cod_pending" : "awaiting_payment",
       affiliateCode: affCode || undefined,
-affiliateAttributionStatus: affCode ? 'pending' : 'none',
+  affiliateAttributionStatus: affCode ? 'pending' : 'none',
       gst: gstBlock,
       customerNotes: (extras?.orderNotes || "").toString().trim() || undefined,
         refSource,  
@@ -237,9 +237,9 @@ affiliateAttributionStatus: affCode ? 'pending' : 'none',
     const savedOrder = await order.save();
 // ⬇️ Affiliate capture for B2B orders
 try {
-  await tryAttributeOrder(savedOrder, {
-    affCode: affCode || (savedOrder as any).refSource?.code || null,
-    affClick: req.cookies?.aff_click || null,
+  await tryAttributeOrder(order, {
+    affCode: affCode || undefined,
+    affClick: req.cookies?.aff_click || undefined,
   });
 } catch (e) {
   console.error('Affiliate attribution failed:', e);
