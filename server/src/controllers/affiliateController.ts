@@ -6,7 +6,6 @@ import Affiliate from '../models/Affiliate';
 import AffiliatePayout from '../models/AffiliatePayout';
 
 /* ───────── Config ───────── */
-const MIN_PAYOUT = Number(process.env.AFF_MIN_PAYOUT ?? 500);
 const HOLD_DAYS = Number(process.env.AFF_HOLD_DAYS ?? 7);
 const PAY_PREV_CLOSED_ONLY = false;
 
@@ -17,7 +16,7 @@ const sanitizeLast4 = (v: unknown) => String(v ?? '').replace(/\D/g, '').slice(-
 const bankCodeFromIFSC = (ifsc?: string) => (ifsc ?? '').toUpperCase().trim().slice(0, 4);
 const looksLikeUPI = (v?: string) => !v || /^[a-z0-9._-]+@[a-z]{3,}$/i.test(v);
 
-// hint only, do not hard-fail
+// hint only
 const BANK_IFSC_HINT: Record<string, string[]> = {
   HDFC: ['HDFC'],
   ICIC: ['ICICI', 'ICIC'],
@@ -90,17 +89,20 @@ export const requestAffiliatePayoutSimple = async (req: Request, res: Response):
       return;
     }
 
-    // dynamic minimum payout (per-affiliate override)
-    const minPayout =
-      Number((affiliate as any)?.rules?.minPayout) || MIN_PAYOUT;
+    // hard block: only one payout request per affiliate per month
+    const dup = await AffiliatePayout.findOne({ affiliateId: affiliate._id, monthKey });
+    if (dup) {
+      res.status(400).json({ error: 'already_requested_this_month' });
+      return;
+    }
 
-    // use month on the doc only if it matches request month
+    // accrued for requested month only (from same source as UI)
     const accrued =
       (affiliate as any).monthKey === monthKey
         ? Number((affiliate as any).monthCommissionAccrued ?? 0)
         : 0;
 
-    // idempotency: subtract prior payouts for same month
+    // subtract any prior payouts (should be zero due to one-request rule, but stays defensive)
     const prior = await AffiliatePayout.aggregate([
       { $match: { affiliateId: affiliate._id, monthKey } },
       { $group: { _id: null, amount: { $sum: '$amount' } } },
@@ -109,26 +111,16 @@ export const requestAffiliatePayoutSimple = async (req: Request, res: Response):
 
     const eligible = Math.max(0, accrued - priorAmount);
 
-    if (eligible < minPayout) {
+    // no minimum threshold; require positive eligible
+    if (eligible <= 0) {
       res.status(400).json({
         error: 'nothing_to_pay',
-        meta: {
-          monthKey,
-          accrued,
-          priorAmount,
-          eligible,
-          minPayout,
-          holdDays: HOLD_DAYS,
-          notes: [
-            PAY_PREV_CLOSED_ONLY ? 'pay_prev_closed_only=true' : 'pay_prev_closed_only=false',
-            bankMismatch ? 'ifsc_bank_name_mismatch_hint' : 'ok',
-          ],
-        },
+        meta: { monthKey, accrued, priorAmount, eligible, minPayout: 0, holdDays: HOLD_DAYS },
       });
       return;
     }
 
-    // atomic create; unique per (affiliateId, monthKey)
+    // atomic create with unique (affiliateId, monthKey)
     const session = await mongoose.startSession();
     let payoutDoc: any;
     try {
@@ -181,7 +173,7 @@ export const requestAffiliatePayoutSimple = async (req: Request, res: Response):
       meta: {
         monthKey,
         eligible,
-        minPayout,
+        minPayout: 0,
         holdDays: HOLD_DAYS,
         bankHintMismatch: bankMismatch,
       },

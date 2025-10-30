@@ -5,7 +5,7 @@ import {
   getReferralSummary,
   getReferralHistory,
   requestReferralPayoutSimple
-} from '../../services/referralService'; // ensure new API path matches backend
+} from '../../services/referralService';
 
 type Summary = {
   code: string;
@@ -15,7 +15,7 @@ type Summary = {
   monthCommissionAccrued: number;
   lifetimeSales: number;
   lifetimeCommission: number;
-   effectiveMinPayout?: number; 
+  effectiveMinPayout?: number;
   rules: { minMonthlySales: number; percent: number }[];
   payouts: { monthKey: string; amount: number; status: string }[];
 } | null;
@@ -91,23 +91,32 @@ export default function AffiliateDashboard({ referralCode }: { referralCode?: st
       }
     })();
   }, []);
-const submitPayout = async () => {
-  try {
-    setBusy(true);
-    await requestReferralPayoutSimple({ ...form, monthKey: aff?.monthKey });
-    alert('Payout request submitted');
-    setShowForm(false);
-  } catch (e: any) {
-    const meta = e?.response?.data?.meta;
-    alert(
-      (e?.response?.data?.error || 'Failed') +
-      (meta ? ` | eligible: ₹${meta.eligible} min: ₹${meta.minPayout}` : '')
-    );
-  } finally {
-    setBusy(false);
-  }
-};
 
+  const alreadyRequestedThisMonth =
+    !!aff?.payouts?.some(
+      (p) =>
+        p.monthKey === aff?.monthKey &&
+        ['requested', 'approved', 'paid'].includes(p.status)
+    );
+
+  const submitPayout = async () => {
+    try {
+      setBusy(true);
+      await requestReferralPayoutSimple({ ...form, monthKey: aff?.monthKey });
+      alert('✅ Payout request submitted successfully');
+      setShowForm(false);
+    } catch (e: any) {
+      const data = e?.response?.data || {};
+      const meta = data.meta;
+      alert(
+        `${data.error || 'Failed to submit payout'}${
+          meta ? ` | eligible ₹${meta.eligible ?? 0}` : ''
+        }`
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
 
   return (
     <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}>
@@ -119,7 +128,18 @@ const submitPayout = async () => {
         {aff?.monthKey && (
           <button
             onClick={() => setShowForm(true)}
-            className="px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800"
+            disabled={alreadyRequestedThisMonth || busy}
+            className={clsx(
+              'px-4 py-2 rounded-lg text-white',
+              alreadyRequestedThisMonth
+                ? 'bg-gray-300 cursor-not-allowed'
+                : 'bg-black hover:bg-gray-800'
+            )}
+            title={
+              alreadyRequestedThisMonth
+                ? 'Payout already requested this month.'
+                : 'Request your payout for this month.'
+            }
           >
             Request Payout
           </button>
@@ -273,10 +293,19 @@ const submitPayout = async () => {
             <div className="flex gap-2 mt-3">
               <button
                 onClick={submitPayout}
-                disabled={busy}
-                className="bg-black text-white px-4 py-2 rounded"
+                disabled={busy || alreadyRequestedThisMonth}
+                className={clsx(
+                  'px-4 py-2 rounded text-white',
+                  busy || alreadyRequestedThisMonth
+                    ? 'bg-gray-300 cursor-not-allowed'
+                    : 'bg-black hover:bg-gray-800'
+                )}
               >
-                {busy ? 'Submitting…' : 'Submit'}
+                {busy
+                  ? 'Submitting…'
+                  : alreadyRequestedThisMonth
+                  ? 'Already Requested'
+                  : 'Submit'}
               </button>
               <button
                 onClick={() => setShowForm(false)}
