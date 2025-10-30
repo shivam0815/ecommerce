@@ -100,6 +100,10 @@ export const requestAffiliatePayoutSimple = async (req: Request, res: Response):
       res.status(404).json({ error: 'affiliate_not_found' });
       return;
     }
+    // below: const affiliate = await Affiliate.findOne({ userId });
+const minPayout =
+  Number((affiliate as any)?.rules?.minPayout) || MIN_PAYOUT;
+
 
     // Compute month-accrued from the *same* source your UI uses.
     // Your current schema stores the active month’s stats on the Affiliate doc.
@@ -119,24 +123,25 @@ export const requestAffiliatePayoutSimple = async (req: Request, res: Response):
 
     const eligible = Math.max(0, accrued - priorAmount);
 
-    if (eligible < MIN_PAYOUT) {
-      res.status(400).json({
-        error: 'nothing_to_pay',
-        meta: {
-          monthKey,
-          accrued,
-          priorAmount,
-          eligible,
-          minPayout: MIN_PAYOUT,
-          holdDays: HOLD_DAYS,
-          notes: [
-            PAY_PREV_CLOSED_ONLY ? 'pay_prev_closed_only=true' : 'pay_prev_closed_only=false',
-            bankMismatch ? 'ifsc_bank_name_mismatch_hint' : 'ok',
-          ],
-        },
-      });
-      return;
-    }
+    if (eligible < minPayout) {
+  res.status(400).json({
+    error: 'nothing_to_pay',
+    meta: {
+      monthKey,
+      accrued,
+      priorAmount,
+      eligible,
+      minPayout,          // ← use dynamic value
+      holdDays: HOLD_DAYS,
+      notes: [
+        PAY_PREV_CLOSED_ONLY ? 'pay_prev_closed_only=true' : 'pay_prev_closed_only=false',
+        bankMismatch ? 'ifsc_bank_name_mismatch_hint' : 'ok',
+      ],
+    },
+  });
+  return;
+}
+
 
     // Create payout atomically and keep a lightweight idempotency on (affiliateId, monthKey).
     const session = await mongoose.startSession();
