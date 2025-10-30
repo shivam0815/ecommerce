@@ -305,7 +305,10 @@ app.use('/api', phoneAuthRoutes)
 app.use(cookieParser());
 app.use(captureAffiliate);  
 import affPublic from './routes/aff.public'; 
-app.use('/api/aff', affPublic);               // before public site routes
+app.use('/api/aff', affPublic);   
+import affiliateRoutes from './routes/affiliate.routes';
+app.use('/api/referral', affiliateRoutes); 
+// before public site routes
 app.use('/api/referral', referralRoutes);
 // server.ts
 import adminAff from './routes/admin.affiliates';
