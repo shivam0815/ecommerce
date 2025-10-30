@@ -19,7 +19,7 @@ const AffiliatePayoutSchema = new Schema({
   city: { type: String },
   upiId: { type: String },
   pan: { type: String },
-  aadharLast4: { type: String },
+  aadharNumber: { type: String },
   notes: { type: String },
   razorpayPayoutId: { type: String },
   utr: { type: String }

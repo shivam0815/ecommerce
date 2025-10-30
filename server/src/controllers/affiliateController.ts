@@ -12,7 +12,6 @@ const PAY_PREV_CLOSED_ONLY = false;
 /* ───────── Helpers ───────── */
 const yyyymm = (d: Date) => dayjs(d).format('YYYY-MM');
 const prevClosedKey = () => yyyymm(dayjs().subtract(1, 'month').toDate());
-const sanitizeLast4 = (v: unknown) => String(v ?? '').replace(/\D/g, '').slice(-4);
 const bankCodeFromIFSC = (ifsc?: string) => (ifsc ?? '').toUpperCase().trim().slice(0, 4);
 const looksLikeUPI = (v?: string) => !v || /^[a-z0-9._-]+@[a-z]{3,}$/i.test(v);
 
@@ -42,7 +41,7 @@ export const requestAffiliatePayoutSimple = async (req: Request, res: Response):
       bankName,
       city,
       upiId,
-      aadharLast4,
+      aadharLast4, // contains full 12-digit Aadhaar now
       pan,
     } = req.body as {
       monthKey?: string;
@@ -52,7 +51,7 @@ export const requestAffiliatePayoutSimple = async (req: Request, res: Response):
       bankName?: string;
       city?: string;
       upiId?: string;
-      aadharLast4?: string | number;
+      aadharLast4?: string | number; // holds 12-digit Aadhaar
       pan?: string;
     };
 
@@ -62,7 +61,7 @@ export const requestAffiliatePayoutSimple = async (req: Request, res: Response):
     if (PAY_PREV_CLOSED_ONLY && monthKey === nowKey) monthKey = prevClosedKey();
 
     // KYC checks
-    const last4 = sanitizeLast4(aadharLast4);
+    const aadhaar = String(aadharLast4 ?? '').replace(/\D/g, '');
     const ifscCode = bankCodeFromIFSC(ifsc);
     const bankMismatch =
       !!bankName &&
@@ -78,8 +77,11 @@ export const requestAffiliatePayoutSimple = async (req: Request, res: Response):
       res.status(400).json({ error: 'invalid_upi_format' });
       return;
     }
-    if (last4.length !== 4) {
-      res.status(400).json({ error: 'invalid_aadhar_last4' });
+    if (aadhaar.length !== 12) {
+      res.status(400).json({
+        error: 'invalid_aadhar_length',
+        meta: { reason: 'Aadhaar must be 12 digits' },
+      });
       return;
     }
 
@@ -102,7 +104,7 @@ export const requestAffiliatePayoutSimple = async (req: Request, res: Response):
         ? Number((affiliate as any).monthCommissionAccrued ?? 0)
         : 0;
 
-    // subtract any prior payouts (should be zero due to one-request rule, but stays defensive)
+    // subtract any prior payouts (defensive; dup above should cover)
     const prior = await AffiliatePayout.aggregate([
       { $match: { affiliateId: affiliate._id, monthKey } },
       { $group: { _id: null, amount: { $sum: '$amount' } } },
@@ -148,7 +150,7 @@ export const requestAffiliatePayoutSimple = async (req: Request, res: Response):
               bankName,
               city,
               upiId,
-              aadharLast4: last4,
+              aadharLast4: aadhaar, // store full 12-digit Aadhaar in existing field
               pan,
               status: 'requested',
               meta: {
