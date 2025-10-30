@@ -11,10 +11,8 @@ export const getReferralHistory = async () => {
   return res.data;
 };
 
-export const requestReferralPayout = async (monthKey: string) => {
-  const res = await api.post('/referral/request-payout', { monthKey }); // ← added /api
-  return res.data;
-};
 
+
+// src/services/referralService.ts
 export const requestReferralPayoutSimple = (data: any) =>
-  api.post('/referral/request-payout', data);
+  api.post('/referral/payout/simple', data);
