@@ -6,26 +6,18 @@ import Affiliate from '../models/Affiliate';
 import AffiliatePayout from '../models/AffiliatePayout';
 
 /* ───────── Config ───────── */
-const MIN_PAYOUT = Number(process.env.AFF_MIN_PAYOUT ?? 500); // ₹
-const HOLD_DAYS  = Number(process.env.AFF_HOLD_DAYS  ?? 7);   // informative only in meta
-// If you pay only the previous, closed month, set true. If you pay the month sent by client, set false.
+const MIN_PAYOUT = Number(process.env.AFF_MIN_PAYOUT ?? 500);
+const HOLD_DAYS = Number(process.env.AFF_HOLD_DAYS ?? 7);
 const PAY_PREV_CLOSED_ONLY = false;
 
 /* ───────── Helpers ───────── */
 const yyyymm = (d: Date) => dayjs(d).format('YYYY-MM');
-
 const prevClosedKey = () => yyyymm(dayjs().subtract(1, 'month').toDate());
-
-const sanitizeLast4 = (v: unknown) =>
-  String(v ?? '').replace(/\D/g, '').slice(-4);
-
-const bankCodeFromIFSC = (ifsc?: string) =>
-  (ifsc ?? '').toUpperCase().trim().slice(0, 4); // e.g., HDFC, ICIC, CNRB, SBIN
-
+const sanitizeLast4 = (v: unknown) => String(v ?? '').replace(/\D/g, '').slice(-4);
+const bankCodeFromIFSC = (ifsc?: string) => (ifsc ?? '').toUpperCase().trim().slice(0, 4);
 const looksLikeUPI = (v?: string) => !v || /^[a-z0-9._-]+@[a-z]{3,}$/i.test(v);
 
-/* Optional tiny map to warn on obvious bank-IFSC mismatches.
-   Do not hard-fail, because branches exist. */
+// hint only, do not hard-fail
 const BANK_IFSC_HINT: Record<string, string[]> = {
   HDFC: ['HDFC'],
   ICIC: ['ICICI', 'ICIC'],
@@ -65,15 +57,12 @@ export const requestAffiliatePayoutSimple = async (req: Request, res: Response):
       pan?: string;
     };
 
-    // Month scoping
+    // month scope
     const nowKey = yyyymm(new Date());
     if (!monthKey) monthKey = PAY_PREV_CLOSED_ONLY ? prevClosedKey() : nowKey;
-    if (PAY_PREV_CLOSED_ONLY && monthKey === nowKey) {
-      // Enforce previous month only
-      monthKey = prevClosedKey();
-    }
+    if (PAY_PREV_CLOSED_ONLY && monthKey === nowKey) monthKey = prevClosedKey();
 
-    // Basic KYC hygiene (do not block payout on soft issues)
+    // KYC checks
     const last4 = sanitizeLast4(aadharLast4);
     const ifscCode = bankCodeFromIFSC(ifsc);
     const bankMismatch =
@@ -100,21 +89,18 @@ export const requestAffiliatePayoutSimple = async (req: Request, res: Response):
       res.status(404).json({ error: 'affiliate_not_found' });
       return;
     }
-    // below: const affiliate = await Affiliate.findOne({ userId });
-const minPayout =
-  Number((affiliate as any)?.rules?.minPayout) || MIN_PAYOUT;
 
+    // dynamic minimum payout (per-affiliate override)
+    const minPayout =
+      Number((affiliate as any)?.rules?.minPayout) || MIN_PAYOUT;
 
-    // Compute month-accrued from the *same* source your UI uses.
-    // Your current schema stores the active month’s stats on the Affiliate doc.
-    // If you keep only the current month on the doc, we can only pay that month.
-    // Guard: only use monthCommissionAccrued when the doc monthKey matches the requested monthKey.
+    // use month on the doc only if it matches request month
     const accrued =
       (affiliate as any).monthKey === monthKey
         ? Number((affiliate as any).monthCommissionAccrued ?? 0)
         : 0;
 
-    // Subtract already requested/paid payouts for the same month (idempotency)
+    // idempotency: subtract prior payouts for same month
     const prior = await AffiliatePayout.aggregate([
       { $match: { affiliateId: affiliate._id, monthKey } },
       { $group: { _id: null, amount: { $sum: '$amount' } } },
@@ -124,68 +110,70 @@ const minPayout =
     const eligible = Math.max(0, accrued - priorAmount);
 
     if (eligible < minPayout) {
-  res.status(400).json({
-    error: 'nothing_to_pay',
-    meta: {
-      monthKey,
-      accrued,
-      priorAmount,
-      eligible,
-      minPayout,          // ← use dynamic value
-      holdDays: HOLD_DAYS,
-      notes: [
-        PAY_PREV_CLOSED_ONLY ? 'pay_prev_closed_only=true' : 'pay_prev_closed_only=false',
-        bankMismatch ? 'ifsc_bank_name_mismatch_hint' : 'ok',
-      ],
-    },
-  });
-  return;
-}
+      res.status(400).json({
+        error: 'nothing_to_pay',
+        meta: {
+          monthKey,
+          accrued,
+          priorAmount,
+          eligible,
+          minPayout,
+          holdDays: HOLD_DAYS,
+          notes: [
+            PAY_PREV_CLOSED_ONLY ? 'pay_prev_closed_only=true' : 'pay_prev_closed_only=false',
+            bankMismatch ? 'ifsc_bank_name_mismatch_hint' : 'ok',
+          ],
+        },
+      });
+      return;
+    }
 
-
-    // Create payout atomically and keep a lightweight idempotency on (affiliateId, monthKey).
+    // atomic create; unique per (affiliateId, monthKey)
     const session = await mongoose.startSession();
     let payoutDoc: any;
-    await session.withTransaction(async () => {
-      const already = await AffiliatePayout.findOne(
-        { affiliateId: affiliate._id, monthKey },
-        null,
-        { session },
-      );
-      if (already) {
-        payoutDoc = already;
-        return;
-      }
+    try {
+      await session.withTransaction(async () => {
+        const already = await AffiliatePayout.findOne(
+          { affiliateId: affiliate._id, monthKey },
+          null,
+          { session },
+        );
+        if (already) {
+          payoutDoc = already;
+          return;
+        }
 
-      payoutDoc = await AffiliatePayout.create(
-        [
-          {
-            affiliateId: affiliate._id,
-            userId,
-            monthKey,
-            amount: eligible,
-            accountHolder,
-            bankAccount,
-            ifsc,
-            bankName,
-            city,
-            upiId,
-            aadharLast4: last4,
-            pan,
-            status: 'requested',
-            meta: {
-              accrued,
-              priorAmount,
-              createdFrom: 'requestAffiliatePayoutSimple',
-              bankHintMismatch: bankMismatch,
+        const created = await AffiliatePayout.create(
+          [
+            {
+              affiliateId: affiliate._id,
+              userId,
+              monthKey,
+              amount: eligible,
+              accountHolder,
+              bankAccount,
+              ifsc,
+              bankName,
+              city,
+              upiId,
+              aadharLast4: last4,
+              pan,
+              status: 'requested',
+              meta: {
+                accrued,
+                priorAmount,
+                createdFrom: 'requestAffiliatePayoutSimple',
+                bankHintMismatch: bankMismatch,
+              },
             },
-          },
-        ],
-        { session },
-      );
-      payoutDoc = Array.isArray(payoutDoc) ? payoutDoc[0] : payoutDoc;
-    });
-    session.endSession();
+          ],
+          { session },
+        );
+        payoutDoc = Array.isArray(created) ? created[0] : created;
+      });
+    } finally {
+      session.endSession();
+    }
 
     res.json({
       success: true,
@@ -193,7 +181,7 @@ const minPayout =
       meta: {
         monthKey,
         eligible,
-        minPayout: MIN_PAYOUT,
+        minPayout,
         holdDays: HOLD_DAYS,
         bankHintMismatch: bankMismatch,
       },

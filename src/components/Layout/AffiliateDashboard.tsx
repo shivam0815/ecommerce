@@ -15,6 +15,7 @@ type Summary = {
   monthCommissionAccrued: number;
   lifetimeSales: number;
   lifetimeCommission: number;
+   effectiveMinPayout?: number; 
   rules: { minMonthlySales: number; percent: number }[];
   payouts: { monthKey: string; amount: number; status: string }[];
 } | null;
@@ -90,19 +91,23 @@ export default function AffiliateDashboard({ referralCode }: { referralCode?: st
       }
     })();
   }, []);
+const submitPayout = async () => {
+  try {
+    setBusy(true);
+    await requestReferralPayoutSimple({ ...form, monthKey: aff?.monthKey });
+    alert('Payout request submitted');
+    setShowForm(false);
+  } catch (e: any) {
+    const meta = e?.response?.data?.meta;
+    alert(
+      (e?.response?.data?.error || 'Failed') +
+      (meta ? ` | eligible: ₹${meta.eligible} min: ₹${meta.minPayout}` : '')
+    );
+  } finally {
+    setBusy(false);
+  }
+};
 
-  const submitPayout = async () => {
-    try {
-      setBusy(true);
-      await requestReferralPayoutSimple({ ...form, monthKey: aff?.monthKey });
-      alert('✅ Payout request submitted successfully');
-      setShowForm(false);
-    } catch (e: any) {
-      alert(e?.response?.data?.error || 'Failed to submit payout');
-    } finally {
-      setBusy(false);
-    }
-  };
 
   return (
     <motion.div initial={{ opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }}>
