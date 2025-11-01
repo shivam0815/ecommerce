@@ -5,17 +5,14 @@ import mongoose from 'mongoose';
 import Affiliate from '../models/Affiliate';
 import AffiliatePayout from '../models/AffiliatePayout';
 
-
 const HOLD_DAYS = Number(process.env.AFF_HOLD_DAYS ?? 7);
 const PAY_PREV_CLOSED_ONLY = false;
-
 
 const yyyymm = (d: Date) => dayjs(d).format('YYYY-MM');
 const prevClosedKey = () => yyyymm(dayjs().subtract(1, 'month').toDate());
 const bankCodeFromIFSC = (ifsc?: string) => (ifsc ?? '').toUpperCase().trim().slice(0, 4);
 const looksLikeUPI = (v?: string) => !v || /^[a-z0-9._-]+@[a-z]{3,}$/i.test(v);
 
-// hint only
 const BANK_IFSC_HINT: Record<string, string[]> = {
   HDFC: ['HDFC'],
   ICIC: ['ICICI', 'ICIC'],
@@ -23,7 +20,7 @@ const BANK_IFSC_HINT: Record<string, string[]> = {
   SBIN: ['SBI', 'STATE BANK', 'SBIN'],
 };
 
-/* ─────────────── USER: request payout ─────────────── */
+/* ───────────── USER: request payout ───────────── */
 export const requestAffiliatePayoutSimple = async (req: Request, res: Response): Promise<void> => {
   try {
     if (!req.user) {
@@ -41,27 +38,25 @@ export const requestAffiliatePayoutSimple = async (req: Request, res: Response):
       bankName,
       city,
       upiId,
-      aadharLast4, // contains full 12-digit Aadhaar now
+      aadharNumber,   // ✅ from frontend
       pan,
-    } = req.body as {
-      monthKey?: string;
-      accountHolder?: string;
-      bankAccount?: string;
-      ifsc?: string;
-      bankName?: string;
-      city?: string;
-      upiId?: string;
-      aadharLast4?: string | number; // holds 12-digit Aadhaar
-      pan?: string;
-    };
+    } = req.body as any;
 
-    // month scope
     const nowKey = yyyymm(new Date());
     if (!monthKey) monthKey = PAY_PREV_CLOSED_ONLY ? prevClosedKey() : nowKey;
     if (PAY_PREV_CLOSED_ONLY && monthKey === nowKey) monthKey = prevClosedKey();
 
-    // KYC checks
-    const aadhaar = String(aadharLast4 ?? '').replace(/\D/g, '');
+    // Aadhaar validation
+    const aadhaar = String(aadharNumber ?? '').replace(/\D/g, '');
+    if (aadhaar.length !== 12) {
+      res.status(400).json({
+        error: 'invalid_aadhar_length',
+        meta: { reason: 'Aadhaar must be 12 digits' },
+      });
+      return;
+    }
+
+    // IFSC + bank name validation
     const ifscCode = bankCodeFromIFSC(ifsc);
     const bankMismatch =
       !!bankName &&
@@ -73,15 +68,9 @@ export const requestAffiliatePayoutSimple = async (req: Request, res: Response):
       res.status(400).json({ error: 'invalid_kyc', meta: { reason: 'missing_bank_fields' } });
       return;
     }
+
     if (!looksLikeUPI(upiId)) {
       res.status(400).json({ error: 'invalid_upi_format' });
-      return;
-    }
-    if (aadhaar.length !== 12) {
-      res.status(400).json({
-        error: 'invalid_aadhar_length',
-        meta: { reason: 'Aadhaar must be 12 digits' },
-      });
       return;
     }
 
@@ -91,20 +80,17 @@ export const requestAffiliatePayoutSimple = async (req: Request, res: Response):
       return;
     }
 
-    // hard block: only one payout request per affiliate per month
     const dup = await AffiliatePayout.findOne({ affiliateId: affiliate._id, monthKey });
     if (dup) {
       res.status(400).json({ error: 'already_requested_this_month' });
       return;
     }
 
-    // accrued for requested month only (from same source as UI)
     const accrued =
       (affiliate as any).monthKey === monthKey
         ? Number((affiliate as any).monthCommissionAccrued ?? 0)
         : 0;
 
-    // subtract any prior payouts (defensive; dup above should cover)
     const prior = await AffiliatePayout.aggregate([
       { $match: { affiliateId: affiliate._id, monthKey } },
       { $group: { _id: null, amount: { $sum: '$amount' } } },
@@ -112,8 +98,6 @@ export const requestAffiliatePayoutSimple = async (req: Request, res: Response):
     const priorAmount = prior[0]?.amount ?? 0;
 
     const eligible = Math.max(0, accrued - priorAmount);
-
-    // no minimum threshold; require positive eligible
     if (eligible <= 0) {
       res.status(400).json({
         error: 'nothing_to_pay',
@@ -122,9 +106,9 @@ export const requestAffiliatePayoutSimple = async (req: Request, res: Response):
       return;
     }
 
-    // atomic create with unique (affiliateId, monthKey)
     const session = await mongoose.startSession();
     let payoutDoc: any;
+
     try {
       await session.withTransaction(async () => {
         const already = await AffiliatePayout.findOne(
@@ -150,7 +134,7 @@ export const requestAffiliatePayoutSimple = async (req: Request, res: Response):
               bankName,
               city,
               upiId,
-              aadharLast4: aadhaar, // store full 12-digit Aadhaar in existing field
+              aadharLast4: aadhaar,  // ✅ store full 12 digits in DB
               pan,
               status: 'requested',
               meta: {
@@ -185,7 +169,7 @@ export const requestAffiliatePayoutSimple = async (req: Request, res: Response):
   }
 };
 
-/* ─────────────── ADMIN: view all payouts ─────────────── */
+/* ───────────── ADMIN: view all payouts ───────────── */
 export const getAffiliatePayoutsAdmin = async (req: Request, res: Response): Promise<void> => {
   try {
     if (!req.user) {
