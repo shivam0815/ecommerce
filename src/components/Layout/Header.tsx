@@ -276,7 +276,7 @@ const Header: React.FC = () => {
                       </a>
 
                       <Link
-  to="/affiliate"
+  to="/profile?tab=affiliate"
   className="block px-3 py-2 rounded-lg hover:bg-gray-50 text-gray-800"
   role="menuitem"
   onClick={() => setIsMoreOpen(false)}
@@ -555,7 +555,7 @@ const Header: React.FC = () => {
                         </a>
 
                         <Link
-  to="/affiliate"
+  to="/profile?tab=affiliate"
   onClick={() => setIsMenuOpen(false)}
   className="block px-4 py-2 hover:bg-gray-50"
 >

@@ -24,7 +24,7 @@ import {
   DocumentTextIcon,
 } from '@heroicons/react/24/solid';
 // top of Profile.tsx
-import { getReferralSummary, getReferralHistory, requestReferralPayout } from '../services/referralService';
+import { getReferralSummary, getReferralHistory, requestReferralPayoutSimple } from '../services/referralService';
 import AffiliateDashboard from '../components/Layout/AffiliateDashboard';
 
 
