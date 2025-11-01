@@ -16,7 +16,7 @@ export function useFirstVisitCelebration({
   userId,
   cooldownHours = 24,
   containerRef,
-  message = '🎉 Welcome to Nakoda Mobile!',
+  message = '🎉 Welcome to nakoda mobile!',
 }: Opts) {
   useEffect(() => {
     if (!enabled) return;
