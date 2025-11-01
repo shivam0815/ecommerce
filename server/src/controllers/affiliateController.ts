@@ -5,11 +5,11 @@ import mongoose from 'mongoose';
 import Affiliate from '../models/Affiliate';
 import AffiliatePayout from '../models/AffiliatePayout';
 
-/* ───────── Config ───────── */
+
 const HOLD_DAYS = Number(process.env.AFF_HOLD_DAYS ?? 7);
 const PAY_PREV_CLOSED_ONLY = false;
 
-/* ───────── Helpers ───────── */
+
 const yyyymm = (d: Date) => dayjs(d).format('YYYY-MM');
 const prevClosedKey = () => yyyymm(dayjs().subtract(1, 'month').toDate());
 const bankCodeFromIFSC = (ifsc?: string) => (ifsc ?? '').toUpperCase().trim().slice(0, 4);

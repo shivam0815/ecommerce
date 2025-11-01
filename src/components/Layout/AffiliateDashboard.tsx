@@ -54,7 +54,7 @@ export default function AffiliateDashboard({ referralCode }: { referralCode?: st
     bankName: string;
     city: string;
     upiId: string;
-    aadharLast4: string;
+    aadharNumber: string; // ← full 12-digit Aadhaar
     pan: string;
     [key: string]: string;
   };
@@ -66,7 +66,7 @@ export default function AffiliateDashboard({ referralCode }: { referralCode?: st
     bankName: '',
     city: '',
     upiId: '',
-    aadharLast4: '',
+    aadharNumber: '', // ← 12 digits
     pan: ''
   });
 
@@ -99,9 +99,28 @@ export default function AffiliateDashboard({ referralCode }: { referralCode?: st
         ['requested', 'approved', 'paid'].includes(p.status)
     );
 
+  const validateForm = (): string | null => {
+    const aadhaar = (form.aadharNumber || '').replace(/\D/g, '');
+    if (aadhaar.length !== 12) return 'Aadhaar must be exactly 12 digits.';
+    const ifsc = (form.ifsc || '').trim().toUpperCase();
+    // Basic IFSC format: 4 letters + 7 alphanumerics (usually digits)
+    if (!/^[A-Z]{4}[A-Z0-9]{7}$/.test(ifsc)) return 'IFSC format looks invalid.';
+    if (!form.accountHolder || !form.bankAccount || !form.bankName || !form.city)
+      return 'Please fill all bank & address fields.';
+    // UPI is allowed empty by backend (it accepts empty or valid), but if provided, validate shape:
+    if (form.upiId && !/^[a-z0-9._-]+@[a-z]{3,}$/i.test(form.upiId)) return 'UPI ID format looks invalid.';
+    return null;
+  };
+
   const submitPayout = async () => {
+    const v = validateForm();
+    if (v) {
+      alert(v);
+      return;
+    }
     try {
       setBusy(true);
+      // Map payload to backend (expects aadharNumber field and monthKey)
       await requestReferralPayoutSimple({ ...form, monthKey: aff?.monthKey });
       alert('✅ Payout request submitted successfully');
       setShowForm(false);
@@ -279,17 +298,65 @@ export default function AffiliateDashboard({ referralCode }: { referralCode?: st
       {/* Payout Modal */}
       {showForm && (
         <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
-          <div className="bg-white rounded-xl p-6 w-full max-w-md">
+          <div className="bg-white rounded-xl p-6 w/full max-w-md">
             <h3 className="text-lg font-semibold mb-4">Payout Request</h3>
-            {Object.keys(form).map((k) => (
-              <input
-                key={k}
-                placeholder={k}
-                value={form[k]}
-                onChange={(e) => setForm({ ...form, [k]: e.target.value })}
-                className="block w-full border mb-2 p-2 rounded"
-              />
-            ))}
+
+            {/* Aadhaar shows as number-only input; IFSC uppercase */}
+            <input
+              placeholder="accountHolder"
+              value={form.accountHolder}
+              onChange={(e) => setForm({ ...form, accountHolder: e.target.value })}
+              className="block w-full border mb-2 p-2 rounded"
+            />
+            <input
+              placeholder="bankAccount"
+              value={form.bankAccount}
+              onChange={(e) => setForm({ ...form, bankAccount: e.target.value })}
+              className="block w-full border mb-2 p-2 rounded"
+            />
+            <input
+              placeholder="ifsc (e.g. HDFC0001452)"
+              value={form.ifsc}
+              onChange={(e) => setForm({ ...form, ifsc: e.target.value.toUpperCase() })}
+              className="block w-full border mb-2 p-2 rounded"
+              maxLength={11}
+            />
+            <input
+              placeholder="bankName"
+              value={form.bankName}
+              onChange={(e) => setForm({ ...form, bankName: e.target.value })}
+              className="block w-full border mb-2 p-2 rounded"
+            />
+            <input
+              placeholder="city"
+              value={form.city}
+              onChange={(e) => setForm({ ...form, city: e.target.value })}
+              className="block w/full border mb-2 p-2 rounded"
+            />
+            <input
+              placeholder="upiId (optional)"
+              value={form.upiId}
+              onChange={(e) => setForm({ ...form, upiId: e.target.value })}
+              className="block w/full border mb-2 p-2 rounded"
+            />
+            <input
+              placeholder="aadharNumber (12 digits)"
+              value={form.aadharNumber}
+              onChange={(e) =>
+                setForm({ ...form, aadharNumber: e.target.value.replace(/\D/g, '').slice(0, 12) })
+              }
+              className="block w/full border mb-2 p-2 rounded"
+              inputMode="numeric"
+              maxLength={12}
+            />
+            <input
+              placeholder="pan"
+              value={form.pan}
+              onChange={(e) => setForm({ ...form, pan: e.target.value.toUpperCase() })}
+              className="block w/full border mb-2 p-2 rounded"
+              maxLength={10}
+            />
+
             <div className="flex gap-2 mt-3">
               <button
                 onClick={submitPayout}

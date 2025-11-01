@@ -3,7 +3,7 @@ import { Router, Request, Response } from 'express';
 import { authenticate, adminOnly } from '../middleware/auth';
 import { Types } from 'mongoose';
 import Affiliate from '../models/Affiliate';
-import AffiliateAttribution from '../models/AffiliateAttribution';
+import AffiliateAttribution from '../models/AffiliateAttribution';     
 import AffiliatePayout from '../models/AffiliatePayout';
 import User from '../models/User';
 

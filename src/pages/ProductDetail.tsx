@@ -302,7 +302,7 @@ const ProductDetail: React.FC = () => {
   // Rails states
   const [similarByCategory, setSimilarByCategory] = useState<Product[]>([]);
   const [moreFromBrand, setMoreFromBrand] = useState<Product[]>([]);
-  const [trending, setTrending] = useState<Product[]>([]);
+  
   const [railsLoading, setRailsLoading] = useState<boolean>(false);
 
   /* Fetch product */
@@ -370,7 +370,7 @@ const ProductDetail: React.FC = () => {
 
         setSimilarByCategory(Array.isArray(relCat) ? (relCat as Product[]).filter((p: any) => ((p._id || p.id) !== pid)) : []);
         setMoreFromBrand(Array.isArray(relBrand) ? (relBrand as Product[]) : []);
-        setTrending(Array.isArray(top) ? (top as Product[]) : []);
+     
       } catch {
       } finally {
         setRailsLoading(false);
@@ -827,7 +827,7 @@ const ProductDetail: React.FC = () => {
                   </div>
                   <div className="inline-flex items-center gap-2 px-3 py-2 rounded-full border border-gray-200 bg-gray-50 text-gray-800 text-xs sm:text-sm shadow-sm">
                     <Truck className="h-4 w-4 text-blue-600" />
-                    <span className="font-medium">Bulk Dispatch 24h</span>
+                    <span className="font-medium">Bulk Dispatch</span>
                   </div>
                   <div className="inline-flex items-center gap-2 px-3 py-2 rounded-full border border-gray-200 bg-gray-50 text-gray-800 text-xs sm:text-sm shadow-sm">
                     <Factory className="h-4 w-4 text-blue-600" />
@@ -959,7 +959,7 @@ const ProductDetail: React.FC = () => {
             />
           )}
 
-          <ProductRail title="Trending now" items={trending} to="/products?sort=trending" />
+     
         </div>
 
         {/* SEO structured data */}
