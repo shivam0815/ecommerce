@@ -121,7 +121,7 @@ export default function AffiliateDashboard({ referralCode }: { referralCode?: st
     try {
       setBusy(true);
       // Map payload to backend (expects aadharNumber field and monthKey)
-      await requestReferralPayoutSimple({ ...form, monthKey: aff?.monthKey });
+      await requestReferralPayoutSimple({ ...form,aadharLast4: form.aadharNumber,monthKey: aff?.monthKey });
       alert('✅ Payout request submitted successfully');
       setShowForm(false);
     } catch (e: any) {
