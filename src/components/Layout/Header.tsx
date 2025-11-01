@@ -274,6 +274,15 @@ const Header: React.FC = () => {
                       >
                         Explore B2C
                       </a>
+
+                      <Link
+  to="/affiliate"
+  className="block px-3 py-2 rounded-lg hover:bg-gray-50 text-gray-800"
+  role="menuitem"
+  onClick={() => setIsMoreOpen(false)}
+>
+  Affiliate
+</Link>
                     </motion.div>
                   )}
                 </AnimatePresence>
@@ -544,6 +553,15 @@ const Header: React.FC = () => {
                         >
                           Explore B2C
                         </a>
+
+                        <Link
+  to="/affiliate"
+  onClick={() => setIsMenuOpen(false)}
+  className="block px-4 py-2 hover:bg-gray-50"
+>
+  Affiliate
+</Link>
+
                       </motion.div>
                     )}
                   </AnimatePresence>
