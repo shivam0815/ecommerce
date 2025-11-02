@@ -262,7 +262,7 @@ const iconFor = (s: string) => {
 /* === Image resolver for items === */
 const itemImg = (it: IOrderItem) =>
   (typeof it.productId === 'object' &&
-    (it.productId.image || it.productId.image?.[0])) ||
+    (it.productId.image || it.productId.images?.[0])) ||
   it.image ||
   '';
 
