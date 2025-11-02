@@ -353,8 +353,10 @@ export const getProducts = async (req: Request, res: Response) => {
     const query: any = { isActive: true, status: 'active' };
 
     if (category && category !== 'all' && category !== '') {
-      query.category = { $regex: new RegExp(category, 'i') };
-    }
+  const escape = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  query.category = { $regex: new RegExp(`^${escape(category)}$`, 'i') };
+}
+
 
     if (search && search !== '') {
       const searchRegex = new RegExp(search.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');

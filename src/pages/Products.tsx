@@ -1,11 +1,14 @@
+// src/pages/Products.tsx
 import React, { useState, useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { Grid, List, Search } from 'lucide-react';
+import { useSearchParams } from 'react-router-dom';
+
 import ProductCard from '../components/UI/ProductCard';
+import SEO from '../components/Layout/SEO';
 import api from '../config/api';
 import { productService } from '../services/productService';
 import type { Product } from '../types';
-import SEO from '../components/Layout/SEO';
 
 /* ---------- helpers ---------- */
 const isValidObjectId = (s?: string) => !!s && /^[a-f\d]{24}$/i.test(s);
@@ -14,6 +17,9 @@ const getId = (p: any): string | undefined => p?._id || p?.id;
 const PAGE_SIZE = 24;
 
 const Products: React.FC = () => {
+  const [params, setParams] = useSearchParams();
+
+  // UI state
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('');
   const [priceRange, setPriceRange] = useState<[number, number]>([0, 20000]);
@@ -21,12 +27,12 @@ const Products: React.FC = () => {
   const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid');
   const [page, setPage] = useState(1);
 
-  // Real data state
+  // Data state
   const [products, setProducts] = useState<Product[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  // Categories: try API, fall back to static
+  // Category list (try API, fallback to static)
   const [categories, setCategories] = useState<string[]>([
     'Car Chargers',
     'Bluetooth Neckbands',
@@ -39,54 +45,113 @@ const Products: React.FC = () => {
     'Mobile Repairing Tools',
     'Electronics',
     'Accessories',
-    'Others'
+    'Others',
   ]);
 
-  // Fetch categories (non-blocking, best-effort)
+  /* ------------------- initialize from URL ------------------- */
+  useEffect(() => {
+    const cat = params.get('category') || '';
+    const q = params.get('search') || '';
+    const p = parseInt(params.get('page') || '1', 10);
+
+    if (cat) setSelectedCategory(cat);
+    if (q) setSearchTerm(q);
+    setPage(Number.isFinite(p) && p > 0 ? p : 1);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // run once
+
+  /* -------- keep URL in sync with current UI state -------- */
+  useEffect(() => {
+    const next = new URLSearchParams(params);
+    selectedCategory ? next.set('category', selectedCategory) : next.delete('category');
+    searchTerm ? next.set('search', searchTerm) : next.delete('search');
+    next.set('page', String(page));
+    setParams(next, { replace: true });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedCategory, searchTerm, page]);
+
+  /* -------------------- fetch categories -------------------- */
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
         const r = await productService.getCategories();
-        const arr =
-          (Array.isArray((r as any)?.categories) && (r as any).categories) ||
-          [];
-        if (!cancelled && arr.length) {
-          setCategories(arr.filter(Boolean));
-        }
+        const arr = (Array.isArray((r as any)?.categories) && (r as any).categories) || [];
+        if (!cancelled && arr.length) setCategories(arr.filter(Boolean));
       } catch {
-        // ignore; keep static
+        /* ignore; keep static */
       }
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
-  // Fetch products (supports force refresh)
+  /* --------------------- fetch products --------------------- */
   const fetchProducts = async (forceRefresh = false) => {
     try {
       setLoading(true);
       setError('');
 
-      const response = await productService.getProducts({}, forceRefresh);
+      // map sort UI -> API fields
+      const sortParams: { sortBy?: string; sortOrder?: 'asc' | 'desc' } =
+        sortBy === 'price-low'
+          ? { sortBy: 'price', sortOrder: 'asc' }
+          : sortBy === 'price-high'
+          ? { sortBy: 'price', sortOrder: 'desc' }
+          : sortBy === 'rating'
+          ? { sortBy: 'rating', sortOrder: 'desc' }
+          : { sortBy: 'name', sortOrder: 'asc' };
 
-      if (Array.isArray(response?.products)) {
-        setProducts(response.products);
-        if (forceRefresh) {
-          sessionStorage.removeItem('force-refresh-products');
-          localStorage.removeItem('force-refresh-products');
-        }
-      } else {
-        setProducts([]);
-        setError('Failed to load products');
+      // primary call via service
+      const resp = await productService.getProducts(
+        {
+          page,
+          limit: PAGE_SIZE,
+          category: selectedCategory || undefined,
+          search: searchTerm || undefined,
+          minPrice: priceRange[0],
+          maxPrice: priceRange[1],
+          ...sortParams,
+        },
+        forceRefresh
+      );
+
+      const list = (Array.isArray(resp?.products) && resp.products) || [];
+      setProducts(list);
+
+      if (forceRefresh) {
+        sessionStorage.removeItem('force-refresh-products');
+        localStorage.removeItem('force-refresh-products');
       }
     } catch (err: any) {
       console.error('❌ Error fetching products via service:', err);
       setError('Failed to connect to server. Please try again later.');
 
-      // Fallback: direct API call (in case service normalization changes)
+      // fallback: direct API with the same params
       try {
-        const params = forceRefresh ? { _t: Date.now() } : {};
-        const fallback = await api.get('/products', { params });
+        const sortParams =
+          sortBy === 'price-low'
+            ? { sortBy: 'price', sortOrder: 'asc' }
+            : sortBy === 'price-high'
+            ? { sortBy: 'price', sortOrder: 'desc' }
+            : sortBy === 'rating'
+            ? { sortBy: 'rating', sortOrder: 'desc' }
+            : { sortBy: 'name', sortOrder: 'asc' };
+
+        const fallback = await api.get('/products', {
+          params: {
+            page,
+            limit: PAGE_SIZE,
+            category: selectedCategory || undefined,
+            search: searchTerm || undefined,
+            minPrice: priceRange[0],
+            maxPrice: priceRange[1],
+            ...sortParams,
+            ...(forceRefresh ? { _t: Date.now() } : {}),
+          },
+        });
+
         const arr =
           (Array.isArray(fallback?.data?.products) && fallback.data.products) ||
           (Array.isArray(fallback?.data?.data) && fallback.data.data) ||
@@ -106,37 +171,42 @@ const Products: React.FC = () => {
   // Initial fetch
   useEffect(() => {
     fetchProducts();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Check refresh flag set by create/update/delete flows
+  // Refetch when inputs change
+  useEffect(() => {
+    fetchProducts();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedCategory, searchTerm, priceRange, sortBy, page]);
+
+  // Refresh flag set by admin flows
   useEffect(() => {
     const shouldRefresh =
       sessionStorage.getItem('force-refresh-products') ||
       localStorage.getItem('force-refresh-products');
-
     if (shouldRefresh) {
       sessionStorage.removeItem('force-refresh-products');
       localStorage.removeItem('force-refresh-products');
       fetchProducts(true);
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Auto-refresh for admins (example logic—adjust to your auth)
+  // Auto-refresh for admins (example heuristic)
   useEffect(() => {
     const isAdmin =
       localStorage.getItem('userRole') === 'admin' ||
       sessionStorage.getItem('isAdmin') === 'true' ||
       (localStorage.getItem('user') || '').includes('admin');
 
-    if (isAdmin) {
-      const interval = setInterval(() => {
-        fetchProducts(true);
-      }, 30_000);
-      return () => clearInterval(interval);
-    }
+    if (!isAdmin) return;
+    const interval = setInterval(() => fetchProducts(true), 30_000);
+    return () => clearInterval(interval);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Refresh when window regains focus (throttled to 2 minutes)
+  // Refresh on window focus (throttled ~2m)
   useEffect(() => {
     const handleFocus = () => {
       const lastFetch = localStorage.getItem('last-product-fetch');
@@ -147,9 +217,10 @@ const Products: React.FC = () => {
     };
     window.addEventListener('focus', handleFocus);
     return () => window.removeEventListener('focus', handleFocus);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Filter + sort (client-side)
+  /* ----------------- client-side filter/sort ----------------- */
   const filteredProducts = useMemo(() => {
     const list = Array.isArray(products) ? products : [];
 
@@ -189,12 +260,11 @@ const Products: React.FC = () => {
     return filtered;
   }, [products, searchTerm, selectedCategory, priceRange, sortBy]);
 
-  // Reset page when filters/sort change
+  /* ------------------------ pagination ----------------------- */
   useEffect(() => {
     setPage(1);
   }, [searchTerm, selectedCategory, priceRange, sortBy]);
 
-  // Pagination slice
   const { pagedProducts, totalPages, from, to, total } = useMemo(() => {
     const total = filteredProducts.length;
     const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
@@ -216,6 +286,7 @@ const Products: React.FC = () => {
 
   const handleManualRefresh = () => fetchProducts(true);
 
+  /* --------------------------- UI ---------------------------- */
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
@@ -277,11 +348,10 @@ const Products: React.FC = () => {
             : 'Products',
           url: `https://nakodamobile.in/products${
             selectedCategory ? `?category=${encodeURIComponent(selectedCategory)}` : ''
-          }${searchTerm ? `?search=${encodeURIComponent(searchTerm)}` : ''}`,
-          description:
-            selectedCategory
-              ? `Wide range of ${selectedCategory} at Nakoda Mobile.`
-              : 'Shop high-quality mobile accessories and electronics.',
+          }${searchTerm ? `${selectedCategory ? '&' : '?'}search=${encodeURIComponent(searchTerm)}` : ''}`,
+          description: selectedCategory
+            ? `Wide range of ${selectedCategory} at Nakoda Mobile.`
+            : 'Shop high-quality mobile accessories and electronics.',
         }}
       />
 
@@ -298,7 +368,10 @@ const Products: React.FC = () => {
                   type="text"
                   placeholder="Search products..."
                   value={searchTerm}
-                  onChange={(e) => setSearchTerm(e.target.value)}
+                  onChange={(e) => {
+                    setSearchTerm(e.target.value);
+                    setPage(1);
+                  }}
                   className="w-full pl-10 pr-4 py-3 rounded-lg text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500"
                 />
               </div>
@@ -317,7 +390,10 @@ const Products: React.FC = () => {
               <label className="text-sm font-medium text-gray-700">Category:</label>
               <select
                 value={selectedCategory}
-                onChange={(e) => setSelectedCategory(e.target.value)}
+                onChange={(e) => {
+                  setSelectedCategory(e.target.value);
+                  setPage(1);
+                }}
                 className="border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
                 <option value="">All Categories</option>
@@ -338,9 +414,11 @@ const Products: React.FC = () => {
                   min={0}
                   max={20000}
                   value={priceRange[1]}
-                  onChange={(e) =>
-                    setPriceRange(([lo]) => [Math.max(0, lo), Math.max(0, parseInt(e.target.value, 10) || 0)])
-                  }
+                  onChange={(e) => {
+                    const maxVal = Math.max(0, parseInt(e.target.value, 10) || 0);
+                    setPriceRange(([lo]) => [Math.max(0, lo), maxVal]);
+                    setPage(1);
+                  }}
                   className="w-32"
                 />
                 <span className="text-sm text-gray-600">₹0 - ₹{priceRange[1].toLocaleString()}</span>
@@ -352,7 +430,10 @@ const Products: React.FC = () => {
               <label className="text-sm font-medium text-gray-700">Sort by:</label>
               <select
                 value={sortBy}
-                onChange={(e) => setSortBy(e.target.value as typeof sortBy)}
+                onChange={(e) => {
+                  setSortBy(e.target.value as typeof sortBy);
+                  setPage(1);
+                }}
                 className="border border-gray-300 rounded-md px-3 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500"
               >
                 <option value="name">Name</option>
@@ -492,16 +573,13 @@ const Products: React.FC = () => {
               Prev
             </button>
 
-            {/* compact numeric pager: first, prev-1, current, next+1, last */}
-            {Array.from({ length: totalPages }).slice(0, 1).map((_, idx) => (
-              <button
-                key={`first-${idx}`}
-                onClick={() => goTo(1)}
-                className={`px-3 py-2 rounded-md ${page === 1 ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}
-              >
-                1
-              </button>
-            ))}
+            {/* compact numeric pager */}
+            <button
+              onClick={() => goTo(1)}
+              className={`px-3 py-2 rounded-md ${page === 1 ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}
+            >
+              1
+            </button>
             {page > 3 && <span className="px-2 text-gray-500">…</span>}
             {page > 2 && (
               <button
