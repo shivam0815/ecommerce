@@ -142,6 +142,26 @@ interface IShippingPayment {
 /* =========================
    Utils
 ========================= */
+async function resolveItemImages(items: IOrderItem[]): Promise<IOrderItem[]> {
+  const out = [...items];
+  // collect items that have no image and productId is a string
+  const need = out
+    .map((it, i) => ({ i, id: typeof it.productId === 'string' ? it.productId : '' }))
+    .filter(x => x.id && !out[x.i].image);
+
+  // fetch each product; ignore failures
+  await Promise.all(
+    need.map(async ({ i, id }) => {
+      try {
+        const r = await fetch(`/api/products/${id}`);
+        const data = await r.json();
+        const p = data?.product || data?.data || data;
+        if (p?.image) out[i] = { ...out[i], image: p.image, name: out[i].name || p.name };
+      } catch {}
+    })
+  );
+  return out;
+}
 
 const currency = (n: number) =>
   new Intl.NumberFormat('en-IN', {
@@ -451,33 +471,36 @@ const OrdersTab: React.FC = () => {
       if (!res.ok || data.success === false) throw new Error(data.message || 'Failed to load order');
 
       const o = data.order || {};
-      const sp = o.shippingPayment || o.shipping_payment || {};
-      const pkg = o.shippingPackage || o.shipping_package || {};
+const sp = o.shippingPayment || o.shipping_payment || {};
+const pkg = o.shippingPackage || o.shipping_package || {};
 
-      setSelected({
-        ...o,
-        status: o.status || o.orderStatus || 'pending',
-        shippingPayment: {
-          status: sp.status,
-          // map snake_case -> camelCase too
-          shortUrl: sp.shortUrl ?? sp.short_url,
-          linkId: sp.linkId ?? sp.link_id,
-          currency: sp.currency,
-          amount: sp.amount ?? undefined,
-          amountPaid: sp.amountPaid ?? sp.amount_paid,
-          paymentIds: sp.paymentIds ?? sp.payment_ids ?? [],
-          paidAt: sp.paidAt ?? sp.paid_at,
-        },
-        shippingPackage: {
-          lengthCm: pkg.lengthCm ?? pkg.length_cm,
-          breadthCm: pkg.breadthCm ?? pkg.breadth_cm,
-          heightCm: pkg.heightCm ?? pkg.height_cm,
-          weightKg: pkg.weightKg ?? pkg.weight_kg,
-          notes: pkg.notes,
-          images: pkg.images || [],
-          packedAt: pkg.packedAt ?? pkg.packed_at,
-        },
-      });
+const itemsWithImgs = await resolveItemImages(o.items || []);
+
+setSelected({
+  ...o,
+  items: itemsWithImgs,
+  status: o.status || o.orderStatus || 'pending',
+  shippingPayment: {
+    status: sp.status,
+    shortUrl: sp.shortUrl ?? sp.short_url,
+    linkId: sp.linkId ?? sp.link_id,
+    currency: sp.currency,
+    amount: sp.amount ?? undefined,
+    amountPaid: sp.amountPaid ?? sp.amount_paid,
+    paymentIds: sp.paymentIds ?? sp.payment_ids ?? [],
+    paidAt: sp.paidAt ?? sp.paid_at,
+  },
+  shippingPackage: {
+    lengthCm: pkg.lengthCm ?? pkg.length_cm,
+    breadthCm: pkg.breadthCm ?? pkg.breadth_cm,
+    heightCm: pkg.heightCm ?? pkg.height_cm,
+    weightKg: pkg.weightKg ?? pkg.weight_kg,
+    notes: pkg.notes,
+    images: pkg.images || [],
+    packedAt: pkg.packedAt ?? pkg.packed_at,
+  },
+});
+
     } catch (e: any) {
       alert(e.message || 'Failed to load order');
     } finally {
@@ -1464,6 +1487,26 @@ const OrdersTab: React.FC = () => {
               </div>
             </div>
             <div className="flex items-center gap-2">
+              <div className="hidden sm:flex items-center gap-2 mr-2">
+  {(selected?.items || []).slice(0, 5).map((it, idx) => {
+    const src =
+      (typeof it.productId === 'object' && it.productId?.image) ||
+      it.image ||
+      '';
+    return src ? (
+      <img
+        key={idx}
+        src={src}
+        alt=""
+        className="w-9 h-9 rounded border object-cover bg-white"
+        loading="lazy"
+        decoding="async"
+        onError={(e) => ((e.currentTarget.style.display = 'none'))}
+      />
+    ) : null;
+  })}
+</div>
+
               <button
                 className="border rounded-xl px-2.5 py-2 hover:bg-gray-50"
                 onClick={() => window.print()}
