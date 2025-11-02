@@ -313,7 +313,7 @@ app.use('/api/referral', referralRoutes);
 // server.ts
 import adminAff from './routes/admin.affiliates';
 app.use('/api/admin', adminAff);
-import sitemap from "./routes/sitemaps";
+import sitemap from "./routes/sitemap";
 import robots from "./routes/robots";
 
 app.use("/", sitemap);
