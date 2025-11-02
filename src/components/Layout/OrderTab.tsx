@@ -35,7 +35,9 @@ interface IUser {
 }
 
 interface IOrderItem {
-  productId?: string | { _id?: string; name?: string; image?: string };
+ 
+  productId?: string | { _id?: string; name?: string; image?: string; images?: string[] };
+
   name?: string;
   image?: string;
   quantity: number;
@@ -257,6 +259,12 @@ const iconFor = (s: string) => {
       return <ClockIcon className="w-4 h-4" />;
   }
 };
+/* === Image resolver for items === */
+const itemImg = (it: IOrderItem) =>
+  (typeof it.productId === 'object' &&
+    (it.productId.image || it.productId.image?.[0])) ||
+  it.image ||
+  '';
 
 const toNum = (v: any) => {
   if (typeof v === 'number') return Number.isFinite(v) ? v : 0;
@@ -1213,9 +1221,8 @@ setSelected({
                     <td className="p-3">
                       <div className="flex -space-x-2 items-center">
                         {o.items.slice(0, 5).map((it, idx) => {
-                          const src =
-                            (typeof it.productId === 'object' && it.productId?.image) ||
-                            it.image;
+                          const src = itemImg(it);
+
                           return src ? (
                             <img
                               key={idx}
@@ -1365,9 +1372,8 @@ setSelected({
 
                 <div className="mt-3 flex items-center gap-2 overflow-x-auto -mx-1 px-1">
                   {o.items.slice(0, 6).map((it, idx) => {
-                    const src =
-                      (typeof it.productId === 'object' && it.productId?.image) ||
-                      it.image;
+                    const src = itemImg(it);
+
                     return src ? (
                       <img
                         key={idx}
@@ -1489,10 +1495,8 @@ setSelected({
             <div className="flex items-center gap-2">
               <div className="hidden sm:flex items-center gap-2 mr-2">
   {(selected?.items || []).slice(0, 5).map((it, idx) => {
-    const src =
-      (typeof it.productId === 'object' && it.productId?.image) ||
-      it.image ||
-      '';
+    const src = itemImg(it);
+
     return src ? (
       <img
         key={idx}
@@ -1598,8 +1602,8 @@ setSelected({
                   <div className="font-semibold text-gray-900 mb-2">Items</div>
                   <div className="space-y-2">
                     {selected.items.map((it, idx) => {
-                      const src =
-                        (typeof it.productId === 'object' && it.productId?.image) || it.image;
+                      const src = itemImg(it);
+
                       const name =
                         (typeof it.productId === 'object' && it.productId?.name) ||
                         it.name ||
