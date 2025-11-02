@@ -2,7 +2,8 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { Grid, List, Search } from 'lucide-react';
-import { useSearchParams } from 'react-router-dom';
+
+import { useSearchParams, useLocation } from 'react-router-dom';
 
 import ProductCard from '../components/UI/ProductCard';
 import SEO from '../components/Layout/SEO';
@@ -49,16 +50,22 @@ const Products: React.FC = () => {
   ]);
 
   /* ------------------- initialize from URL ------------------- */
-  useEffect(() => {
-    const cat = params.get('category') || '';
-    const q = params.get('search') || '';
-    const p = parseInt(params.get('page') || '1', 10);
+ 
+const location = useLocation();
 
-    if (cat) setSelectedCategory(cat);
-    if (q) setSearchTerm(q);
-    setPage(Number.isFinite(p) && p > 0 ? p : 1);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // run once
+
+useEffect(() => {
+  const sp = new URLSearchParams(location.search);
+  const cat = sp.get('category') || '';
+  const q   = sp.get('search')   || '';
+  const p   = parseInt(sp.get('page') || '1', 10);
+
+  if (cat !== selectedCategory) setSelectedCategory(cat);
+  if (q   !== searchTerm)       setSearchTerm(q);
+  if (Number.isFinite(p) && p > 0 && p !== page) setPage(p);
+// eslint-disable-next-line react-hooks/exhaustive-deps
+}, [location.search]);
+// run once
 
   /* -------- keep URL in sync with current UI state -------- */
   useEffect(() => {
