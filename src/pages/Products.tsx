@@ -2,7 +2,6 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { motion } from 'framer-motion';
 import { Grid, List, Search } from 'lucide-react';
-
 import { useSearchParams, useLocation } from 'react-router-dom';
 
 import ProductCard from '../components/UI/ProductCard';
@@ -12,13 +11,11 @@ import { productService } from '../services/productService';
 import type { Product } from '../types';
 
 /* ---------- helpers ---------- */
-const isValidObjectId = (s?: string) => !!s && /^[a-f\d]{24}$/i.test(s);
-const getId = (p: any): string | undefined => p?._id || p?.id;
-
 const PAGE_SIZE = 24;
 
 const Products: React.FC = () => {
   const [params, setParams] = useSearchParams();
+  const location = useLocation();
 
   // UI state
   const [searchTerm, setSearchTerm] = useState('');
@@ -30,10 +27,11 @@ const Products: React.FC = () => {
 
   // Data state
   const [products, setProducts] = useState<Product[]>([]);
+  const [serverTotal, setServerTotal] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
-  // Category list (try API, fallback to static)
+  // Categories
   const [categories, setCategories] = useState<string[]>([
     'Car Chargers',
     'Bluetooth Neckbands',
@@ -49,25 +47,20 @@ const Products: React.FC = () => {
     'Others',
   ]);
 
-  /* ------------------- initialize from URL ------------------- */
- 
-const location = useLocation();
+  /* ------------------- init from URL ------------------- */
+  useEffect(() => {
+    const sp = new URLSearchParams(location.search);
+    const cat = sp.get('category') || '';
+    const q = sp.get('search') || '';
+    const p = parseInt(sp.get('page') || '1', 10);
 
+    if (cat !== selectedCategory) setSelectedCategory(cat);
+    if (q !== searchTerm) setSearchTerm(q);
+    if (Number.isFinite(p) && p > 0 && p !== page) setPage(p);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.search]);
 
-useEffect(() => {
-  const sp = new URLSearchParams(location.search);
-  const cat = sp.get('category') || '';
-  const q   = sp.get('search')   || '';
-  const p   = parseInt(sp.get('page') || '1', 10);
-
-  if (cat !== selectedCategory) setSelectedCategory(cat);
-  if (q   !== searchTerm)       setSearchTerm(q);
-  if (Number.isFinite(p) && p > 0 && p !== page) setPage(p);
-// eslint-disable-next-line react-hooks/exhaustive-deps
-}, [location.search]);
-// run once
-
-  /* -------- keep URL in sync with current UI state -------- */
+  /* -------- keep URL in sync -------- */
   useEffect(() => {
     const next = new URLSearchParams(params);
     selectedCategory ? next.set('category', selectedCategory) : next.delete('category');
@@ -86,7 +79,7 @@ useEffect(() => {
         const arr = (Array.isArray((r as any)?.categories) && (r as any).categories) || [];
         if (!cancelled && arr.length) setCategories(arr.filter(Boolean));
       } catch {
-        /* ignore; keep static */
+        /* keep defaults */
       }
     })();
     return () => {
@@ -94,13 +87,12 @@ useEffect(() => {
     };
   }, []);
 
-  /* --------------------- fetch products --------------------- */
+  /* --------------------- fetch products (server paged) --------------------- */
   const fetchProducts = async (forceRefresh = false) => {
     try {
       setLoading(true);
       setError('');
 
-      // map sort UI -> API fields
       const sortParams: { sortBy?: string; sortOrder?: 'asc' | 'desc' } =
         sortBy === 'price-low'
           ? { sortBy: 'price', sortOrder: 'asc' }
@@ -110,7 +102,6 @@ useEffect(() => {
           ? { sortBy: 'rating', sortOrder: 'desc' }
           : { sortBy: 'name', sortOrder: 'asc' };
 
-      // primary call via service
       const resp = await productService.getProducts(
         {
           page,
@@ -125,17 +116,23 @@ useEffect(() => {
       );
 
       const list = (Array.isArray(resp?.products) && resp.products) || [];
+      const total =
+        Number.isFinite(resp?.total) ? Number(resp.total) :
+        Number.isFinite((resp as any)?.totalCount) ? Number((resp as any).totalCount) :
+        null;
+
       setProducts(list);
+      setServerTotal(total);
 
       if (forceRefresh) {
         sessionStorage.removeItem('force-refresh-products');
         localStorage.removeItem('force-refresh-products');
       }
-    } catch (err: any) {
+    } catch (err) {
       console.error('❌ Error fetching products via service:', err);
       setError('Failed to connect to server. Please try again later.');
 
-      // fallback: direct API with the same params
+      // fallback direct API
       try {
         const sortParams =
           sortBy === 'price-low'
@@ -164,7 +161,13 @@ useEffect(() => {
           (Array.isArray(fallback?.data?.data) && fallback.data.data) ||
           (Array.isArray(fallback?.data) && fallback.data) ||
           [];
+        const total =
+          Number.isFinite(fallback?.data?.total) ? Number(fallback.data.total) :
+          Number.isFinite(fallback?.data?.totalCount) ? Number(fallback.data.totalCount) :
+          null;
+
         setProducts(arr as Product[]);
+        setServerTotal(total);
         setError('');
       } catch (fallbackErr) {
         console.error('❌ Fallback also failed:', fallbackErr);
@@ -175,68 +178,48 @@ useEffect(() => {
     }
   };
 
-  // Initial fetch
+  // Initial + reactive fetches
   useEffect(() => {
     fetchProducts();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  // Refetch when inputs change
   useEffect(() => {
     fetchProducts();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedCategory, searchTerm, priceRange, sortBy, page]);
 
-  // Refresh flag set by admin flows
-  useEffect(() => {
-    const shouldRefresh =
-      sessionStorage.getItem('force-refresh-products') ||
-      localStorage.getItem('force-refresh-products');
-    if (shouldRefresh) {
-      sessionStorage.removeItem('force-refresh-products');
-      localStorage.removeItem('force-refresh-products');
-      fetchProducts(true);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  // Auto-refresh for admins (example heuristic)
+  // Admin auto-refresh
   useEffect(() => {
     const isAdmin =
       localStorage.getItem('userRole') === 'admin' ||
       sessionStorage.getItem('isAdmin') === 'true' ||
       (localStorage.getItem('user') || '').includes('admin');
-
     if (!isAdmin) return;
     const interval = setInterval(() => fetchProducts(true), 30_000);
     return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  // Refresh on window focus (throttled ~2m)
+  // Window focus refresh
   useEffect(() => {
     const handleFocus = () => {
       const lastFetch = localStorage.getItem('last-product-fetch');
       const now = Date.now();
-      if (!lastFetch || now - parseInt(lastFetch, 10) > 120_000) {
-        fetchProducts(true);
-      }
+      if (!lastFetch || now - parseInt(lastFetch, 10) > 120_000) fetchProducts(true);
     };
     window.addEventListener('focus', handleFocus);
     return () => window.removeEventListener('focus', handleFocus);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  /* ----------------- client-side filter/sort ----------------- */
+  /* ----------------- client-side filter (no slice here) ----------------- */
   const filteredProducts = useMemo(() => {
     const list = Array.isArray(products) ? products : [];
+    const q = (searchTerm || '').toLowerCase();
 
-    const filtered = list
+    return list
       .filter((p) => {
         const name = (p?.name || '').toLowerCase();
         const desc = (p?.description || '').toLowerCase();
-        const q = (searchTerm || '').toLowerCase();
-
         const matchesSearch = !q || name.includes(q) || desc.includes(q);
         const matchesCategory = !selectedCategory || p?.category === selectedCategory;
 
@@ -246,8 +229,7 @@ useEffect(() => {
           priceVal >= priceRange[0] &&
           priceVal <= priceRange[1];
 
-        const isActive = p?.isActive !== false; // default true if missing
-
+        const isActive = p?.isActive !== false;
         return matchesSearch && matchesCategory && priceOk && isActive;
       })
       .sort((a, b) => {
@@ -263,34 +245,36 @@ useEffect(() => {
             return (a.name || '').localeCompare(b.name || '');
         }
       });
-
-    return filtered;
   }, [products, searchTerm, selectedCategory, priceRange, sortBy]);
 
-  /* ------------------------ pagination ----------------------- */
-  useEffect(() => {
-    setPage(1);
-  }, [searchTerm, selectedCategory, priceRange, sortBy]);
-
+  /* ------------------------ pagination model ----------------------- */
+  // If serverTotal is present, trust server paging and do not slice again.
   const { pagedProducts, totalPages, from, to, total } = useMemo(() => {
-    const total = filteredProducts.length;
+    const total = serverTotal ?? filteredProducts.length;
     const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE));
-    const safePage = Math.min(page, totalPages);
-    const start = (safePage - 1) * PAGE_SIZE;
-    const end = Math.min(start + PAGE_SIZE, total);
+    const start = (page - 1) * PAGE_SIZE;
+
+    const paged =
+      serverTotal != null
+        ? filteredProducts // already limited by API
+        : filteredProducts.slice(start, Math.min(start + PAGE_SIZE, total));
+
+    const to = serverTotal != null
+      ? Math.min(start + paged.length, total)
+      : Math.min(start + PAGE_SIZE, total);
+
     return {
-      pagedProducts: filteredProducts.slice(start, end),
+      pagedProducts: paged,
       totalPages,
       from: total ? start + 1 : 0,
-      to: end,
+      to,
       total,
     };
-  }, [filteredProducts, page]);
+  }, [filteredProducts, page, serverTotal]);
 
   const goPrev = () => setPage((p) => Math.max(1, p - 1));
   const goNext = () => setPage((p) => Math.min(totalPages, p + 1));
   const goTo = (n: number) => setPage(() => Math.min(Math.max(1, n), totalPages));
-
   const handleManualRefresh = () => fetchProducts(true);
 
   /* --------------------------- UI ---------------------------- */
@@ -355,7 +339,11 @@ useEffect(() => {
             : 'Products',
           url: `https://nakodamobile.in/products${
             selectedCategory ? `?category=${encodeURIComponent(selectedCategory)}` : ''
-          }${searchTerm ? `${selectedCategory ? '&' : '?'}search=${encodeURIComponent(searchTerm)}` : ''}`,
+          }${
+            searchTerm
+              ? `${selectedCategory ? '&' : '?'}search=${encodeURIComponent(searchTerm)}`
+              : ''
+          }`,
           description: selectedCategory
             ? `Wide range of ${selectedCategory} at Nakoda Mobile.`
             : 'Shop high-quality mobile accessories and electronics.',
@@ -529,8 +517,7 @@ useEffect(() => {
             transition={{ duration: 0.5 }}
           >
             {pagedProducts.map((product, i) => {
-              const pid = getId(product);
-              const key = pid || `${product.name || 'item'}-${(page - 1) * PAGE_SIZE + i}`;
+              const key = product._id || `${product.name || 'item'}-${(page - 1) * PAGE_SIZE + i}`;
               return (
                 <motion.div
                   key={key}
@@ -580,7 +567,6 @@ useEffect(() => {
               Prev
             </button>
 
-            {/* compact numeric pager */}
             <button
               onClick={() => goTo(1)}
               className={`px-3 py-2 rounded-md ${page === 1 ? 'bg-blue-600 text-white' : 'bg-gray-200 text-gray-700 hover:bg-gray-300'}`}
