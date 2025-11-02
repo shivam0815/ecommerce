@@ -36,7 +36,7 @@ interface IUser {
 
 interface IOrderItem {
  
-  productId?: string | { _id?: string; name?: string; image?: string; images?: string[] };
+  productId?: string | null | { _id?: string; name?: string; image?: string; images?: string[] };
 
   name?: string;
   image?: string;
@@ -260,12 +260,10 @@ const iconFor = (s: string) => {
   }
 };
 /* === Image resolver for items === */
-const itemImg = (it: IOrderItem) =>
-  (typeof it.productId === 'object' &&
-    (it.productId.image || it.productId.images?.[0])) ||
-  it.image ||
-  '';
-
+const itemImg = (it: IOrderItem) => {
+  const p = it && it.productId && typeof it.productId === 'object' ? it.productId : null;
+  return p?.image || p?.images?.[0] || it.image || '';
+};
 const toNum = (v: any) => {
   if (typeof v === 'number') return Number.isFinite(v) ? v : 0;
   if (typeof v === 'string') {
@@ -452,9 +450,13 @@ const OrdersTab: React.FC = () => {
       if (!res.ok || data.success === false)
         throw new Error(data.message || 'Failed to load orders');
 
-      const list: IOrder[] = (Array.isArray(data) ? data : data.orders || data.data || []).map(
-        (o: any) => ({ ...o, status: o.status || o.orderStatus || 'pending' })
-      );
+      // in fetchOrders(), when building list:
+const list: IOrder[] = (Array.isArray(data) ? data : data.orders || data.data || []).map((o: any) => ({
+  ...o,
+  items: Array.isArray(o.items) ? o.items : [],
+  status: o.status || o.orderStatus || 'pending',
+}));
+
       list.sort((a, b) => +new Date(b.createdAt) - +new Date(a.createdAt));
       setOrders(list);
     } catch (e: any) {
@@ -591,9 +593,11 @@ setSelected({
 
     const onCreated = (payload: any) => {
       const normalized: IOrder = {
-        ...payload,
-        status: payload.status || payload.orderStatus || 'pending',
-      };
+  ...payload,
+  items: Array.isArray(payload.items) ? payload.items : [],
+  status: payload.status || payload.orderStatus || 'pending',
+};
+
       setOrders(prev =>
         prev.some(o => o._id === normalized._id) ? prev : [normalized, ...prev]
       );
